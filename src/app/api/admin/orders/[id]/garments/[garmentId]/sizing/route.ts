@@ -1,0 +1,23 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { upsertSizingRows } from '@/server/orders/service';
+import { upsertSizingSchema } from '@/server/orders/admin-contract';
+
+type Params = { params: Promise<{ id: string; garmentId: string }> };
+
+export async function POST(request: NextRequest, { params }: Params) {
+  const { garmentId } = await params;
+  const body = await request.json().catch(() => null);
+  const parsed = upsertSizingSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 });
+  }
+
+  try {
+    await upsertSizingRows(garmentId, parsed.data);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error('[admin/sizing POST]', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}

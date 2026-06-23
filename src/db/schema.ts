@@ -4,7 +4,7 @@
  * Everything is namespaced under the `confirmation` Postgres schema so it can
  * coexist with the future shared sales-platform tables (BRIEF §15).
  */
-import { sql } from 'drizzle-orm';
+import { sql, relations } from 'drizzle-orm';
 import {
   pgSchema,
   uuid,
@@ -273,3 +273,38 @@ export const domainEvents = confirmation.table(
     index('domain_events_aggregate_idx').on(t.aggregateType, t.aggregateId),
   ],
 );
+
+// --- relations (no DB migration needed — type-level only for db.query.* API) ---
+
+export const ordersRelations = relations(orders, ({ many }) => ({
+  garments: many(garments),
+  access: many(orderAccess),
+}));
+
+export const garmentsRelations = relations(garments, ({ one, many }) => ({
+  order: one(orders, { fields: [garments.orderId], references: [orders.id] }),
+  sizing: many(garmentSizing),
+  images: many(mockupImages),
+  sizeChartLinks: many(garmentSizeChartLinks),
+}));
+
+export const garmentSizingRelations = relations(garmentSizing, ({ one }) => ({
+  garment: one(garments, { fields: [garmentSizing.garmentId], references: [garments.id] }),
+}));
+
+export const mockupImagesRelations = relations(mockupImages, ({ one }) => ({
+  garment: one(garments, { fields: [mockupImages.garmentId], references: [garments.id] }),
+}));
+
+export const garmentSizeChartLinksRelations = relations(garmentSizeChartLinks, ({ one }) => ({
+  garment: one(garments, { fields: [garmentSizeChartLinks.garmentId], references: [garments.id] }),
+  sizeChart: one(sizeCharts, { fields: [garmentSizeChartLinks.sizeChartId], references: [sizeCharts.id] }),
+}));
+
+export const sizeChartsRelations = relations(sizeCharts, ({ many }) => ({
+  garmentLinks: many(garmentSizeChartLinks),
+}));
+
+export const orderAccessRelations = relations(orderAccess, ({ one }) => ({
+  order: one(orders, { fields: [orderAccess.orderId], references: [orders.id] }),
+}));

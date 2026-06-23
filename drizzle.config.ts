@@ -1,4 +1,8 @@
+import { config } from 'dotenv';
 import { defineConfig } from 'drizzle-kit';
+
+// drizzle-kit CLI doesn't auto-load .env.local (Next.js convention), so we load it here.
+config({ path: '.env.local', override: true });
 
 // All of this app's tables live under the dedicated `confirmation` Postgres schema
 // so they coexist cleanly with the future shared sales-platform tables
@@ -9,7 +13,9 @@ export default defineConfig({
   dialect: 'postgresql',
   schemaFilter: ['confirmation'],
   dbCredentials: {
-    url: process.env.DATABASE_URL!,
+    // Use the direct (non-pooled) connection for DDL — the pooler rejects schema changes.
+    // Set DATABASE_DIRECT_URL (port 5432) for migrations; DATABASE_URL (port 6543) for the app.
+    url: process.env.DATABASE_DIRECT_URL ?? process.env.DATABASE_URL!,
   },
   verbose: true,
   strict: true,
