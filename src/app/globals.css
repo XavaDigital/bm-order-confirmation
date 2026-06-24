@@ -1,10 +1,20 @@
 :root {
-  /* Wired to antd's fontFamily token in src/lib/theme.ts.
-     TODO(design): swap in the real BeastMode brand font. */
-  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* Injected by next/font/google (layout.tsx) — available site-wide */
+  /* --font-heading: Bebas Neue — used for display headings */
+  /* --font-sans:    Inter       — used for body copy and antd fontFamily token */
+
+  /* Brand palette mirrors src/lib/theme.ts BEASTMODE constants.
+     Use these for any non-antd elements that need brand colours. */
+  --bm-navy:    #0B1622;
+  --bm-charcoal:#161E2B;
+  --bm-ink:     #0A0F16;
+  --bm-accent:  #BF272D; /* confirmed from beastmode.co.nz logo SVG */
+  --bm-paper:   #FFFFFF;
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -15,12 +25,18 @@ body {
   min-height: 100%;
 }
 
-/* BeastMode headings lean bold + uppercase on customer-facing surfaces.
-   Scope this via a wrapper class so it doesn't fight the admin UI. */
+/* Keyboard-accessible focus ring using brand accent */
+:focus-visible {
+  outline: 2px solid var(--bm-accent);
+  outline-offset: 2px;
+}
+
+/* Customer-facing BeastMode surfaces: Bebas Neue headings, all-caps */
 .beastmode h1,
 .beastmode h2,
 .beastmode h3 {
+  font-family: var(--font-heading), Impact, 'Arial Narrow', sans-serif;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
-  font-weight: 800;
+  letter-spacing: 0.05em;
+  font-weight: 400; /* Bebas Neue only ships weight 400 */
 }

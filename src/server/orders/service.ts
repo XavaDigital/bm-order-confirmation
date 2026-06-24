@@ -175,6 +175,13 @@ export async function listOrders(opts?: {
         createdAt: true,
         confirmedAt: true,
       },
+      with: {
+        access: {
+          columns: { id: true, revokedAt: true },
+          where: isNull(orderAccess.revokedAt),
+          limit: 1,
+        },
+      },
       where,
       orderBy: [desc(orders.createdAt)],
       limit,
@@ -183,7 +190,10 @@ export async function listOrders(opts?: {
     db.select({ total: count() }).from(orders).where(where),
   ]);
 
-  return { orders: rows, total: Number(total) };
+  return {
+    orders: rows.map(({ access, ...o }) => ({ ...o, hasActiveToken: access.length > 0 })),
+    total: Number(total),
+  };
 }
 
 export async function getOrderAdmin(id: string) {
@@ -336,6 +346,26 @@ export async function addMockupImage(
     .returning();
 
   return image;
+}
+
+// ---------------------------------------------------------------------------
+// Admin writes — garment ↔ size-chart links (bulk replace)
+// ---------------------------------------------------------------------------
+
+export async function updateGarmentSizeChartLinks(
+  garmentId: string,
+  sizeChartIds: string[],
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(garmentSizeChartLinks)
+      .where(eq(garmentSizeChartLinks.garmentId, garmentId));
+    if (sizeChartIds.length > 0) {
+      await tx
+        .insert(garmentSizeChartLinks)
+        .values(sizeChartIds.map((sizeChartId) => ({ garmentId, sizeChartId })));
+    }
+  });
 }
 
 export async function deleteMockupImage(id: string): Promise<{ storageKey: string }> {

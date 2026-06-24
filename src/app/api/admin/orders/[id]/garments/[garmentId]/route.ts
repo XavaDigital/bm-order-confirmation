@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { updateGarment, deleteGarment, NotFoundError } from '@/server/orders/service';
+import { updateGarment, deleteGarment, updateGarmentSizeChartLinks, NotFoundError } from '@/server/orders/service';
 import { updateGarmentSchema } from '@/server/orders/admin-contract';
 
 type Params = { params: Promise<{ id: string; garmentId: string }> };
@@ -14,7 +14,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   }
 
   try {
-    await updateGarment(garmentId, parsed.data);
+    const { sizeChartIds, ...garmentPatch } = parsed.data;
+    await updateGarment(garmentId, garmentPatch);
+    if (sizeChartIds !== undefined) {
+      await updateGarmentSizeChartLinks(garmentId, sizeChartIds);
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });

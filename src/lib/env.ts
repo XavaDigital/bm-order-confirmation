@@ -17,6 +17,16 @@ const schema = z.object({
   STORAGE_REGION: z.string().optional(),
   STORAGE_ACCESS_KEY: z.string().optional(),
   STORAGE_SECRET_KEY: z.string().optional(),
+
+  // Google Tag Manager container ID (e.g. "GTM-XXXXXXX").
+  // NEXT_PUBLIC_ prefix makes it available in client bundles at build time.
+  // Leave unset to disable GTM injection (useful in non-prod envs).
+  NEXT_PUBLIC_GTM_ID: z.string().optional(),
+
+  // Google Ads conversion action — used for server-side Enhanced Conversions (Phase 7+).
+  // Not required for the GTM client-side path.
+  GOOGLE_ADS_CONVERSION_ID: z.string().optional(),
+  GOOGLE_ADS_CONVERSION_LABEL: z.string().optional(),
 });
 
 // During `next build` env may be partially absent; only hard-validate at runtime.

@@ -14,15 +14,20 @@ export const BEASTMODE = {
   navy: '#0B1622',
   charcoal: '#161E2B',
   ink: '#0A0F16',
-  accent: '#E4002B', // placeholder vivid sport-red — confirm from brand site
+  accent: '#BF272D', // extracted from beastmode.co.nz logo SVG (.st2 class)
   accentAlt: '#FF6A00',
   paper: '#FFFFFF',
 } as const;
+
+/** Use in inline `style` props for display/hero headings (Bebas Neue with fallbacks). */
+export const headingFont =
+  "var(--font-heading), Impact, 'Arial Narrow', sans-serif";
 
 const sharedToken = {
   colorPrimary: BEASTMODE.accent,
   colorInfo: BEASTMODE.accent,
   borderRadius: 4,
+  // var(--font-sans) is injected by next/font/google as Inter (see layout.tsx)
   fontFamily:
     "var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
 };

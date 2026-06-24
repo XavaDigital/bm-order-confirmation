@@ -23,7 +23,9 @@ export const addGarmentSchema = z.object({
   sortOrder: z.number().int().optional(),
 });
 
-export const updateGarmentSchema = addGarmentSchema.partial();
+export const updateGarmentSchema = addGarmentSchema
+  .extend({ sizeChartIds: z.array(z.string().uuid()).optional() })
+  .partial();
 
 export const sizingRowSchema = z.object({
   size: z.string().nullable().optional(),

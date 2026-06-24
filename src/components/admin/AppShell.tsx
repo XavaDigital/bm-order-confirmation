@@ -7,6 +7,7 @@ import { Layout, Menu, ConfigProvider } from 'antd';
 import {
   DashboardOutlined,
   FileTextOutlined,
+  ProfileOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
 } from '@ant-design/icons';
@@ -31,6 +32,11 @@ const NAV_ITEMS = [
     key: '/admin/orders',
     icon: <FileTextOutlined />,
     label: <Link href="/admin/orders">Orders</Link>,
+  },
+  {
+    key: '/admin/size-charts',
+    icon: <ProfileOutlined />,
+    label: <Link href="/admin/size-charts">Size Charts</Link>,
   },
 ];
 
@@ -88,7 +94,7 @@ export function AppShell({ user, children }: AppShellProps) {
           >
             <span
               style={{
-                color: '#E4002B',
+                color: '#BF272D',
                 fontWeight: 900,
                 fontSize: collapsed ? 18 : 16,
                 letterSpacing: collapsed ? 0 : 2,

@@ -8,19 +8,16 @@ import { getSignedUrl as awsGetSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 function client(): S3Client {
   return new S3Client({
-    endpoint: process.env.STORAGE_ENDPOINT,
-    region: process.env.STORAGE_REGION ?? 'ap-southeast-2',
+    region: process.env.AWS_S3_REGION ?? 'us-east-1',
     credentials: {
-      accessKeyId: process.env.STORAGE_ACCESS_KEY ?? '',
-      secretAccessKey: process.env.STORAGE_SECRET_KEY ?? '',
+      accessKeyId: process.env.AWS_S3_ACCESS_KEY ?? '',
+      secretAccessKey: process.env.AWS_S3_SECRET_ACCESS_KEY ?? '',
     },
-    // Required for Supabase Storage and most S3-compatible providers.
-    forcePathStyle: true,
   });
 }
 
 function bucket(): string {
-  return process.env.STORAGE_BUCKET ?? 'bm-order-assets';
+  return process.env.AWS_S3_BUCKET ?? '';
 }
 
 /** Upload a file buffer. Returns the storage key. */
@@ -53,4 +50,9 @@ export function mockupKey(orderId: string, garmentId: string, filename: string):
 /** Build a namespaced storage key for a signature image. */
 export function signatureKey(orderId: string, filename: string): string {
   return `signatures/${orderId}/${filename}`;
+}
+
+/** Build a namespaced storage key for a reference size chart file. */
+export function sizeChartKey(filename: string): string {
+  return `size-charts/${filename}`;
 }
