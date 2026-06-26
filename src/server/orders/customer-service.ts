@@ -101,6 +101,53 @@ export interface AckInput {
   text: string;
 }
 
+// ---------------------------------------------------------------------------
+// Changes requested
+// ---------------------------------------------------------------------------
+
+export async function requestOrderChanges(params: {
+  rawToken: string;
+  comment: string;
+}): Promise<{ orderNumber: string }> {
+  const access = await db.query.orderAccess.findFirst({
+    where: and(
+      eq(orderAccess.tokenHash, hashToken(params.rawToken)),
+      isNull(orderAccess.revokedAt),
+    ),
+  });
+
+  if (!access) throw new Error('invalid_token');
+  if (access.expiresAt && access.expiresAt.getTime() < Date.now()) {
+    throw new Error('invalid_token');
+  }
+
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, access.orderId),
+  });
+
+  if (!order) throw new Error('invalid_token');
+  if (order.status === 'confirmed') throw new Error('already_confirmed');
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(orders)
+      .set({ status: 'changes_requested', updatedAt: new Date() })
+      .where(eq(orders.id, order.id));
+
+    await emitDomainEvent(tx, {
+      aggregateId: order.id,
+      eventType: 'order.changes_requested',
+      payload: { comment: params.comment, customerEmail: order.customerEmail },
+    });
+  });
+
+  return { orderNumber: order.orderNumber };
+}
+
+// ---------------------------------------------------------------------------
+// Confirmation
+// ---------------------------------------------------------------------------
+
 export async function confirmOrder(params: {
   rawToken: string;
   acks: AckInput[];
@@ -110,7 +157,7 @@ export async function confirmOrder(params: {
   signatureType: 'drawn' | 'uploaded' | 'none';
   ipAddress?: string | null;
   userAgent?: string | null;
-}): Promise<{ orderNumber: string; confirmedAt: Date }> {
+}): Promise<{ orderNumber: string; confirmedAt: Date; orderId: string }> {
   const access = await db.query.orderAccess.findFirst({
     where: and(
       eq(orderAccess.tokenHash, hashToken(params.rawToken)),
@@ -260,5 +307,5 @@ export async function confirmOrder(params: {
       .where(eq(orderAccess.id, access.id));
   });
 
-  return { orderNumber: order.orderNumber, confirmedAt };
+  return { orderNumber: order.orderNumber, confirmedAt, orderId: order.id };
 }

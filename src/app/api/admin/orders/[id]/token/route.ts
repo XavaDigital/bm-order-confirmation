@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateAccessToken, revokeAccessToken, NotFoundError } from '@/server/orders/service';
+import { getSession } from '@/lib/session';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -7,7 +8,8 @@ type Params = { params: Promise<{ id: string }> };
 export async function POST(_req: NextRequest, { params }: Params) {
   const { id: orderId } = await params;
   try {
-    const result = await generateAccessToken(orderId);
+    const session = await getSession();
+    const result = await generateAccessToken(orderId, { actorEmail: session.email });
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
@@ -20,7 +22,8 @@ export async function POST(_req: NextRequest, { params }: Params) {
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const { id: orderId } = await params;
   try {
-    await revokeAccessToken(orderId);
+    const session = await getSession();
+    await revokeAccessToken(orderId, { actorEmail: session.email });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error('[admin/token DELETE]', err);

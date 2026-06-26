@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { getOrderAdmin } from '@/server/orders/service';
 import { getSignedUrl } from '@/lib/storage';
+import { getChangesRequestedComment } from '@/server/events/outbox';
 import { OrderDetailView, type AdminOrderData } from './OrderDetailView';
 
 type Props = { params: Promise<{ id: string }> };
@@ -34,7 +35,10 @@ export default async function OrderDetailPage({ params }: Props) {
 
   if (!order) notFound();
 
-  const garments = await withSignedUrls(order.garments);
+  const [garments, changesRequestedComment] = await Promise.all([
+    withSignedUrls(order.garments),
+    order.status === 'changes_requested' ? getChangesRequestedComment(id) : Promise.resolve(null),
+  ]);
 
   const data: AdminOrderData = {
     id: order.id,
@@ -54,6 +58,7 @@ export default async function OrderDetailPage({ params }: Props) {
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),
     confirmedAt: order.confirmedAt ? order.confirmedAt.toISOString() : null,
+    changesRequestedComment,
     garments: garments.map((g) => ({
       id: g.id,
       name: g.name,

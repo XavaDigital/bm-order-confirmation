@@ -10,7 +10,7 @@ import {
   Space,
   Typography,
   Popconfirm,
-  message,
+  App,
   Card,
   Modal,
   Tag,
@@ -22,7 +22,7 @@ import {
   EditOutlined,
   FilePdfOutlined,
   FileImageOutlined,
-  LinkOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
 import type { ColumnType } from 'antd/es/table';
 
@@ -45,13 +45,16 @@ function fileIcon(storageKey: string | null) {
 }
 
 export function SizeChartsView() {
+  const { message } = App.useApp();
   const [charts, setCharts] = useState<SizeChart[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [editingChart, setEditingChart] = useState<SizeChart | null>(null);
+  const [viewingChart, setViewingChart] = useState<SizeChart | null>(null);
   const [form] = Form.useForm();
   const [uploading, setUploading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function fetchCharts() {
     setLoading(true);
@@ -125,6 +128,7 @@ export function SizeChartsView() {
   }
 
   async function handleDelete(chart: SizeChart) {
+    setDeletingId(chart.id);
     try {
       const res = await fetch(`/api/admin/size-charts/${chart.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Delete failed');
@@ -137,6 +141,8 @@ export function SizeChartsView() {
       }
     } catch {
       message.error('Failed to delete chart');
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -189,10 +195,13 @@ export function SizeChartsView() {
         return (
           <Space>
             {record.url && (
-              <Tooltip title="Open file">
-                <a href={record.url} target="_blank" rel="noopener noreferrer">
-                  <Button type="text" size="small" icon={<LinkOutlined />} />
-                </a>
+              <Tooltip title="View">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<EyeOutlined />}
+                  onClick={() => setViewingChart(record)}
+                />
               </Tooltip>
             )}
             <Tooltip title="Edit name / description">
@@ -212,8 +221,16 @@ export function SizeChartsView() {
               onConfirm={() => handleDelete(record)}
               okText="Delete"
               okType="danger"
+              disabled={deletingId !== null}
             >
-              <Button type="text" size="small" icon={<DeleteOutlined />} danger />
+              <Button
+                type="text"
+                size="small"
+                icon={<DeleteOutlined />}
+                danger
+                loading={deletingId === record.id}
+                disabled={deletingId !== null && deletingId !== record.id}
+              />
             </Popconfirm>
           </Space>
         );
@@ -274,6 +291,41 @@ export function SizeChartsView() {
             </Upload>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* View modal */}
+      <Modal
+        title={viewingChart?.name}
+        open={!!viewingChart}
+        onCancel={() => setViewingChart(null)}
+        footer={null}
+        width="60vw"
+        style={{ top: 40 }}
+        styles={{ body: { padding: 0, overflow: 'hidden' } }}
+        destroyOnHidden
+      >
+        {viewingChart?.url && viewingChart.storageKey?.endsWith('.pdf') ? (
+          <iframe
+            src={viewingChart.url}
+            style={{ width: '100%', height: 'calc(80vh - 110px)', border: 'none', display: 'block' }}
+            title={viewingChart.name}
+          />
+        ) : viewingChart?.url ? (
+          <img
+            src={viewingChart.url}
+            alt={viewingChart.name}
+            style={{
+              width: '100%',
+              height: 'auto',
+              display: 'block',
+              cursor: 'zoom-in',
+              transformOrigin: 'center center',
+              transition: 'transform 0.25s ease',
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLImageElement).style.transform = 'scale(1.6)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLImageElement).style.transform = 'scale(1)'; }}
+          />
+        ) : null}
       </Modal>
 
       {/* Edit modal */}

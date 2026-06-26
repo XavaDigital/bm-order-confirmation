@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getOrderAdmin, updateOrder, deleteOrder, NotFoundError, ConflictError } from '@/server/orders/service';
 import { updateOrderSchema } from '@/server/orders/admin-contract';
+import { getSession } from '@/lib/session';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -21,7 +22,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   }
 
   try {
-    await updateOrder(id, parsed.data);
+    const session = await getSession();
+    await updateOrder(id, parsed.data, { actorEmail: session.email });
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });

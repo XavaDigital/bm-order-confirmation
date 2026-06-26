@@ -9,7 +9,7 @@ import {
   Space,
   Typography,
   Card,
-  message,
+  App,
   Breadcrumb,
   Divider,
 } from 'antd';
@@ -25,6 +25,7 @@ interface GarmentEntry {
 }
 
 export default function NewOrderPage() {
+  const { message } = App.useApp();
   const router = useRouter();
   const [form] = Form.useForm<OrderFormValues>();
   const [garments, setGarments] = useState<GarmentEntry[]>([

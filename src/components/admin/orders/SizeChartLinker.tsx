@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Select, message, Typography } from 'antd';
+import { Select, App, Typography } from 'antd';
 
 interface SizeChart {
   id: string;
@@ -16,6 +16,7 @@ interface Props {
 }
 
 export function SizeChartLinker({ orderId, garmentId, initialIds }: Props) {
+  const { message } = App.useApp();
   const [allCharts, setAllCharts] = useState<SizeChart[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>(initialIds);
   const [loading, setLoading] = useState(true);

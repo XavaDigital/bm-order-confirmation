@@ -1,28 +1,30 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Space, Typography, Alert, Popconfirm, message, Divider } from 'antd';
+import { Button, Space, Typography, Alert, Popconfirm, App, Divider, Tooltip } from 'antd';
 import {
   LinkOutlined,
   CopyOutlined,
   ReloadOutlined,
   StopOutlined,
+  MailOutlined,
 } from '@ant-design/icons';
 
 const { Text, Paragraph } = Typography;
 
 interface Props {
   orderId: string;
-  /** Whether an active (non-revoked) token exists in the DB */
+  customerEmail: string;
   hasActiveToken: boolean;
   tokenCreatedAt?: string | null;
 }
 
-export function ShareLinkPanel({ orderId, hasActiveToken, tokenCreatedAt }: Props) {
+export function ShareLinkPanel({ orderId, customerEmail, hasActiveToken, tokenCreatedAt }: Props) {
+  const { message } = App.useApp();
   const [activeUrl, setActiveUrl] = useState<string | null>(null);
   const [hasToken, setHasToken] = useState(hasActiveToken);
   const [tokenDate, setTokenDate] = useState(tokenCreatedAt ?? null);
-  const [loading, setLoading] = useState<'generate' | 'revoke' | null>(null);
+  const [loading, setLoading] = useState<'generate' | 'revoke' | 'email' | null>(null);
 
   async function generate() {
     setLoading('generate');
@@ -57,6 +59,28 @@ export function ShareLinkPanel({ orderId, hasActiveToken, tokenCreatedAt }: Prop
     }
   }
 
+  async function emailLink() {
+    setLoading('email');
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/send-link`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 503) {
+        message.error('Email delivery is not configured on this server.');
+        return;
+      }
+      if (!res.ok) throw new Error(data.error ?? 'Failed to send email');
+      // A new token was generated; update the displayed URL
+      setActiveUrl(data.url);
+      setHasToken(true);
+      setTokenDate(new Date().toISOString());
+      message.success(`Link emailed to ${customerEmail}`);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to send email');
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function copyUrl() {
     if (!activeUrl) return;
     try {
@@ -74,7 +98,7 @@ export function ShareLinkPanel({ orderId, hasActiveToken, tokenCreatedAt }: Prop
           type="info"
           showIcon
           message="No customer link generated yet"
-          description="Click 'Generate link' to create a shareable URL for the customer. Generating a link will also mark this order as sent."
+          description="Generate a link below to share with the customer, or use 'Email to customer' to generate and send it in one step."
         />
       )}
 
@@ -93,7 +117,7 @@ export function ShareLinkPanel({ orderId, hasActiveToken, tokenCreatedAt }: Prop
               )}
             </span>
           }
-          description="Click 'Regenerate link' to get a fresh shareable URL. This will invalidate the previous link."
+          description="Click 'Regenerate link' to get a fresh URL (invalidates the old one), or 'Email to customer' to regenerate and send immediately."
         />
       )}
 
@@ -129,7 +153,7 @@ export function ShareLinkPanel({ orderId, hasActiveToken, tokenCreatedAt }: Prop
             </Button>
           </div>
           <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
-            Send this link to the customer. It is valid until revoked.
+            Send this link to the customer, or use the button below to email it directly.
           </Text>
         </div>
       )}
@@ -140,11 +164,22 @@ export function ShareLinkPanel({ orderId, hasActiveToken, tokenCreatedAt }: Prop
         <Button
           icon={<ReloadOutlined />}
           loading={loading === 'generate'}
-          disabled={loading === 'revoke'}
+          disabled={loading !== null && loading !== 'generate'}
           onClick={generate}
         >
           {hasToken ? 'Regenerate link' : 'Generate link'}
         </Button>
+
+        <Tooltip title={`Generates a fresh link and emails it to ${customerEmail}`}>
+          <Button
+            icon={<MailOutlined />}
+            loading={loading === 'email'}
+            disabled={loading !== null && loading !== 'email'}
+            onClick={emailLink}
+          >
+            Email to customer
+          </Button>
+        </Tooltip>
 
         {hasToken && (
           <Popconfirm
@@ -159,7 +194,7 @@ export function ShareLinkPanel({ orderId, hasActiveToken, tokenCreatedAt }: Prop
               danger
               icon={<StopOutlined />}
               loading={loading === 'revoke'}
-              disabled={loading === 'generate'}
+              disabled={loading !== null && loading !== 'revoke'}
             >
               Revoke link
             </Button>

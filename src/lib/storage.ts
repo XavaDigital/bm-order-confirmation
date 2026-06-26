@@ -5,19 +5,22 @@ import {
   GetObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl as awsGetSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { env } from '@/lib/env';
 
 function client(): S3Client {
   return new S3Client({
-    region: process.env.AWS_S3_REGION ?? 'us-east-1',
+    region: env.AWS_S3_REGION ?? 'us-east-1',
     credentials: {
-      accessKeyId: process.env.AWS_S3_ACCESS_KEY ?? '',
-      secretAccessKey: process.env.AWS_S3_SECRET_ACCESS_KEY ?? '',
+      accessKeyId: env.AWS_S3_ACCESS_KEY ?? '',
+      secretAccessKey: env.AWS_S3_SECRET_ACCESS_KEY ?? '',
     },
   });
 }
 
 function bucket(): string {
-  return process.env.AWS_S3_BUCKET ?? '';
+  const b = env.AWS_S3_BUCKET;
+  if (!b) throw new Error('AWS_S3_BUCKET is not configured');
+  return b;
 }
 
 /** Upload a file buffer. Returns the storage key. */

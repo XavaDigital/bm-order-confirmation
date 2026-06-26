@@ -9,7 +9,7 @@ import {
   Space,
   Typography,
   Card,
-  message,
+  App,
   Popconfirm,
   Breadcrumb,
   Alert,
@@ -18,6 +18,7 @@ import {
   ArrowLeftOutlined,
   DeleteOutlined,
   SaveOutlined,
+  FilePdfOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -25,6 +26,7 @@ import { OrderForm, toApiPayload, type OrderFormValues } from '@/components/admi
 import { GarmentAccordion } from '@/components/admin/orders/GarmentAccordion';
 import { ShareLinkPanel } from '@/components/admin/orders/ShareLinkPanel';
 import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
+import { AuditLogTab } from '@/components/admin/orders/AuditLogTab';
 import type { MockupImage } from '@/components/admin/orders/MockupUploader';
 
 interface SizingRow {
@@ -65,6 +67,7 @@ export interface AdminOrderData {
   createdAt: string;
   updatedAt: string;
   confirmedAt: string | null;
+  changesRequestedComment: string | null;
   garments: GarmentData[];
   currentAccess: {
     id: string;
@@ -78,6 +81,7 @@ interface Props {
 }
 
 export function OrderDetailView({ order }: Props) {
+  const { message } = App.useApp();
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialTab = searchParams.get('tab') ?? 'details';
@@ -177,6 +181,18 @@ export function OrderDetailView({ order }: Props) {
               }
             />
           )}
+          {currentStatus === 'changes_requested' && (
+            <Alert
+              type="warning"
+              showIcon
+              message="Customer has requested changes."
+              description={
+                order.changesRequestedComment
+                  ? `"${order.changesRequestedComment}" — Update the order and send a new link when ready.`
+                  : 'Update the order details and send a new link when ready.'
+              }
+            />
+          )}
           <OrderForm form={form} initialValues={initialValues} />
           <Space>
             <Button
@@ -217,10 +233,16 @@ export function OrderDetailView({ order }: Props) {
       children: (
         <ShareLinkPanel
           orderId={order.id}
+          customerEmail={order.customerEmail}
           hasActiveToken={hasActiveToken}
           tokenCreatedAt={order.currentAccess?.createdAt ?? null}
         />
       ),
+    },
+    {
+      key: 'audit',
+      label: 'Audit Log',
+      children: <AuditLogTab orderId={order.id} />,
     },
   ];
 
@@ -256,13 +278,25 @@ export function OrderDetailView({ order }: Props) {
         {order.clubName && (
           <Typography.Text type="secondary">/ {order.clubName}</Typography.Text>
         )}
+        <div style={{ marginLeft: 'auto' }}>
+          {currentStatus === 'confirmed' && (
+            <Button
+              icon={<FilePdfOutlined />}
+              href={`/api/admin/orders/${order.id}/pdf`}
+              target="_blank"
+              download
+            >
+              Download PDF
+            </Button>
+          )}
+        </div>
       </div>
 
       <Card bodyStyle={{ padding: 0 }}>
         <Tabs
           items={tabItems}
           defaultActiveKey={initialTab}
-          style={{ padding: '0 16px' }}
+          style={{ padding: '0 16px 24px' }}
           tabBarStyle={{ marginBottom: 0 }}
           destroyInactiveTabPane={false}
         />

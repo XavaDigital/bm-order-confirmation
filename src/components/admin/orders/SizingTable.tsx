@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Table, Input, Button, Space, message, Popconfirm, Typography } from 'antd';
+import { Table, Input, Button, Space, App, Popconfirm, Typography } from 'antd';
 import { PlusOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons';
 import type { ColumnType } from 'antd/es/table';
 
@@ -36,6 +36,7 @@ function toLocal(rows: Props['initialRows']): SizingRow[] {
 }
 
 export function SizingTable({ orderId, garmentId, initialRows }: Props) {
+  const { message } = App.useApp();
   const [rows, setRows] = useState<SizingRow[]>(() => toLocal(initialRows));
   const [saving, setSaving] = useState(false);
 

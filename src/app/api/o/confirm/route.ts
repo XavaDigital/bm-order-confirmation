@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { confirmOrder, REQUIRED_ACK_KEYS } from '@/server/orders/customer-service';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
+import { notifyStaffOfConfirmation } from '@/server/orders/notifications';
 
 const ackSchema = z.object({
   key: z.enum(REQUIRED_ACK_KEYS),
@@ -17,6 +19,18 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  const ip = getClientIp(request.headers);
+  const rl = checkRateLimit(`confirm:${ip}`, 10, 15 * 60 * 1_000);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests. Please try again later.' },
+      {
+        status: 429,
+        headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1_000)) },
+      },
+    );
+  }
+
   const body = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(body);
 
@@ -27,10 +41,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const ip =
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    request.headers.get('x-real-ip') ??
-    null;
   const ua = request.headers.get('user-agent') ?? null;
 
   try {
@@ -41,9 +51,14 @@ export async function POST(request: NextRequest) {
       shippingAddress: parsed.data.shippingAddress ?? null,
       signatureBase64: parsed.data.signatureBase64 ?? null,
       signatureType: parsed.data.signatureType,
-      ipAddress: ip,
+      ipAddress: ip === 'unknown' ? null : ip,
       userAgent: ua,
     });
+
+    // Fire-and-forget: don't block the customer's response on email delivery.
+    notifyStaffOfConfirmation(result.orderId, result.orderNumber, result.confirmedAt).catch(
+      (err) => console.error('[confirm] staff notification failed:', err),
+    );
 
     return NextResponse.json({
       success: true,

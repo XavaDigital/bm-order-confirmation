@@ -11,12 +11,11 @@ const schema = z.object({
   INTERNAL_API_KEY: z.string().min(1, 'INTERNAL_API_KEY is required'),
   SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),
 
-  // Object storage (S3-compatible). Optional at boot — fails gracefully at upload time if absent.
-  STORAGE_ENDPOINT: z.string().url().optional(),
-  STORAGE_BUCKET: z.string().optional(),
-  STORAGE_REGION: z.string().optional(),
-  STORAGE_ACCESS_KEY: z.string().optional(),
-  STORAGE_SECRET_KEY: z.string().optional(),
+  // Object storage (AWS S3). Optional at boot — fails gracefully at upload time if absent.
+  AWS_S3_BUCKET: z.string().optional(),
+  AWS_S3_REGION: z.string().optional(),
+  AWS_S3_ACCESS_KEY: z.string().optional(),
+  AWS_S3_SECRET_ACCESS_KEY: z.string().optional(),
 
   // Google Tag Manager container ID (e.g. "GTM-XXXXXXX").
   // NEXT_PUBLIC_ prefix makes it available in client bundles at build time.
@@ -27,6 +26,17 @@ const schema = z.object({
   // Not required for the GTM client-side path.
   GOOGLE_ADS_CONVERSION_ID: z.string().optional(),
   GOOGLE_ADS_CONVERSION_LABEL: z.string().optional(),
+
+  // SMTP (Phase 7 — magic-link email delivery).
+  // Leave SMTP_HOST unset to disable email sending (links must be shared manually).
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().optional().default(465),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  // "true" enables TLS (port 465); omit or "false" for STARTTLS (port 587).
+  SMTP_SECURE: z.string().optional().transform((v) => v === 'true'),
+  // From address shown to the customer.
+  MAIL_FROM: z.string().optional(),
 });
 
 // During `next build` env may be partially absent; only hard-validate at runtime.

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Upload, Image, Button, Space, message, Popconfirm, Typography, Input } from 'antd';
+import { useRef, useState } from 'react';
+import { Upload, Image, Button, Space, App, Popconfirm, Typography, Input } from 'antd';
 import {
   UploadOutlined,
   DeleteOutlined,
@@ -24,44 +24,52 @@ interface Props {
 }
 
 export function MockupUploader({ orderId, garmentId, initialImages }: Props) {
+  const { message } = App.useApp();
   const [images, setImages] = useState<MockupImage[]>(initialImages);
-  const [uploading, setUploading] = useState(false);
+  const [uploadingCount, setUploadingCount] = useState(0);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingCaption, setEditingCaption] = useState<Record<string, string>>({});
 
-  async function handleUpload(file: File) {
-    setUploading(true);
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      const cap = editingCaption['pending'] ?? '';
-      if (cap) form.append('caption', cap);
+  // Collect all files from a single file-picker selection before uploading
+  const pendingBatch = useRef<File[]>([]);
+  const batchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-      const res = await fetch(
-        `/api/admin/orders/${orderId}/garments/${garmentId}/images`,
-        { method: 'POST', body: form },
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? 'Upload failed');
-      }
-      const img: MockupImage & { url: string } = await res.json();
-      setImages((prev) => [...prev, img]);
-      setEditingCaption((prev) => {
-        const next = { ...prev };
-        delete next['pending'];
-        return next;
-      });
-      message.success('Image uploaded');
-    } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
-      setUploading(false);
+  async function handleBatchUpload(files: File[], caption: string) {
+    setUploadingCount((c) => c + files.length);
+    const results = await Promise.allSettled(
+      files.map(async (file) => {
+        const form = new FormData();
+        form.append('file', file);
+        if (caption) form.append('caption', caption);
+        const res = await fetch(
+          `/api/admin/orders/${orderId}/garments/${garmentId}/images`,
+          { method: 'POST', body: form },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error ?? 'Upload failed');
+        }
+        return res.json() as Promise<MockupImage & { url: string }>;
+      }),
+    );
+
+    const succeeded = results.filter((r) => r.status === 'fulfilled') as PromiseFulfilledResult<MockupImage & { url: string }>[];
+    const failedCount = results.filter((r) => r.status === 'rejected').length;
+
+    if (succeeded.length > 0) {
+      setImages((prev) => [...prev, ...succeeded.map((r) => r.value)]);
+      setEditingCaption((prev) => { const next = { ...prev }; delete next['pending']; return next; });
+      message.success(succeeded.length === 1 ? 'Image uploaded' : `${succeeded.length} images uploaded`);
     }
-    // Return false to prevent antd default upload behaviour
-    return false;
+    if (failedCount > 0) {
+      message.error(failedCount === 1 ? 'Failed to upload 1 image' : `Failed to upload ${failedCount} images`);
+    }
+
+    setUploadingCount((c) => c - files.length);
   }
 
   async function deleteImage(img: MockupImage) {
+    setDeletingId(img.id);
     try {
       const res = await fetch(
         `/api/admin/orders/${orderId}/garments/${garmentId}/images/${img.id}`,
@@ -72,12 +80,23 @@ export function MockupUploader({ orderId, garmentId, initialImages }: Props) {
       message.success('Image removed');
     } catch {
       message.error('Failed to remove image');
+    } finally {
+      setDeletingId(null);
     }
   }
 
-  // antd Upload beforeUpload — intercept and handle manually
+  // beforeUpload fires synchronously for each file in the selection.
+  // Collect into a batch, then upload all at once after the current tick.
   const beforeUpload = (file: UploadFile) => {
-    handleUpload(file as unknown as File);
+    pendingBatch.current.push(file as unknown as File);
+    if (!batchTimer.current) {
+      batchTimer.current = setTimeout(() => {
+        const files = [...pendingBatch.current];
+        pendingBatch.current = [];
+        batchTimer.current = null;
+        handleBatchUpload(files, editingCaption['pending'] ?? '');
+      }, 0);
+    }
     return false;
   };
 
@@ -118,12 +137,15 @@ export function MockupUploader({ orderId, garmentId, initialImages }: Props) {
                   onConfirm={() => deleteImage(img)}
                   okText="Remove"
                   okType="danger"
+                  disabled={deletingId !== null}
                 >
                   <Button
                     type="text"
                     size="small"
                     danger
                     icon={<DeleteOutlined />}
+                    loading={deletingId === img.id}
+                    disabled={deletingId !== null && deletingId !== img.id}
                     style={{
                       position: 'absolute',
                       top: 2,
@@ -166,14 +188,14 @@ export function MockupUploader({ orderId, garmentId, initialImages }: Props) {
           showUploadList={false}
           beforeUpload={beforeUpload}
           accept="image/jpeg,image/png,image/webp,image/gif"
-          disabled={uploading}
+          multiple
         >
           <Button
             size="small"
             icon={<UploadOutlined />}
-            loading={uploading}
+            loading={uploadingCount > 0}
           >
-            Upload image
+            {uploadingCount > 1 ? `Uploading ${uploadingCount}…` : 'Upload images'}
           </Button>
         </Upload>
       </Space>

@@ -19,6 +19,7 @@ import {
   orderAccess,
 } from '@/db/schema';
 import { generateToken, hashToken, buildConfirmationUrl } from '@/lib/tokens';
+import { emitDomainEvent, recordAuditEvent } from '@/server/events/outbox';
 import type { CreateOrderInput } from './contract';
 import type { UpdateOrderInput, AddGarmentInput, UpdateGarmentInput, UpsertSizingInput } from './admin-contract';
 
@@ -229,7 +230,11 @@ export async function getOrderById(id: string) {
 // Admin writes — order level
 // ---------------------------------------------------------------------------
 
-export async function updateOrder(id: string, patch: UpdateOrderInput) {
+export async function updateOrder(
+  id: string,
+  patch: UpdateOrderInput,
+  meta?: { actorEmail?: string },
+) {
   const existing = await db.query.orders.findFirst({ where: eq(orders.id, id) });
   if (!existing) throw new NotFoundError('Order');
 
@@ -251,6 +256,12 @@ export async function updateOrder(id: string, patch: UpdateOrderInput) {
     ...(patch.status !== undefined && { status: patch.status }),
     updatedAt: new Date(),
   }).where(eq(orders.id, id));
+
+  await recordAuditEvent({
+    aggregateId: id,
+    eventType: 'order.updated',
+    payload: { fields: Object.keys(patch), actorEmail: meta?.actorEmail ?? null },
+  });
 }
 
 export async function deleteOrder(id: string) {
@@ -379,7 +390,10 @@ export async function deleteMockupImage(id: string): Promise<{ storageKey: strin
 // Admin writes — access token
 // ---------------------------------------------------------------------------
 
-export async function generateAccessToken(orderId: string): Promise<{ token: string; url: string }> {
+export async function generateAccessToken(
+  orderId: string,
+  meta?: { actorEmail?: string },
+): Promise<{ token: string; url: string }> {
   const rawToken = generateToken();
 
   await db.transaction(async (tx) => {
@@ -396,16 +410,33 @@ export async function generateAccessToken(orderId: string): Promise<{ token: str
       .update(orders)
       .set({ status: 'sent', updatedAt: new Date() })
       .where(and(eq(orders.id, orderId), eq(orders.status, 'draft')));
+
+    await emitDomainEvent(tx, {
+      aggregateId: orderId,
+      eventType: 'token.generated',
+      payload: { actorEmail: meta?.actorEmail ?? null },
+    });
   });
 
   return { token: rawToken, url: buildConfirmationUrl(rawToken) };
 }
 
-export async function revokeAccessToken(orderId: string): Promise<void> {
-  await db
-    .update(orderAccess)
-    .set({ revokedAt: new Date() })
-    .where(and(eq(orderAccess.orderId, orderId), isNull(orderAccess.revokedAt)));
+export async function revokeAccessToken(
+  orderId: string,
+  meta?: { actorEmail?: string },
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .update(orderAccess)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(orderAccess.orderId, orderId), isNull(orderAccess.revokedAt)));
+
+    await emitDomainEvent(tx, {
+      aggregateId: orderId,
+      eventType: 'token.revoked',
+      payload: { actorEmail: meta?.actorEmail ?? null },
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------

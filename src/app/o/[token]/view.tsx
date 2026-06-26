@@ -11,9 +11,11 @@ import {
   Space,
   Alert,
   Tag,
+  message,
 } from 'antd';
 import {
   CheckCircleFilled,
+  ExclamationCircleFilled,
   FilePdfOutlined,
   FileImageOutlined,
   TagsOutlined,
@@ -30,6 +32,7 @@ import {
 import { ShippingAddressField } from '@/components/customer/ShippingAddressField';
 import { SignaturePad, type SignatureData } from '@/components/customer/SignaturePad';
 import { ConfirmButton } from '@/components/customer/ConfirmButton';
+import { RequestChangesModal } from '@/components/customer/RequestChangesModal';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -185,6 +188,47 @@ function SuccessPanel({
 }
 
 // ---------------------------------------------------------------------------
+// Panel shown after customer submits a changes request
+// ---------------------------------------------------------------------------
+function ChangesRequestedPanel({ orderNumber }: { orderNumber: string }) {
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        background: BEASTMODE.navy,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+      }}
+    >
+      <div style={{ textAlign: 'center', maxWidth: 520 }}>
+        <ExclamationCircleFilled style={{ fontSize: 72, color: '#faad14', marginBottom: 24 }} />
+        <Title
+          style={{
+            color: '#fff',
+            fontSize: 44,
+            fontFamily: headingFont,
+            fontWeight: 400,
+            letterSpacing: 5,
+            textTransform: 'uppercase',
+            marginBottom: 8,
+          }}
+        >
+          Changes Requested
+        </Title>
+        <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 18, display: 'block', marginBottom: 8 }}>
+          Your request for order <strong style={{ color: '#fff' }}>{orderNumber}</strong> has been received.
+        </Text>
+        <Paragraph style={{ color: 'rgba(255,255,255,0.55)', marginTop: 24, fontSize: 14 }}>
+          Your BeastMode sales representative will review your request and be in touch shortly.
+        </Paragraph>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main confirmation view
 // ---------------------------------------------------------------------------
 export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
@@ -194,12 +238,23 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
   const [signature, setSignature] = useState<SignatureData>({ dataUrl: null, type: 'none' });
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ orderNumber: string; confirmedAt: string } | null>(null);
+  const [changesRequested, setChangesRequested] = useState<{ orderNumber: string } | null>(null);
+  const [changesModalOpen, setChangesModalOpen] = useState(false);
 
   // Already confirmed on the server
   if (order.status === 'confirmed') {
     return (
       <ConfigProvider theme={darkTheme}>
         <AlreadyConfirmedPanel orderNumber={order.orderNumber} />
+      </ConfigProvider>
+    );
+  }
+
+  // Customer just submitted a changes request
+  if (changesRequested) {
+    return (
+      <ConfigProvider theme={darkTheme}>
+        <ChangesRequestedPanel orderNumber={changesRequested.orderNumber} />
       </ConfigProvider>
     );
   }
@@ -253,11 +308,22 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
       setResult({ orderNumber: data.orderNumber, confirmedAt: data.confirmedAt });
     } catch (err: unknown) {
       console.error('[confirm]', err);
-      // surface error via antd message would require importing, keep simple
-      alert(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+      message.error(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleRequestChanges(comment: string) {
+    const res = await fetch('/api/o/request-changes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, comment }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? 'Failed to submit request');
+    setChangesModalOpen(false);
+    setChangesRequested({ orderNumber: data.orderNumber });
   }
 
   const cardStyle = {
@@ -515,7 +581,7 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
             <SignaturePad onChange={setSignature} />
           </Card>
 
-          {/* ── Confirm button ── */}
+          {/* ── Actions ── */}
           <Divider style={{ borderColor: 'rgba(255,255,255,0.1)' }} />
 
           {checkedAcks.size < ACKNOWLEDGMENTS.length && (
@@ -531,13 +597,48 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
             />
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: 40 }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              gap: 16,
+              flexWrap: 'wrap',
+              paddingBottom: 40,
+            }}
+          >
             <ConfirmButton
               checkedAcks={checkedAcks}
               onConfirm={handleConfirm}
               loading={submitting}
             />
+            <button
+              onClick={() => setChangesModalOpen(true)}
+              disabled={submitting}
+              style={{
+                height: 52,
+                minWidth: 180,
+                fontSize: 14,
+                fontWeight: 600,
+                letterSpacing: 0.5,
+                textTransform: 'uppercase',
+                background: 'transparent',
+                border: '1px solid rgba(250,173,20,0.5)',
+                borderRadius: 6,
+                color: '#faad14',
+                cursor: submitting ? 'not-allowed' : 'pointer',
+                opacity: submitting ? 0.5 : 1,
+                transition: 'all 0.15s',
+              }}
+            >
+              Request Changes
+            </button>
           </div>
+
+          <RequestChangesModal
+            open={changesModalOpen}
+            onCancel={() => setChangesModalOpen(false)}
+            onSubmit={handleRequestChanges}
+          />
         </main>
       </div>
     </ConfigProvider>

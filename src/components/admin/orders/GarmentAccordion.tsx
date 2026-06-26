@@ -8,7 +8,7 @@ import {
   Select,
   Button,
   Space,
-  message,
+  App,
   Popconfirm,
   Typography,
   Divider,
@@ -49,10 +49,12 @@ interface Props {
 }
 
 export function GarmentAccordion({ orderId, initialGarments }: Props) {
+  const { message } = App.useApp();
   const [garments, setGarments] = useState<Garment[]>(initialGarments);
   const [addingName, setAddingName] = useState('');
   const [addingLoading, setAddingLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [localEdits, setLocalEdits] = useState<Record<string, Partial<Garment>>>({});
 
   function getEdit<K extends keyof Garment>(garment: Garment, key: K): Garment[K] {
@@ -105,6 +107,7 @@ export function GarmentAccordion({ orderId, initialGarments }: Props) {
   }
 
   async function deleteGarment(garmentId: string) {
+    setDeletingId(garmentId);
     try {
       const res = await fetch(
         `/api/admin/orders/${orderId}/garments/${garmentId}`,
@@ -115,6 +118,8 @@ export function GarmentAccordion({ orderId, initialGarments }: Props) {
       message.success('Garment removed');
     } catch {
       message.error('Failed to remove garment');
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -267,8 +272,15 @@ export function GarmentAccordion({ orderId, initialGarments }: Props) {
             onConfirm={() => deleteGarment(garment.id)}
             okText="Delete"
             okType="danger"
+            disabled={deletingId !== null}
           >
-            <Button danger size="small" icon={<DeleteOutlined />}>
+            <Button
+              danger
+              size="small"
+              icon={<DeleteOutlined />}
+              loading={deletingId === garment.id}
+              disabled={deletingId !== null && deletingId !== garment.id}
+            >
               Delete garment
             </Button>
           </Popconfirm>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { Dropdown, Avatar, Typography, Space } from 'antd';
+import { Dropdown, Avatar, Tooltip, Typography } from 'antd';
 import { UserOutlined, LogoutOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 
@@ -9,9 +9,10 @@ interface UserMenuProps {
   name: string;
   email: string;
   role: 'sales' | 'admin';
+  collapsed?: boolean;
 }
 
-export function UserMenu({ name, email, role }: UserMenuProps) {
+export function UserMenu({ name, email, role, collapsed }: UserMenuProps) {
   const router = useRouter();
 
   async function handleLogout() {
@@ -35,7 +36,7 @@ export function UserMenu({ name, email, role }: UserMenuProps) {
                 fontSize: 11,
                 textTransform: 'uppercase',
                 letterSpacing: 1,
-                color: '#E4002B',
+                color: '#BF272D',
                 fontWeight: 600,
               }}
             >
@@ -56,12 +57,65 @@ export function UserMenu({ name, email, role }: UserMenuProps) {
     },
   ];
 
+  const trigger = collapsed ? (
+    <Tooltip title={name} placement="right">
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          padding: '10px 0',
+          cursor: 'pointer',
+        }}
+      >
+        <Avatar icon={<UserOutlined />} size="small" style={{ backgroundColor: '#BF272D' }} />
+      </div>
+    </Tooltip>
+  ) : (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '10px 16px',
+        cursor: 'pointer',
+        borderRadius: 6,
+        transition: 'background 0.2s',
+      }}
+      onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.06)')}
+      onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.background = 'transparent')}
+    >
+      <Avatar icon={<UserOutlined />} size="small" style={{ backgroundColor: '#BF272D', flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontWeight: 600,
+            fontSize: 13,
+            color: 'rgba(255,255,255,0.88)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {name}
+        </div>
+        <div
+          style={{
+            fontSize: 11,
+            textTransform: 'uppercase',
+            letterSpacing: 1,
+            color: '#BF272D',
+            fontWeight: 600,
+          }}
+        >
+          {role}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <Dropdown menu={{ items }} trigger={['click']} placement="bottomRight">
-      <Space style={{ cursor: 'pointer' }}>
-        <Avatar icon={<UserOutlined />} size="small" style={{ backgroundColor: '#E4002B' }} />
-        <span style={{ fontSize: 14 }}>{name}</span>
-      </Space>
+    <Dropdown menu={{ items }} trigger={['click']} placement="topRight">
+      {trigger}
     </Dropdown>
   );
 }
