@@ -22,10 +22,22 @@ const schema = z.object({
   // Leave unset to disable GTM injection (useful in non-prod envs).
   NEXT_PUBLIC_GTM_ID: z.string().optional(),
 
-  // Google Ads conversion action — used for server-side Enhanced Conversions (Phase 7+).
-  // Not required for the GTM client-side path.
+  // Google Ads — client-side GTM tag parameters.
   GOOGLE_ADS_CONVERSION_ID: z.string().optional(),
   GOOGLE_ADS_CONVERSION_LABEL: z.string().optional(),
+
+  // Google Ads — server-side Enhanced Conversions for Leads (API upload).
+  // All six must be set together; leave any unset to disable server-side firing.
+  // GOOGLE_ADS_CUSTOMER_ID  — 10-digit account ID, no dashes (from Google Ads UI).
+  // GOOGLE_ADS_CONVERSION_ACTION_ID — numeric ID of the "Order Confirmed" action.
+  // GOOGLE_ADS_DEVELOPER_TOKEN — from Google Ads API Center (manager account).
+  // GOOGLE_ADS_OAUTH_* — OAuth2 credentials from Google Cloud Console.
+  GOOGLE_ADS_CUSTOMER_ID: z.string().optional(),
+  GOOGLE_ADS_CONVERSION_ACTION_ID: z.string().optional(),
+  GOOGLE_ADS_DEVELOPER_TOKEN: z.string().optional(),
+  GOOGLE_ADS_OAUTH_CLIENT_ID: z.string().optional(),
+  GOOGLE_ADS_OAUTH_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_ADS_OAUTH_REFRESH_TOKEN: z.string().optional(),
 
   // SMTP (Phase 7 — magic-link email delivery).
   // Leave SMTP_HOST unset to disable email sending (links must be shared manually).

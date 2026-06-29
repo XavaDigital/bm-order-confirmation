@@ -26,7 +26,7 @@ export async function loginStaff(email: string, password: string): Promise<AuthU
   const hash = user?.passwordHash ?? '$2b$12$invalidhashforblindverification000000000000000000000000';
   const valid = await verifyPassword(password, hash);
 
-  if (!user || !valid) {
+  if (!user || !valid || !user.isActive) {
     throw new AuthError();
   }
 

@@ -11,6 +11,7 @@ import {
   Space,
   Alert,
   Tag,
+  Modal,
   message,
 } from 'antd';
 import {
@@ -40,6 +41,7 @@ interface SizeChartLink {
   name: string;
   storageKey: string | null;
   url: string | null;
+  downloadUrl: string | null;
 }
 
 interface GarmentData {
@@ -240,6 +242,7 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
   const [result, setResult] = useState<{ orderNumber: string; confirmedAt: string } | null>(null);
   const [changesRequested, setChangesRequested] = useState<{ orderNumber: string } | null>(null);
   const [changesModalOpen, setChangesModalOpen] = useState(false);
+  const [chartPreview, setChartPreview] = useState<SizeChartLink | null>(null);
 
   // Already confirmed on the server
   if (order.status === 'confirmed') {
@@ -323,6 +326,7 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? 'Failed to submit request');
     setChangesModalOpen(false);
+    setChangesRequested({ orderNumber: order.orderNumber });
     setChangesRequested({ orderNumber: data.orderNumber });
   }
 
@@ -509,21 +513,15 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
                   <Space wrap>
                     {garment.sizeCharts.map((chart) =>
                       chart.url ? (
-                        <a
+                        <Tag
                           key={chart.name}
-                          href={chart.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ textDecoration: 'none' }}
+                          color="default"
+                          icon={chart.storageKey?.endsWith('.pdf') ? <FilePdfOutlined /> : <FileImageOutlined />}
+                          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.8)', cursor: 'pointer' }}
+                          onClick={() => setChartPreview(chart)}
                         >
-                          <Tag
-                            color="default"
-                            icon={chart.storageKey?.endsWith('.pdf') ? <FilePdfOutlined /> : <FileImageOutlined />}
-                            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.8)', cursor: 'pointer' }}
-                          >
-                            {chart.name}
-                          </Tag>
-                        </a>
+                          {chart.name}
+                        </Tag>
                       ) : (
                         <Tag key={chart.name} color="default" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' }}>
                           {chart.name}
@@ -641,6 +639,42 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
           />
         </main>
       </div>
+
+      {/* Size chart preview modal */}
+      <Modal
+        open={!!chartPreview}
+        onCancel={() => setChartPreview(null)}
+        footer={
+          chartPreview?.downloadUrl ? (
+            <a
+              href={chartPreview.downloadUrl}
+              style={{ color: BEASTMODE.accent, fontSize: 14 }}
+            >
+              Download
+            </a>
+          ) : null
+        }
+        title={chartPreview?.name}
+        width="80vw"
+        styles={{ body: { padding: 0, textAlign: 'center', background: '#111' } }}
+        centered
+      >
+        {chartPreview?.url && (
+          chartPreview.storageKey?.endsWith('.pdf') ? (
+            <iframe
+              src={chartPreview.url}
+              style={{ width: '100%', height: '75vh', border: 'none' }}
+              title={chartPreview.name}
+            />
+          ) : (
+            <img
+              src={chartPreview.url}
+              alt={chartPreview.name}
+              style={{ maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain' }}
+            />
+          )
+        )}
+      </Modal>
     </ConfigProvider>
   );
 }

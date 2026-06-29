@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Form, Input, Button, Typography, Alert } from 'antd';
+import { Form, Input, Button, Typography, Alert, ConfigProvider } from 'antd';
 import { LockOutlined, MailOutlined } from '@ant-design/icons';
-import { BEASTMODE } from '@/lib/theme';
+import { BEASTMODE, darkTheme } from '@/lib/theme';
 
 const { Title } = Typography;
 
@@ -57,6 +57,7 @@ export function LoginForm() {
         background: BEASTMODE.navy,
       }}
     >
+      <ConfigProvider theme={darkTheme}>
       <div
         style={{
           width: '100%',
@@ -152,6 +153,7 @@ export function LoginForm() {
           </Form.Item>
         </Form>
       </div>
+      </ConfigProvider>
     </div>
   );
 }

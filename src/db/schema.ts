@@ -63,6 +63,9 @@ export const staffUsers = confirmation.table('staff_users', {
   passwordHash: text('password_hash').notNull(),
   name: text('name').notNull(),
   role: staffRole('role').notNull().default('sales'),
+  isActive: boolean('is_active').notNull().default(true),
+  inviteTokenHash: text('invite_token_hash'),
+  inviteTokenExpiresAt: timestamp('invite_token_expires_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

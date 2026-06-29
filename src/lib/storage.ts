@@ -32,10 +32,20 @@ export async function uploadFile(key: string, buffer: Buffer, mimeType: string):
 }
 
 /** Generate a temporary signed URL for private read access. */
-export async function getSignedUrl(key: string, expiresInSeconds = 3600): Promise<string> {
+export async function getSignedUrl(
+  key: string,
+  expiresInSeconds = 3600,
+  responseHeaders?: { contentDisposition?: string },
+): Promise<string> {
   return awsGetSignedUrl(
     client(),
-    new GetObjectCommand({ Bucket: bucket(), Key: key }),
+    new GetObjectCommand({
+      Bucket: bucket(),
+      Key: key,
+      ...(responseHeaders?.contentDisposition && {
+        ResponseContentDisposition: responseHeaders.contentDisposition,
+      }),
+    }),
     { expiresIn: expiresInSeconds },
   );
 }

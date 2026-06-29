@@ -17,6 +17,8 @@ function isPublicPath(pathname: string) {
   if (pathname.startsWith('/api/auth/')) return true;
   if (pathname === '/api/health') return true;
   if (pathname === '/api/orders') return true;
+  if (pathname === '/api/auth/accept-invite') return true;
+  if (pathname === '/accept-invite') return true;
   return false;
 }
 

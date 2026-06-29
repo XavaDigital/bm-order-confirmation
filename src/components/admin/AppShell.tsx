@@ -8,6 +8,7 @@ import {
   DashboardOutlined,
   FileTextOutlined,
   ProfileOutlined,
+  TeamOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
 } from '@ant-design/icons';
@@ -22,23 +23,35 @@ interface AppShellProps {
   children: React.ReactNode;
 }
 
-const NAV_ITEMS = [
-  {
-    key: '/admin/dashboard',
-    icon: <DashboardOutlined />,
-    label: <Link href="/admin/dashboard">Dashboard</Link>,
-  },
-  {
-    key: '/admin/orders',
-    icon: <FileTextOutlined />,
-    label: <Link href="/admin/orders">Orders</Link>,
-  },
-  {
-    key: '/admin/size-charts',
-    icon: <ProfileOutlined />,
-    label: <Link href="/admin/size-charts">Size Charts</Link>,
-  },
-];
+function buildNavItems(role: 'sales' | 'admin') {
+  const items = [
+    {
+      key: '/admin/dashboard',
+      icon: <DashboardOutlined />,
+      label: <Link href="/admin/dashboard">Dashboard</Link>,
+    },
+    {
+      key: '/admin/orders',
+      icon: <FileTextOutlined />,
+      label: <Link href="/admin/orders">Orders</Link>,
+    },
+    {
+      key: '/admin/size-charts',
+      icon: <ProfileOutlined />,
+      label: <Link href="/admin/size-charts">Size Charts</Link>,
+    },
+  ];
+
+  if (role === 'admin') {
+    items.push({
+      key: '/admin/users',
+      icon: <TeamOutlined />,
+      label: <Link href="/admin/users">Users</Link>,
+    });
+  }
+
+  return items;
+}
 
 const STORAGE_KEY = 'bm-admin-theme';
 
@@ -60,8 +73,9 @@ export function AppShell({ user, children }: AppShellProps) {
     localStorage.setItem(STORAGE_KEY, next ? 'dark' : 'light');
   }
 
+  const navItems = buildNavItems(user.role);
   const selectedKey =
-    NAV_ITEMS.find((item) => pathname === item.key || pathname.startsWith(item.key + '/'))?.key ??
+    navItems.find((item) => pathname === item.key || pathname.startsWith(item.key + '/'))?.key ??
     '';
 
   const theme = isDark ? darkTheme : lightTheme;
@@ -140,7 +154,7 @@ export function AppShell({ user, children }: AppShellProps) {
                 theme="dark"
                 mode="inline"
                 selectedKeys={[selectedKey]}
-                items={NAV_ITEMS}
+                items={navItems}
                 style={{ borderRight: 0, marginTop: 8 }}
               />
             </div>

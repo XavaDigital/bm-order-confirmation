@@ -108,7 +108,7 @@ export interface AckInput {
 export async function requestOrderChanges(params: {
   rawToken: string;
   comment: string;
-}): Promise<{ orderNumber: string }> {
+}): Promise<{ orderNumber: string; orderId: string }> {
   const access = await db.query.orderAccess.findFirst({
     where: and(
       eq(orderAccess.tokenHash, hashToken(params.rawToken)),
@@ -141,7 +141,7 @@ export async function requestOrderChanges(params: {
     });
   });
 
-  return { orderNumber: order.orderNumber };
+  return { orderNumber: order.orderNumber, orderId: order.id };
 }
 
 // ---------------------------------------------------------------------------
@@ -272,8 +272,9 @@ export async function confirmOrder(params: {
     });
 
     // f. Conversion event — idempotent record of the intent to fire.
-    // firedAt = when we emitted the GTM dataLayer push (client fires immediately after this).
-    // status stays 'pending' until server-side Enhanced Conversions API is implemented (Phase 7+).
+    // firedAt = confirmation timestamp. Status is set to 'sent' by fireGoogleAdsConversion()
+    // (src/server/conversions/google-ads.ts) once the API call succeeds; 'failed' on error.
+    // The GTM client-side push (gtm.ts) is a redundant fallback.
     await tx.insert(conversionEvents).values({
       orderId: order.id,
       valueAmount: order.orderValueAmount,

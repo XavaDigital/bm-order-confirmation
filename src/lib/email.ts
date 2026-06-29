@@ -116,6 +116,187 @@ export function isEmailConfigured(): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Staff invite email — sent when an admin invites a new team member
+// ---------------------------------------------------------------------------
+
+export interface SendInviteEmailParams {
+  to: string;
+  toName: string;
+  inviterName: string;
+  role: 'sales' | 'admin';
+  setupUrl: string;
+}
+
+function buildInviteHtml(params: SendInviteEmailParams): string {
+  const { toName, inviterName, role, setupUrl } = params;
+  const roleLabel = role === 'admin' ? 'Admin' : 'Sales Staff';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>You've been invited to BeastMode</title>
+</head>
+<body style="margin:0;padding:0;background:#0d1117;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0d1117;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" style="background:#161b22;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
+          <tr>
+            <td style="background:#0a0d10;border-bottom:3px solid #BF272D;padding:24px 32px;">
+              <span style="font-size:22px;font-weight:900;color:#ffffff;letter-spacing:2px;text-transform:uppercase;">BEASTMODE</span>
+              <span style="font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:3px;text-transform:uppercase;margin-left:12px;">Team Portal</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px;">
+              <p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${toName},</p>
+              <p style="color:rgba(255,255,255,0.65);font-size:15px;line-height:1.6;margin:0 0 16px;">
+                <strong style="color:#ffffff;">${inviterName}</strong> has invited you to join the BeastMode Order Portal as <strong style="color:#ffffff;">${roleLabel}</strong>.
+              </p>
+              <p style="color:rgba(255,255,255,0.65);font-size:15px;line-height:1.6;margin:0 0 24px;">
+                Click the button below to set your password and activate your account. This link expires in 72 hours.
+              </p>
+              <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+                <tr>
+                  <td style="background:#BF272D;border-radius:6px;">
+                    <a href="${setupUrl}" style="display:inline-block;padding:14px 28px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;letter-spacing:0.5px;">
+                      Set Up My Account
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="color:rgba(255,255,255,0.4);font-size:12px;word-break:break-all;margin:0 0 24px;">
+                Or copy this link: <a href="${setupUrl}" style="color:#BF272D;">${setupUrl}</a>
+              </p>
+              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;">
+              <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.5;margin:0;">
+                If you weren't expecting this invitation, you can ignore this email.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+export async function sendInviteEmail(params: SendInviteEmailParams): Promise<void> {
+  if (!env.SMTP_HOST) throw new Error('SMTP is not configured (SMTP_HOST missing)');
+
+  const from = env.MAIL_FROM ?? `BeastMode Orders <orders@beastmode.co.nz>`;
+  const transport = createTransport();
+
+  await transport.sendMail({
+    from,
+    to: `${params.toName} <${params.to}>`,
+    subject: `You've been invited to the BeastMode Order Portal`,
+    html: buildInviteHtml(params),
+    text: [
+      `Hi ${params.toName},`,
+      '',
+      `${params.inviterName} has invited you to join the BeastMode Order Portal as ${params.role === 'admin' ? 'Admin' : 'Sales Staff'}.`,
+      '',
+      `Set up your account here (expires in 72 hours):`,
+      params.setupUrl,
+      '',
+      `If you weren't expecting this, you can ignore this email.`,
+    ].join('\n'),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sales staff notification — fired after a customer requests changes
+// ---------------------------------------------------------------------------
+
+export interface SendStaffChangeRequestParams {
+  to: string;
+  toName: string;
+  customerName: string;
+  orderNumber: string;
+  comment: string;
+  adminOrderUrl: string;
+}
+
+export async function sendStaffChangeRequestEmail(params: SendStaffChangeRequestParams): Promise<void> {
+  if (!env.SMTP_HOST) throw new Error('SMTP is not configured');
+
+  const from = env.MAIL_FROM ?? `BeastMode Orders <orders@beastmode.co.nz>`;
+  const transport = createTransport();
+
+  await transport.sendMail({
+    from,
+    to: `${params.toName} <${params.to}>`,
+    subject: `⚠️ ${params.customerName} requested changes on order ${params.orderNumber}`,
+    text: [
+      `Hi ${params.toName},`,
+      '',
+      `${params.customerName} has requested changes on order ${params.orderNumber}.`,
+      '',
+      `Their message:`,
+      params.comment,
+      '',
+      `View the order: ${params.adminOrderUrl}`,
+    ].join('\n'),
+    html: `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Changes Requested</title>
+</head>
+<body style="margin:0;padding:0;background:#0d1117;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0d1117;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" style="background:#161b22;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
+          <tr>
+            <td style="background:#0a0d10;border-bottom:3px solid #BF272D;padding:24px 32px;">
+              <span style="font-size:22px;font-weight:900;color:#ffffff;letter-spacing:2px;text-transform:uppercase;">BEASTMODE</span>
+              <span style="font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:3px;text-transform:uppercase;margin-left:12px;">Changes Requested</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px;">
+              <p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
+              <p style="color:rgba(255,255,255,0.65);font-size:15px;line-height:1.6;margin:0 0 16px;">
+                <strong style="color:#ffffff;">${params.customerName}</strong> has requested changes on order <strong style="color:#ffffff;">${params.orderNumber}</strong>.
+              </p>
+              <table cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 24px;">
+                <tr>
+                  <td style="background:#1c2128;border-left:3px solid #BF272D;border-radius:4px;padding:16px 20px;">
+                    <p style="color:rgba(255,255,255,0.5);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Customer message</p>
+                    <p style="color:rgba(255,255,255,0.85);font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${params.comment}</p>
+                  </td>
+                </tr>
+              </table>
+              <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+                <tr>
+                  <td style="background:#BF272D;border-radius:6px;">
+                    <a href="${params.adminOrderUrl}" style="display:inline-block;padding:14px 28px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;letter-spacing:0.5px;">
+                      View Order
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;">
+              <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.5;margin:0;">
+                Log in to the BeastMode Order Portal to review and respond to this request.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Sales staff notification — fired after a customer confirms an order
 // ---------------------------------------------------------------------------
 

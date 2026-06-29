@@ -60,15 +60,24 @@ export default async function CustomerOrderPage({ params }: Props) {
           .filter((l) => l.sizeChart)
           .map(async (l) => {
             let url: string | null = null;
+            let downloadUrl: string | null = null;
+            const storageKey = l.sizeChart!.storageKey ?? null;
             try {
-              if (l.sizeChart!.storageKey) {
-                url = await getSignedUrl(l.sizeChart!.storageKey, 3600);
+              if (storageKey) {
+                const filename = storageKey.split('/').pop() ?? l.sizeChart!.name;
+                [url, downloadUrl] = await Promise.all([
+                  getSignedUrl(storageKey, 3600),
+                  getSignedUrl(storageKey, 3600, {
+                    contentDisposition: `attachment; filename="${filename}"`,
+                  }),
+                ]);
               }
             } catch { /* storage not configured */ }
             return {
               name: l.sizeChart!.name,
-              storageKey: l.sizeChart!.storageKey ?? null,
+              storageKey,
               url,
+              downloadUrl,
             };
           }),
       ),
