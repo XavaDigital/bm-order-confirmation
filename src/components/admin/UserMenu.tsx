@@ -1,8 +1,9 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Dropdown, Avatar, Tooltip, Typography } from 'antd';
-import { UserOutlined, LogoutOutlined } from '@ant-design/icons';
+import { UserOutlined, LogoutOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 
 interface UserMenuProps {
@@ -46,6 +47,12 @@ export function UserMenu({ name, email, role, collapsed }: UserMenuProps) {
         </div>
       ),
       disabled: true,
+    },
+    { type: 'divider' },
+    {
+      key: 'profile',
+      icon: <SafetyCertificateOutlined />,
+      label: <Link href="/admin/profile">Security (2FA)</Link>,
     },
     { type: 'divider' },
     {

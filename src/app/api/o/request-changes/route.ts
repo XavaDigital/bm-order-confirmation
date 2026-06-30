@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requestOrderChanges } from '@/server/orders/customer-service';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
-import { notifyStaffOfChangeRequest } from '@/server/orders/notifications';
 
 const bodySchema = z.object({
   token: z.string().min(1),
@@ -27,10 +26,6 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await requestOrderChanges({ rawToken: parsed.data.token, comment: parsed.data.comment });
-
-    notifyStaffOfChangeRequest(result.orderId, result.orderNumber, parsed.data.comment).catch(
-      (err) => console.error('[request-changes] staff notification failed:', err),
-    );
 
     return NextResponse.json({ ok: true, orderNumber: result.orderNumber });
   } catch (err: unknown) {

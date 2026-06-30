@@ -14,6 +14,7 @@
  * recordAuditEvent() which writes outside a transaction and sets status=delivered
  * immediately — they are purely for the audit log, not for downstream consumers.
  */
+import { count, and, eq } from 'drizzle-orm';
 import type { Transaction } from '@/db';
 import { db } from '@/db';
 import { domainEvents } from '@/db/schema';
@@ -80,6 +81,23 @@ export async function getChangesRequestedComment(orderId: string): Promise<strin
   if (!event) return null;
   const payload = event.payload as { comment?: string };
   return payload.comment ?? null;
+}
+
+/**
+ * Count how many times changes have been requested on this order.
+ * Used to display "Round N" in the admin detail view when there's more than one round.
+ */
+export async function getChangesRequestedCount(orderId: string): Promise<number> {
+  const result = await db
+    .select({ n: count() })
+    .from(domainEvents)
+    .where(
+      and(
+        eq(domainEvents.aggregateId, orderId),
+        eq(domainEvents.eventType, 'order.changes_requested'),
+      ),
+    );
+  return result[0]?.n ?? 0;
 }
 
 /**

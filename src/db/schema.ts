@@ -66,6 +66,10 @@ export const staffUsers = confirmation.table('staff_users', {
   isActive: boolean('is_active').notNull().default(true),
   inviteTokenHash: text('invite_token_hash'),
   inviteTokenExpiresAt: timestamp('invite_token_expires_at', { withTimezone: true }),
+  // TOTP-based 2FA
+  totpSecret: text('totp_secret'),
+  totpEnabled: boolean('totp_enabled').notNull().default(false),
+  totpBackupCodes: jsonb('totp_backup_codes').$type<string[]>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

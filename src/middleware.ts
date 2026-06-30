@@ -13,6 +13,7 @@ function isAdminApiPath(pathname: string) {
 
 function isPublicPath(pathname: string) {
   if (pathname === '/' || pathname === '/login') return true;
+  if (pathname === '/login/2fa') return true;
   if (pathname.startsWith('/o/')) return true;
   if (pathname.startsWith('/api/auth/')) return true;
   if (pathname === '/api/health') return true;
@@ -31,26 +32,43 @@ export async function middleware(request: NextRequest) {
 
   const needsAuth = isAdminUiPath(pathname) || isAdminApiPath(pathname);
   const isLoginPage = pathname === '/login';
+  const isTwoFactorPage = pathname === '/login/2fa';
 
   // Fast path — no session check needed for purely public routes.
-  if (!needsAuth && !isLoginPage) {
+  if (!needsAuth && !isLoginPage && !isTwoFactorPage) {
     return response;
   }
 
   // Read (but never write) the session in middleware.
-  // request.cookies is read-only, so we adapt it to the CookieStore interface.
-  // The no-op `set` is fine — middleware never calls session.save().
   const cookieStore = {
     get: (name: string) => request.cookies.get(name),
     set: () => { /* no-op */ },
     delete: () => { /* no-op */ },
   };
   const session = await getIronSession<SessionData>(cookieStore, sessionOptions);
-  const authed = Boolean(session.userId);
 
-  if (needsAuth && !authed) {
+  // A user is fully authenticated when they have a userId AND 2FA is not pending.
+  const fullyAuthed = Boolean(session.userId) && !session.mfaPending;
+  const awaitingMfa = Boolean(session.userId) && session.mfaPending === true;
+
+  // /login/2fa — only accessible when the user has a pending MFA session.
+  if (isTwoFactorPage) {
+    if (!session.userId) {
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+    if (fullyAuthed) {
+      return NextResponse.redirect(new URL('/admin/dashboard', request.url));
+    }
+    return response; // awaitingMfa — let them through
+  }
+
+  if (needsAuth && !fullyAuthed) {
     if (isAdminApiPath(pathname)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    // If they finished password auth but still need 2FA, send to the 2FA page.
+    if (awaitingMfa) {
+      return NextResponse.redirect(new URL('/login/2fa', request.url));
     }
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('from', pathname);
@@ -58,7 +76,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Redirect logged-in staff away from the login page.
-  if (isLoginPage && authed) {
+  if (isLoginPage && fullyAuthed) {
     return NextResponse.redirect(new URL('/admin/dashboard', request.url));
   }
 

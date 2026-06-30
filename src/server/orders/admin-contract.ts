@@ -13,7 +13,7 @@ export const updateOrderSchema = z.object({
   generalNotes: z.string().nullable().optional(),
   shippingMode: z.enum(['prefilled', 'customer_entered', 'later']).optional(),
   shippingAddress: z.unknown().nullable().optional(),
-  status: z.enum(['draft', 'sent', 'viewed', 'confirmed', 'changes_requested']).optional(),
+  status: z.enum(['draft', 'sent', 'viewed', 'changes_requested']).optional(),
 });
 
 export const addGarmentSchema = z.object({

@@ -37,6 +37,11 @@ export function LoginForm() {
         return;
       }
 
+      if (data.requiresMfa) {
+        router.push('/login/2fa');
+        return;
+      }
+
       const from = searchParams.get('from') ?? '/admin/dashboard';
       router.push(from);
       router.refresh();

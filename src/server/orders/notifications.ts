@@ -8,6 +8,10 @@ import {
   isEmailConfigured,
 } from '@/lib/email';
 
+function staffCc(): string | undefined {
+  return env.STAFF_NOTIFICATIONS_CC || undefined;
+}
+
 export async function notifyStaffOfChangeRequest(
   orderId: string,
   orderNumber: string,
@@ -35,6 +39,7 @@ export async function notifyStaffOfChangeRequest(
     orderNumber,
     comment,
     adminOrderUrl,
+    cc: staffCc(),
   });
 }
 
@@ -65,5 +70,6 @@ export async function notifyStaffOfConfirmation(
     orderNumber,
     confirmedAt,
     adminOrderUrl,
+    cc: staffCc(),
   });
 }

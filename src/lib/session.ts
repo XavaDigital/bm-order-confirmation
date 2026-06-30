@@ -6,6 +6,9 @@ export interface SessionData {
   email: string;
   name: string;
   role: 'sales' | 'admin';
+  // True when the user completed password auth but hasn't verified their TOTP code yet.
+  // Protected admin routes are blocked until this is cleared.
+  mfaPending?: boolean;
 }
 
 export const sessionOptions: SessionOptions = {

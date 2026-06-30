@@ -137,7 +137,7 @@ export async function requestOrderChanges(params: {
     await emitDomainEvent(tx, {
       aggregateId: order.id,
       eventType: 'order.changes_requested',
-      payload: { comment: params.comment, customerEmail: order.customerEmail },
+      payload: { comment: params.comment, orderNumber: order.orderNumber, customerEmail: order.customerEmail },
     });
   });
 

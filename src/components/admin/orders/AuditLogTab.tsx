@@ -9,6 +9,7 @@ import {
   EditOutlined,
   EyeOutlined,
   CheckCircleOutlined,
+  MessageOutlined,
 } from '@ant-design/icons';
 
 const { Text } = Typography;
@@ -33,6 +34,7 @@ function eventIcon(type: string) {
     case 'order.updated':   return <EditOutlined style={{ color: '#faad14' }} />;
     case 'order.viewed':    return <EyeOutlined style={{ color: '#722ed1' }} />;
     case 'order.confirmed': return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
+    case 'order.changes_requested': return <MessageOutlined style={{ color: '#faad14' }} />;
     default: return null;
   }
 }
@@ -57,12 +59,24 @@ function eventColor(type: string): string {
     case 'link.emailed':           return 'green';
     case 'order.viewed':           return 'purple';
     case 'token.generated':        return 'blue';
+    case 'order.changes_requested': return 'orange';
     default:                       return 'gray';
   }
 }
 
 function EventDetail({ event }: { event: AuditEvent }) {
   const p = event.payload;
+
+  if (event.eventType === 'order.changes_requested' && typeof p.comment === 'string') {
+    return (
+      <div style={{ marginTop: 6, paddingLeft: 10, borderLeft: '2px solid #faad14' }}>
+        <Text style={{ fontSize: 12, whiteSpace: 'pre-wrap', color: 'rgba(255,255,255,0.75)' }}>
+          {p.comment}
+        </Text>
+      </div>
+    );
+  }
+
   const parts: string[] = [];
 
   if (p.actorEmail && typeof p.actorEmail === 'string') {
@@ -70,6 +84,9 @@ function EventDetail({ event }: { event: AuditEvent }) {
   }
   if (p.to && typeof p.to === 'string') {
     parts.push(`→ ${p.to}`);
+  }
+  if (p.orderStatus === 'changes_requested') {
+    parts.push('(re-sent after changes request)');
   }
   if (Array.isArray(p.fields) && p.fields.length > 0) {
     parts.push(`(${(p.fields as string[]).join(', ')})`);

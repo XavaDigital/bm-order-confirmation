@@ -1,5 +1,10 @@
+import { Suspense } from 'react';
 import { OrdersView } from './OrdersView';
 
 export default function OrdersPage() {
-  return <OrdersView />;
+  return (
+    <Suspense>
+      <OrdersView />
+    </Suspense>
+  );
 }

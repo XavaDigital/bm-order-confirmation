@@ -49,6 +49,9 @@ const schema = z.object({
   SMTP_SECURE: z.string().optional().transform((v) => v === 'true'),
   // From address shown to the customer.
   MAIL_FROM: z.string().optional(),
+  // Optional CC address for all staff notification emails (change-request + confirmation).
+  // Set to a team inbox to ensure the whole team sees these events.
+  STAFF_NOTIFICATIONS_CC: z.string().optional(),
 });
 
 // During `next build` env may be partially absent; only hard-validate at runtime.

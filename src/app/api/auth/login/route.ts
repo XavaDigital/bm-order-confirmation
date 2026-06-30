@@ -36,9 +36,18 @@ export async function POST(request: NextRequest) {
     session.email = user.email;
     session.name = user.name;
     session.role = user.role;
-    await session.save();
 
-    return NextResponse.json({ ok: true, user: { name: user.name, email: user.email, role: user.role } });
+    if (user.requiresMfa) {
+      // Credentials verified but 2FA still required — mark pending so the
+      // middleware blocks admin routes until TOTP is confirmed.
+      session.mfaPending = true;
+      await session.save();
+      return NextResponse.json({ ok: true, requiresMfa: true });
+    }
+
+    session.mfaPending = false;
+    await session.save();
+    return NextResponse.json({ ok: true, requiresMfa: false, user: { name: user.name, email: user.email, role: user.role } });
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: 401 });

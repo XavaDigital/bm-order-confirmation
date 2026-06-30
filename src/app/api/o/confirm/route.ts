@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { confirmOrder, REQUIRED_ACK_KEYS } from '@/server/orders/customer-service';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
-import { notifyStaffOfConfirmation } from '@/server/orders/notifications';
-import { fireGoogleAdsConversion } from '@/server/conversions/google-ads';
 
 const ackSchema = z.object({
   key: z.enum(REQUIRED_ACK_KEYS),
@@ -55,14 +53,6 @@ export async function POST(request: NextRequest) {
       ipAddress: ip === 'unknown' ? null : ip,
       userAgent: ua,
     });
-
-    // Fire-and-forget side effects — neither blocks the customer's response.
-    notifyStaffOfConfirmation(result.orderId, result.orderNumber, result.confirmedAt).catch(
-      (err) => console.error('[confirm] staff notification failed:', err),
-    );
-    fireGoogleAdsConversion(result.orderId).catch(
-      (err) => console.error('[confirm] google ads conversion failed:', err),
-    );
 
     return NextResponse.json({
       success: true,

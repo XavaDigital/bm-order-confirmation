@@ -15,6 +15,7 @@ export type AuthUser = {
   email: string;
   name: string;
   role: 'sales' | 'admin';
+  requiresMfa: boolean;
 };
 
 export async function loginStaff(email: string, password: string): Promise<AuthUser> {
@@ -30,5 +31,11 @@ export async function loginStaff(email: string, password: string): Promise<AuthU
     throw new AuthError();
   }
 
-  return { id: user.id, email: user.email, name: user.name, role: user.role };
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    requiresMfa: user.totpEnabled,
+  };
 }

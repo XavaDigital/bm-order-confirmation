@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Table,
   Button,
@@ -39,12 +39,13 @@ const STATUS_TABS = [
 
 export function OrdersView() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState(() => searchParams.get('status') ?? '');
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
 

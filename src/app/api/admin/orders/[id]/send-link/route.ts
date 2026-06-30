@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateAccessToken, getOrderAdmin, NotFoundError } from '@/server/orders/service';
-import { recordAuditEvent } from '@/server/events/outbox';
+import { recordAuditEvent, getChangesRequestedComment, getChangesRequestedCount } from '@/server/events/outbox';
 import { sendMagicLink, isEmailConfigured } from '@/lib/email';
 import { getSession } from '@/lib/session';
 
@@ -27,11 +27,22 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
     const { token, url } = await generateAccessToken(orderId, { actorEmail: session.email });
 
+    const isRevision = order.status === 'changes_requested';
+    const [priorComment, revisionNumber] = isRevision
+      ? await Promise.all([
+          getChangesRequestedComment(orderId),
+          getChangesRequestedCount(orderId),
+        ])
+      : [null, 0];
+
     await sendMagicLink({
       to: order.customerEmail,
       toName: order.customerName,
       orderNumber: order.orderNumber,
       url,
+      isRevision,
+      priorComment: priorComment ?? undefined,
+      revisionNumber: revisionNumber > 0 ? revisionNumber : undefined,
     });
 
     await recordAuditEvent({
@@ -41,6 +52,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
         to: order.customerEmail,
         orderNumber: order.orderNumber,
         actorEmail: session.email ?? null,
+        orderStatus: order.status,
       },
     });
 

@@ -68,6 +68,7 @@ export interface AdminOrderData {
   updatedAt: string;
   confirmedAt: string | null;
   changesRequestedComment: string | null;
+  changesRequestedCount: number;
   garments: GarmentData[];
   currentAccess: {
     id: string;
@@ -185,7 +186,11 @@ export function OrderDetailView({ order }: Props) {
             <Alert
               type="warning"
               showIcon
-              message="Customer has requested changes."
+              message={
+                order.changesRequestedCount > 1
+                  ? `Customer has requested changes (round ${order.changesRequestedCount}).`
+                  : 'Customer has requested changes.'
+              }
               description={
                 order.changesRequestedComment
                   ? `"${order.changesRequestedComment}" — Update the order and send a new link when ready.`

@@ -15,6 +15,13 @@
       "when": 1782704645977,
       "tag": "0001_sudden_black_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782789822983,
+      "tag": "0002_large_lady_vermin",
+      "breakpoints": true
     }
   ]
 }

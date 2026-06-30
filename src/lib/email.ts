@@ -92,6 +92,87 @@ export interface SendMagicLinkParams {
   toName: string;
   orderNumber: string;
   url: string;
+  isRevision?: boolean;
+  priorComment?: string;
+  revisionNumber?: number;
+}
+
+function buildRevisionHtml(params: SendMagicLinkParams): string {
+  const { toName, orderNumber, url, priorComment, revisionNumber } = params;
+  const revLabel = revisionNumber && revisionNumber > 1 ? ` (revision ${revisionNumber})` : '';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Order Updated</title>
+</head>
+<body style="margin:0;padding:0;background:#0d1117;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0d1117;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" style="background:#161b22;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
+          <tr>
+            <td style="background:#0a0d10;border-bottom:3px solid #BF272D;padding:24px 32px;">
+              <span style="font-size:22px;font-weight:900;color:#ffffff;letter-spacing:2px;text-transform:uppercase;">BEASTMODE</span>
+              <span style="font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:3px;text-transform:uppercase;margin-left:12px;">Order Updated${revLabel}</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px;">
+              <p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${toName},</p>
+              <p style="color:rgba(255,255,255,0.65);font-size:15px;line-height:1.6;margin:0 0 24px;">
+                We've updated your BeastMode order <strong style="color:#ffffff;">${orderNumber}</strong> based on your change request.
+                Please review the updated details and confirm when you're happy.
+              </p>
+              ${priorComment ? `<table cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 24px;">
+                <tr>
+                  <td style="background:#1c2128;border-left:3px solid #faad14;border-radius:4px;padding:16px 20px;">
+                    <p style="color:rgba(255,255,255,0.5);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Your request</p>
+                    <p style="color:rgba(255,255,255,0.85);font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${priorComment}</p>
+                  </td>
+                </tr>
+              </table>` : ''}
+              <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+                <tr>
+                  <td style="background:#BF272D;border-radius:6px;">
+                    <a href="${url}" style="display:inline-block;padding:14px 28px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;letter-spacing:0.5px;">
+                      Review &amp; Confirm Order
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="color:rgba(255,255,255,0.4);font-size:12px;word-break:break-all;margin:0 0 24px;">
+                Or copy this link: <a href="${url}" style="color:#BF272D;">${url}</a>
+              </p>
+              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;">
+              <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.5;margin:0;">
+                This link is unique to your order. Do not share it. If you have further questions,
+                contact your BeastMode sales representative directly.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+function buildRevisionText(params: SendMagicLinkParams): string {
+  const { toName, orderNumber, url, priorComment, revisionNumber } = params;
+  const lines = [
+    `Hi ${toName},`,
+    '',
+    `We've updated your BeastMode order ${orderNumber}${revisionNumber && revisionNumber > 1 ? ` (revision ${revisionNumber})` : ''} based on your change request.`,
+    '',
+  ];
+  if (priorComment) {
+    lines.push('Your request:', priorComment, '');
+  }
+  lines.push('Please review the updated order and confirm when you\'re happy:', url, '', 'If you have further questions, contact your BeastMode sales representative.');
+  return lines.join('\n');
 }
 
 export async function sendMagicLink(params: SendMagicLinkParams): Promise<void> {
@@ -101,13 +182,18 @@ export async function sendMagicLink(params: SendMagicLinkParams): Promise<void> 
 
   const from = env.MAIL_FROM ?? `BeastMode Orders <orders@beastmode.co.nz>`;
   const transport = createTransport();
+  const revisionNumber = params.revisionNumber ?? 0;
+
+  const subject = params.isRevision
+    ? `Your BeastMode order ${params.orderNumber} has been updated${revisionNumber > 1 ? ` — revision ${revisionNumber}` : ''}`
+    : `Your BeastMode order ${params.orderNumber} is ready to confirm`;
 
   await transport.sendMail({
     from,
     to: `${params.toName} <${params.to}>`,
-    subject: `Your BeastMode order ${params.orderNumber} is ready to confirm`,
-    html: buildHtml(params),
-    text: buildText(params),
+    subject,
+    html: params.isRevision ? buildRevisionHtml(params) : buildHtml(params),
+    text: params.isRevision ? buildRevisionText(params) : buildText(params),
   });
 }
 
@@ -218,6 +304,7 @@ export interface SendStaffChangeRequestParams {
   orderNumber: string;
   comment: string;
   adminOrderUrl: string;
+  cc?: string;
 }
 
 export async function sendStaffChangeRequestEmail(params: SendStaffChangeRequestParams): Promise<void> {
@@ -229,6 +316,7 @@ export async function sendStaffChangeRequestEmail(params: SendStaffChangeRequest
   await transport.sendMail({
     from,
     to: `${params.toName} <${params.to}>`,
+    ...(params.cc ? { cc: params.cc } : {}),
     subject: `⚠️ ${params.customerName} requested changes on order ${params.orderNumber}`,
     text: [
       `Hi ${params.toName},`,
@@ -307,6 +395,7 @@ export interface SendStaffConfirmationParams {
   orderNumber: string;
   confirmedAt: Date;
   adminOrderUrl: string;
+  cc?: string;
 }
 
 export async function sendStaffConfirmationEmail(params: SendStaffConfirmationParams): Promise<void> {
@@ -323,6 +412,7 @@ export async function sendStaffConfirmationEmail(params: SendStaffConfirmationPa
   await transport.sendMail({
     from,
     to: `${params.toName} <${params.to}>`,
+    ...(params.cc ? { cc: params.cc } : {}),
     subject: `✅ ${params.customerName} confirmed order ${params.orderNumber}`,
     text: [
       `Hi ${params.toName},`,
