@@ -46,8 +46,7 @@ export async function GET(
     })),
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const buffer = await renderToBuffer(<OrderPdf {...pdfProps} /> as any);
+  const buffer = await renderToBuffer(<OrderPdf {...pdfProps} /> as Parameters<typeof renderToBuffer>[0]);
 
   return new NextResponse(new Uint8Array(buffer), {
     status: 200,

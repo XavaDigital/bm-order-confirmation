@@ -15,7 +15,11 @@
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx --env-file=.env.local src/db/seed.ts",
     "db:seed-demo": "tsx --env-file=.env.local src/db/seed-demo.ts",
-    "db:seed-demo-extra": "tsx --env-file=.env.local src/db/seed-demo-extra.ts"
+    "db:seed-demo-extra": "tsx --env-file=.env.local src/db/seed-demo-extra.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run --exclude \"**/*.integration.test.ts\"",
+    "test:integration": "vitest run integration"
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.2",
@@ -44,15 +48,19 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.3",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.0.3",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.30.0",
     "eslint": "^9.17.0",
     "eslint-config-next": "^15.1.0",
     "playwright": "^1.61.1",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^4.1.9"
   },
   "engines": {
     "node": ">=20"

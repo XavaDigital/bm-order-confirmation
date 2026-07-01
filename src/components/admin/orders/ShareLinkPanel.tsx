@@ -126,7 +126,7 @@ export function ShareLinkPanel({ orderId, customerEmail, hasActiveToken, tokenCr
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <Text strong>Customer link</Text>
             <Text type="warning" style={{ fontSize: 12 }}>
-              — copy now, this won't be shown again after you leave this page
+              — copy now, this won&apos;t be shown again after you leave this page
             </Text>
           </div>
           <div
@@ -157,7 +157,7 @@ export function ShareLinkPanel({ orderId, customerEmail, hasActiveToken, tokenCr
             </Button>
           </div>
           <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
-            Or use 'Email to customer' below to send it directly without copying.
+            Or use &lsquo;Email to customer&rsquo; below to send it directly without copying.
           </Text>
         </div>
       )}
