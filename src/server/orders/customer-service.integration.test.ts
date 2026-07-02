@@ -296,6 +296,33 @@ describe('confirmOrder', () => {
     expect(confirmationRows).toHaveLength(1);
   });
 
+  it('only lets one of two concurrent confirm attempts succeed, writing a single confirmation row', async () => {
+    const created = await createOrder(minimalInput());
+
+    const results = await Promise.allSettled([
+      confirmOrder({ rawToken: created.token, acks: allAcks(), signatureType: 'none' }),
+      confirmOrder({ rawToken: created.token, acks: allAcks(), signatureType: 'none' }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toBe('already_confirmed');
+
+    const confirmationRows = await db
+      .select()
+      .from(schema.confirmations)
+      .where(eq(schema.confirmations.orderId, created.orderId));
+    expect(confirmationRows).toHaveLength(1);
+
+    const conversionRows = await db
+      .select()
+      .from(schema.conversionEvents)
+      .where(eq(schema.conversionEvents.orderId, created.orderId));
+    expect(conversionRows).toHaveLength(1);
+  });
+
   it('rejects unknown, revoked, and expired tokens', async () => {
     await expect(
       confirmOrder({ rawToken: 'bogus', acks: allAcks(), signatureType: 'none' }),

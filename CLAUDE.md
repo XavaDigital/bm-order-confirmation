@@ -17,9 +17,15 @@ npm run db:push      # push schema directly (dev only, skips migration files)
 npm run db:studio    # Drizzle Studio UI
 npm run db:seed      # create/update the first admin user (reads SEED_ADMIN_* from .env.local)
 npm run db:seed-demo # seed demo orders
+
+# Tests (Vitest)
+npm run test          # full suite (unit + integration)
+npm run test:watch    # watch mode
+npm run test:unit     # excludes *.integration.test.ts
+npm run test:integration # only integration tests
 ```
 
-No test runner is configured yet (Playwright is installed but has no spec files).
+Vitest suite covers orders service, customer confirmation flow, size charts, users, auth (login + 2FA/TOTP), tokens, rate limiting, outbox/event processor, and the `/api/orders` + admin order routes. Integration tests (`*.integration.test.ts`) mock `@/db` to run against an in-process PGlite Postgres (see `src/db/test-helpers.ts`) — no real database or `.env.local` needed, `npm test` runs standalone. `.env.test` holds dummy schema-valid env vars only. CI (`.github/workflows/test.yml`) runs typecheck → lint → test:unit → test:integration on every push/PR. Playwright is installed but has no spec files yet (reserved for future e2e).
 
 ## Architecture
 

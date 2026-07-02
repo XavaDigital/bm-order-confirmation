@@ -3,7 +3,7 @@
  * transaction. All writes go through here; route handlers hold no business logic.
  */
 import { randomUUID } from 'node:crypto';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, ne } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   orders,
@@ -235,6 +235,19 @@ export async function confirmOrder(params: {
   };
 
   await db.transaction(async (tx) => {
+    // Guard against a concurrent double-confirmation (double-click, retried
+    // request): the WHERE clause + row lock from this UPDATE mean only one
+    // concurrent transaction can ever see `updated.length > 0` for a given
+    // order — the loser's UPDATE re-evaluates the WHERE clause against the
+    // winner's committed row and affects zero rows.
+    const updated = await tx
+      .update(orders)
+      .set({ status: 'confirmed', confirmedAt, updatedAt: confirmedAt })
+      .where(and(eq(orders.id, order.id), ne(orders.status, 'confirmed')))
+      .returning({ id: orders.id });
+
+    if (updated.length === 0) throw new Error('already_confirmed');
+
     // a. Write acknowledgments (upsert — safe if somehow called twice)
     await tx
       .insert(acknowledgments)
@@ -294,12 +307,6 @@ export async function confirmOrder(params: {
         valueCurrency: order.orderValueCurrency,
       },
     });
-
-    // h. Mark order confirmed
-    await tx
-      .update(orders)
-      .set({ status: 'confirmed', confirmedAt, updatedAt: confirmedAt })
-      .where(eq(orders.id, order.id));
 
     // i. Update last viewed
     await tx

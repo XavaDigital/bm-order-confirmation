@@ -11,6 +11,11 @@ const schema = z.object({
   INTERNAL_API_KEY: z.string().min(1, 'INTERNAL_API_KEY is required'),
   SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),
 
+  // Set only if using Vercel Cron to trigger /api/internal/process-outbox.
+  // Vercel sets this automatically as a project env var and sends it as
+  // `Authorization: Bearer $CRON_SECRET` on cron-triggered requests.
+  CRON_SECRET: z.string().optional(),
+
   // Object storage (AWS S3). Optional at boot — fails gracefully at upload time if absent.
   AWS_S3_BUCKET: z.string().optional(),
   AWS_S3_REGION: z.string().optional(),
@@ -54,15 +59,26 @@ const schema = z.object({
   STAFF_NOTIFICATIONS_CC: z.string().optional(),
 });
 
-// During `next build` env may be partially absent; only hard-validate at runtime.
+// Next.js sets NEXT_PHASE=phase-production-build only during `next build` — not
+// during `next dev`, `next start`, or a deployed serverless invocation. Some
+// hosts (Docker multi-stage builds, etc.) run the build without runtime
+// secrets present, so we can't hard-validate at build time. Every other phase
+// is an actual run of the app, where missing config must fail fast and loudly.
+const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build';
+
 const parsed = schema.safeParse(process.env);
 
-if (!parsed.success && process.env.NODE_ENV !== 'production') {
-  // Surface config problems early in dev without crashing the build.
-  console.warn(
-    '[env] invalid or missing environment variables:',
-    parsed.error.flatten().fieldErrors,
-  );
+if (!parsed.success) {
+  if (isBuildPhase) {
+    console.warn(
+      '[env] invalid or missing environment variables (ignored during `next build`; this will crash at runtime if still missing):',
+      parsed.error.flatten().fieldErrors,
+    );
+  } else {
+    throw new Error(
+      `[env] invalid or missing environment variables: ${JSON.stringify(parsed.error.flatten().fieldErrors)}`,
+    );
+  }
 }
 
 export const env = (parsed.success ? parsed.data : (process.env as unknown)) as z.infer<

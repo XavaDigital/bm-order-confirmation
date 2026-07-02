@@ -19,7 +19,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:unit": "vitest run --exclude \"**/*.integration.test.ts\"",
-    "test:integration": "vitest run integration"
+    "test:integration": "vitest run integration",
+    "coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.2",
@@ -49,14 +50,19 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.3",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.0.3",
+    "@vitest/coverage-v8": "^4.1.9",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.30.0",
     "eslint": "^9.17.0",
     "eslint-config-next": "^15.1.0",
+    "jsdom": "^29.1.1",
     "playwright": "^1.61.1",
     "typescript": "^5.7.0",
     "vite-tsconfig-paths": "^6.1.1",

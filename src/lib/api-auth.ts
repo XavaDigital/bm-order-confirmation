@@ -16,3 +16,19 @@ export function isInternalAuthorized(req: Request): boolean {
   const b = Buffer.from(expected);
   return a.length === b.length && timingSafeEqual(a, b);
 }
+
+/**
+ * Auth for Vercel Cron invocations of /api/internal/process-outbox. Vercel
+ * sends `Authorization: Bearer $CRON_SECRET`, not `x-api-key` — so this is
+ * checked separately from (and in addition to) `isInternalAuthorized`.
+ * No-op (always false) unless CRON_SECRET is configured.
+ */
+export function isCronAuthorized(req: Request): boolean {
+  const auth = req.headers.get('authorization') ?? '';
+  const expected = env.CRON_SECRET ?? '';
+  if (!expected || !auth.startsWith('Bearer ')) return false;
+  const provided = auth.slice('Bearer '.length);
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}

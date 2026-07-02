@@ -11,18 +11,6 @@ function isAdminApiPath(pathname: string) {
   return pathname.startsWith('/api/admin');
 }
 
-function isPublicPath(pathname: string) {
-  if (pathname === '/' || pathname === '/login') return true;
-  if (pathname === '/login/2fa') return true;
-  if (pathname.startsWith('/o/')) return true;
-  if (pathname.startsWith('/api/auth/')) return true;
-  if (pathname === '/api/health') return true;
-  if (pathname === '/api/orders') return true;
-  if (pathname === '/api/auth/accept-invite') return true;
-  if (pathname === '/accept-invite') return true;
-  return false;
-}
-
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const response = NextResponse.next();

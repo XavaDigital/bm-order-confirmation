@@ -207,9 +207,10 @@ Add to `vercel.json`:
   ]
 }
 ```
-Vercel injects a valid `Authorization` header automatically — no `x-api-key` needed
-for Vercel-originated cron calls (update `isInternalAuthorized` in `src/lib/api-auth.ts`
-to also accept Vercel's header if using this option).
+Vercel sends `Authorization: Bearer $CRON_SECRET` automatically on these calls — no
+`x-api-key` needed. Set the `CRON_SECRET` env var (Vercel Project Settings →
+Environment Variables) to any random secret so `isCronAuthorized` in
+`src/lib/api-auth.ts` can validate it.
 
 **Option C — External cron (Railway, cron-job.org, etc.)**
 

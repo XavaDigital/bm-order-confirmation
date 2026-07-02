@@ -24,3 +24,7 @@ jobs:
       - run: npm run test:unit
 
       - run: npm run test:integration
+
+      # Non-blocking report — coverage.thresholds can be added once gaps are closed.
+      - run: npm run coverage
+        continue-on-error: true
