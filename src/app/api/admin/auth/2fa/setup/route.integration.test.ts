@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
+import { NextRequest } from 'next/server';
 
 vi.mock('@/db', async () => {
   const { createTestDb } = await import('@/db/test-helpers');
@@ -32,6 +33,7 @@ import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
 import { getSession } from '@/lib/session';
+import { hashPassword } from '@/lib/password';
 import { POST } from './route';
 
 afterEach(async () => {
@@ -40,13 +42,15 @@ afterEach(async () => {
   for (const key of Object.keys(session)) delete session[key];
 });
 
-async function seedStaff() {
+async function seedStaff(overrides: Partial<typeof schema.staffUsers.$inferInsert> = {}) {
+  const passwordHash = await hashPassword('correct-horse');
   const [staff] = await db
     .insert(schema.staffUsers)
     .values({
       email: 'setup@example.com',
-      passwordHash: 'unused',
+      passwordHash,
       name: 'Setup Staff',
+      ...overrides,
     })
     .returning();
   return staff;
@@ -58,17 +62,46 @@ async function setSession(userId: string, email: string) {
   session.email = email;
 }
 
+function setupRequest(body: unknown) {
+  return new NextRequest('http://localhost/api/admin/auth/2fa/setup', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 describe('POST /api/admin/auth/2fa/setup', () => {
   it('returns 401 when there is no session', async () => {
-    const res = await POST();
+    const res = await POST(setupRequest({ password: 'correct-horse' }));
     expect(res.status).toBe(401);
+  });
+
+  it('returns 400 when the password field is missing', async () => {
+    const staff = await seedStaff();
+    await setSession(staff.id, staff.email);
+    const res = await POST(setupRequest({}));
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 401 for an incorrect password', async () => {
+    const staff = await seedStaff();
+    await setSession(staff.id, staff.email);
+    const res = await POST(setupRequest({ password: 'wrong' }));
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 when 2FA is already enabled', async () => {
+    const staff = await seedStaff({ totpEnabled: true, totpSecret: 'ABC' });
+    await setSession(staff.id, staff.email);
+    const res = await POST(setupRequest({ password: 'correct-horse' }));
+    expect(res.status).toBe(400);
   });
 
   it('generates and persists a pending secret without enabling 2FA', async () => {
     const staff = await seedStaff();
     await setSession(staff.id, staff.email);
 
-    const res = await POST();
+    const res = await POST(setupRequest({ password: 'correct-horse' }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(typeof body.secret).toBe('string');

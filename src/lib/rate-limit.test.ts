@@ -49,9 +49,22 @@ describe('getClientIp', () => {
     return { get: (key: string) => map[key] ?? null };
   }
 
-  it('reads the first entry of x-forwarded-for', () => {
+  it('reads the last (proxy-appended) entry of x-forwarded-for, not the client-suppliable leftmost one', () => {
     const headers = headersFrom({ 'x-forwarded-for': '1.2.3.4, 5.6.7.8' });
-    expect(getClientIp(headers)).toBe('1.2.3.4');
+    expect(getClientIp(headers)).toBe('5.6.7.8');
+  });
+
+  it('ignores a spoofed leftmost entry designed to defeat rate limiting', () => {
+    const headers = headersFrom({ 'x-forwarded-for': 'attacker-spoofed-ip, 9.9.9.9' });
+    expect(getClientIp(headers)).toBe('9.9.9.9');
+  });
+
+  it('prefers x-vercel-forwarded-for (edge-set, never client-suppliable) over x-forwarded-for', () => {
+    const headers = headersFrom({
+      'x-vercel-forwarded-for': '9.8.7.6',
+      'x-forwarded-for': 'attacker-spoofed-ip',
+    });
+    expect(getClientIp(headers)).toBe('9.8.7.6');
   });
 
   it('falls back to x-real-ip when x-forwarded-for is absent', () => {
@@ -59,7 +72,7 @@ describe('getClientIp', () => {
     expect(getClientIp(headers)).toBe('9.8.7.6');
   });
 
-  it('falls back to "unknown" when neither header is present', () => {
+  it('falls back to "unknown" when no headers are present', () => {
     const headers = headersFrom({});
     expect(getClientIp(headers)).toBe('unknown');
   });

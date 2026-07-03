@@ -129,6 +129,10 @@ describe('listOrders', () => {
     expect(searched.orders).toHaveLength(1);
     expect(searched.orders[0].customerName).toBe('Beta Club');
 
+    const searchedByEmail = await listOrders({ search: 'a@example.com' });
+    expect(searchedByEmail.orders).toHaveLength(1);
+    expect(searchedByEmail.orders[0].customerName).toBe('Alpha Club');
+
     const paginated = await listOrders({ limit: 1, offset: 0 });
     expect(paginated.orders).toHaveLength(1);
     expect(paginated.total).toBe(2);

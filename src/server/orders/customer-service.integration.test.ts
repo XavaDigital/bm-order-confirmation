@@ -167,6 +167,36 @@ describe('requestOrderChanges', () => {
       requestOrderChanges({ rawToken: created.token, comment: 'x' }),
     ).rejects.toThrow('already_confirmed');
   });
+
+  it('never leaves the order on changes_requested when it races a concurrent confirm on the same token', async () => {
+    const created = await createOrder(minimalInput());
+
+    const [confirmResult, changesResult] = await Promise.allSettled([
+      confirmOrder({ rawToken: created.token, acks: allAcks(), signatureType: 'none' }),
+      requestOrderChanges({ rawToken: created.token, comment: 'racing request' }),
+    ]);
+
+    // confirmOrder only ever refuses to run if the order is *already* confirmed,
+    // so it must succeed here regardless of which transaction commits first.
+    expect(confirmResult.status).toBe('fulfilled');
+
+    // requestOrderChanges either loses the race (already_confirmed) or commits
+    // before the confirm and gets overwritten by it — either way the order
+    // must never be left stuck on 'changes_requested' with a confirmation row
+    // also present, which is the inconsistency finding #7 guards against.
+    if (changesResult.status === 'rejected') {
+      expect((changesResult.reason as Error).message).toBe('already_confirmed');
+    }
+
+    const order = await db.query.orders.findFirst({ where: eq(schema.orders.id, created.orderId) });
+    expect(order!.status).toBe('confirmed');
+
+    const confirmationRows = await db
+      .select()
+      .from(schema.confirmations)
+      .where(eq(schema.confirmations.orderId, created.orderId));
+    expect(confirmationRows).toHaveLength(1);
+  });
 });
 
 describe('confirmOrder', () => {

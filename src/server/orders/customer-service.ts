@@ -129,10 +129,17 @@ export async function requestOrderChanges(params: {
   if (order.status === 'confirmed') throw new Error('already_confirmed');
 
   await db.transaction(async (tx) => {
-    await tx
+    // Guard against racing a concurrent confirmOrder() on the same token
+    // (see confirmOrder's identical guard below): the WHERE clause + row lock
+    // from this UPDATE mean a confirmation that commits first is never
+    // overwritten by a change-request that read the pre-confirmation status.
+    const updated = await tx
       .update(orders)
       .set({ status: 'changes_requested', updatedAt: new Date() })
-      .where(eq(orders.id, order.id));
+      .where(and(eq(orders.id, order.id), ne(orders.status, 'confirmed')))
+      .returning({ id: orders.id });
+
+    if (updated.length === 0) throw new Error('already_confirmed');
 
     await emitDomainEvent(tx, {
       aggregateId: order.id,

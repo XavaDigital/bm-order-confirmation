@@ -5,6 +5,7 @@
 import { z } from 'zod';
 
 const schema = z.object({
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   APP_BASE_URL: z.string().url().default('http://localhost:3000'),
   TOKEN_PEPPER: z.string().min(1, 'TOKEN_PEPPER is required'),

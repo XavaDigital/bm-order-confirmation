@@ -1,4 +1,4 @@
-import { eq, desc, count, and, isNull, or } from 'drizzle-orm';
+import { eq, desc, and, isNull, or } from 'drizzle-orm';
 import { db } from '@/db';
 import { staffUsers } from '@/db/schema';
 import { generateToken, hashToken } from '@/lib/tokens';
@@ -147,46 +147,51 @@ export async function updateUser(
   id: string,
   patch: { role?: 'sales' | 'admin'; isActive?: boolean },
 ): Promise<StaffUserRow> {
-  const user = await db.query.staffUsers.findFirst({ where: eq(staffUsers.id, id) });
-  if (!user) throw new UserNotFoundError();
+  return db.transaction(async (tx) => {
+    const user = await tx.query.staffUsers.findFirst({ where: eq(staffUsers.id, id) });
+    if (!user) throw new UserNotFoundError();
 
-  // Prevent demoting the last admin.
-  if (patch.role === 'sales' || patch.isActive === false) {
-    if (user.role === 'admin') {
-      const [{ total }] = await db
-        .select({ total: count() })
+    const demotingRole = patch.role === 'sales';
+    const deactivating = patch.isActive === false;
+
+    // Prevent demoting/deactivating the last admin. Row-lock every active
+    // admin (`FOR UPDATE`) before counting: a concurrent transaction trying to
+    // demote a different admin blocks on this lock until we commit, then
+    // re-evaluates the WHERE clause against our committed change — so it can
+    // never observe a stale count that lets it also pass the check.
+    if (user.role === 'admin' && (demotingRole || deactivating)) {
+      const activeAdmins = await tx
+        .select({ id: staffUsers.id })
         .from(staffUsers)
-        .where(and(eq(staffUsers.role, 'admin'), eq(staffUsers.isActive, true)));
+        .where(and(eq(staffUsers.role, 'admin'), eq(staffUsers.isActive, true)))
+        .for('update');
 
-      const demotingRole = patch.role === 'sales';
-      const deactivating = patch.isActive === false;
-
-      if ((demotingRole || deactivating) && Number(total) <= 1) {
+      if (activeAdmins.length <= 1) {
         throw new LastAdminError();
       }
     }
-  }
 
-  const [updated] = await db
-    .update(staffUsers)
-    .set({
-      ...(patch.role !== undefined && { role: patch.role }),
-      ...(patch.isActive !== undefined && { isActive: patch.isActive }),
-      updatedAt: new Date(),
-    })
-    .where(eq(staffUsers.id, id))
-    .returning();
+    const [updated] = await tx
+      .update(staffUsers)
+      .set({
+        ...(patch.role !== undefined && { role: patch.role }),
+        ...(patch.isActive !== undefined && { isActive: patch.isActive }),
+        updatedAt: new Date(),
+      })
+      .where(eq(staffUsers.id, id))
+      .returning();
 
-  return {
-    id: updated.id,
-    email: updated.email,
-    name: updated.name,
-    role: updated.role,
-    isActive: updated.isActive,
-    isPending: Boolean(updated.inviteTokenHash),
-    createdAt: updated.createdAt,
-    updatedAt: updated.updatedAt,
-  };
+    return {
+      id: updated.id,
+      email: updated.email,
+      name: updated.name,
+      role: updated.role,
+      isActive: updated.isActive,
+      isPending: Boolean(updated.inviteTokenHash),
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -54,11 +54,27 @@ export function checkRateLimit(
   return { allowed: true, retryAfterMs: 0 };
 }
 
-/** Extract the best available client IP from a Next.js request. */
+/**
+ * Extract the best available client IP from a Next.js request.
+ *
+ * `x-forwarded-for` is a client-suppliable header: a request can arrive with
+ * an attacker-chosen value already in it. A trusted reverse proxy (Vercel's
+ * edge, nginx, etc.) appends the real connecting IP as the *last* entry
+ * rather than replacing the header, so the leftmost entry can never be
+ * trusted for rate limiting or abuse detection — only the rightmost one
+ * (or a platform-specific header set exclusively by the edge, never by the
+ * client) can be.
+ */
 export function getClientIp(headers: { get(key: string): string | null }): string {
-  return (
-    headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    headers.get('x-real-ip') ??
-    'unknown'
-  );
+  const vercelForwardedFor = headers.get('x-vercel-forwarded-for');
+  if (vercelForwardedFor) return vercelForwardedFor.split(',')[0]?.trim() ?? 'unknown';
+
+  const forwardedFor = headers.get('x-forwarded-for');
+  if (forwardedFor) {
+    const entries = forwardedFor.split(',').map((entry) => entry.trim());
+    const last = entries[entries.length - 1];
+    if (last) return last;
+  }
+
+  return headers.get('x-real-ip') ?? 'unknown';
 }

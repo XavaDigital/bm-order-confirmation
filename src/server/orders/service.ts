@@ -156,6 +156,7 @@ export async function listOrders(opts?: {
     opts?.search
       ? or(
           ilike(orders.customerName, `%${opts.search}%`),
+          ilike(orders.customerEmail, `%${opts.search}%`),
           ilike(orders.orderNumber, `%${opts.search}%`),
           ilike(orders.clubName, `%${opts.search}%`),
         )

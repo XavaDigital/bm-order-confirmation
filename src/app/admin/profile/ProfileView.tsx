@@ -60,11 +60,15 @@ export function ProfileView({ user }: Props) {
     }
   }
 
-  async function startSetup() {
+  async function startSetup(values: { password: string }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/admin/auth/2fa/setup', { method: 'POST' });
+      const res = await fetch('/api/admin/auth/2fa/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: values.password }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Setup failed');
       setSetupData(data);
@@ -231,7 +235,7 @@ function SetupFlow({
   backupCodes: string[] | null;
   loading: boolean;
   error: string | null;
-  onStart: () => void;
+  onStart: (v: { password: string }) => void;
   onConfirm: (v: { code: string }) => void;
   onCopyBackupCodes: () => void;
 }) {
@@ -256,9 +260,23 @@ function SetupFlow({
       {error && <Alert type="error" showIcon message={error} />}
 
       {step === 0 && (
-        <Button type="primary" onClick={onStart} loading={loading}>
-          Set up Two-Factor Authentication
-        </Button>
+        <Form onFinish={onStart} requiredMark={false} layout="inline">
+          <Form.Item
+            name="password"
+            rules={[{ required: true, message: 'Password required' }]}
+          >
+            <Input.Password
+              placeholder="Current password"
+              autoComplete="current-password"
+              style={{ width: 220 }}
+            />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={loading}>
+              Set up Two-Factor Authentication
+            </Button>
+          </Form.Item>
+        </Form>
       )}
 
       {step === 1 && setupData && (

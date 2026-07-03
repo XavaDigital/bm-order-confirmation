@@ -1,5 +1,6 @@
 import { getIronSession } from 'iron-session';
 import type { SessionOptions } from 'iron-session';
+import { env } from '@/lib/env';
 
 export interface SessionData {
   userId: string;
@@ -12,10 +13,10 @@ export interface SessionData {
 }
 
 export const sessionOptions: SessionOptions = {
-  password: process.env.SESSION_SECRET ?? '',
+  password: env.SESSION_SECRET,
   cookieName: 'bm-session',
   cookieOptions: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: env.NODE_ENV === 'production',
     httpOnly: true,
     sameSite: 'lax',
   },

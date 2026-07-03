@@ -1,5 +1,5 @@
 import { generateSecret, generateURI, verifySync } from 'otplib';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 
 const ISSUER = 'BeastMode Portal';
 
@@ -34,13 +34,19 @@ export function hashBackupCode(code: string): string {
   return createHash('sha256').update(normalised).digest('hex');
 }
 
+function hashesMatch(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
+}
+
 /** Returns the remaining backup codes after consuming one. Returns null if the code is invalid. */
 export function consumeBackupCode(
   code: string,
   storedHashes: string[],
 ): string[] | null {
   const h = hashBackupCode(code);
-  const idx = storedHashes.indexOf(h);
+  const idx = storedHashes.findIndex((stored) => hashesMatch(stored, h));
   if (idx === -1) return null;
   const remaining = [...storedHashes];
   remaining.splice(idx, 1);

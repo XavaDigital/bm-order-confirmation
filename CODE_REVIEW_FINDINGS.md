@@ -85,7 +85,7 @@ loudly" should not have a production exception.
 
 ## 4. Rate limiter trusts client-controlled IP
 
-- [ ] Fix `src/lib/rate-limit.ts`
+- [x] Fix `src/lib/rate-limit.ts`
 
 **File:** `src/lib/rate-limit.ts:58-64` (`getClientIp`)
 
@@ -108,7 +108,7 @@ client-supplied leftmost entry.
 
 ## 5. `session.ts` bypasses centralized env validation
 
-- [ ] Fix `src/lib/session.ts`
+- [x] Fix `src/lib/session.ts`
 
 **File:** `src/lib/session.ts:15`
 
@@ -132,7 +132,7 @@ missing env var.
 
 ## 6. 2FA re-enrollment requires no password re-verification
 
-- [ ] Fix `src/app/api/admin/auth/2fa/setup/route.ts` and `.../confirm/route.ts`
+- [x] Fix `src/app/api/admin/auth/2fa/setup/route.ts` and `.../confirm/route.ts`
 
 **File:** `src/app/api/admin/auth/2fa/setup/route.ts:14`
 
@@ -158,7 +158,7 @@ without first going through `/disable`.
 
 ## 7. Same TOCTOU pattern in `requestOrderChanges`
 
-- [ ] Fix `src/server/orders/customer-service.ts`
+- [x] Fix `src/server/orders/customer-service.ts`
 
 **File:** `src/server/orders/customer-service.ts:129`
 
@@ -182,7 +182,7 @@ status, or a row lock, applied consistently to both `confirmOrder` and
 
 ## 8. Last-admin guard has a TOCTOU race
 
-- [ ] Fix `src/server/users/service.ts`
+- [x] Fix `src/server/users/service.ts`
 
 **File:** `src/server/users/service.ts:153-165`
 
@@ -205,10 +205,11 @@ re-check the count inside the same transaction immediately before the write.
 
 ## Lower-confidence / follow-up items (not fully verified, worth a look)
 
-- [ ] `src/server/auth/totp.ts:43` — `consumeBackupCode` uses
+- [x] `src/server/auth/totp.ts:43` — `consumeBackupCode` uses
       `Array.prototype.indexOf` (not constant-time) to compare backup code
       hashes, inconsistent with `timingSafeEqual` used elsewhere
-      (`tokensMatch`, `isInternalAuthorized`).
+      (`tokensMatch`, `isInternalAuthorized`). Fixed: now compares each
+      stored hash with `crypto.timingSafeEqual`, matching `tokensMatch`.
 - [ ] Admin garment sub-routes (e.g.
       `src/app/api/admin/orders/[id]/garments/[garmentId]/route.ts`) never
       verify that `garmentId` actually belongs to the `id` (order) in the

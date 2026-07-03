@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, and, count } from 'drizzle-orm';
 
 vi.mock('@/db', async () => {
   const { createTestDb } = await import('@/db/test-helpers');
@@ -178,6 +178,28 @@ describe('updateUser', () => {
     await expect(
       updateUser('00000000-0000-0000-0000-000000000000', { role: 'sales' }),
     ).rejects.toThrow(UserNotFoundError);
+  });
+
+  it('never lets two concurrent demotions leave zero active admins', async () => {
+    const admin1 = await seedActiveUser({ email: 'admin1@example.com', role: 'admin' });
+    const admin2 = await seedActiveUser({ email: 'admin2@example.com', role: 'admin' });
+
+    const results = await Promise.allSettled([
+      updateUser(admin1.id, { role: 'sales' }),
+      updateUser(admin2.id, { role: 'sales' }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(LastAdminError);
+
+    const [{ total }] = await db
+      .select({ total: count() })
+      .from(schema.staffUsers)
+      .where(and(eq(schema.staffUsers.role, 'admin'), eq(schema.staffUsers.isActive, true)));
+    expect(Number(total)).toBe(1);
   });
 });
 
