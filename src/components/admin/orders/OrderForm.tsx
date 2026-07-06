@@ -1,6 +1,6 @@
 'use client';
 
-import { Form, Input, InputNumber, Select, DatePicker, Typography } from 'antd';
+import { Form, Input, InputNumber, Select, DatePicker, Typography, Space } from 'antd';
 import type { FormInstance } from 'antd';
 import dayjs from 'dayjs';
 
@@ -100,7 +100,7 @@ export function OrderForm({ initialValues, form, disabled }: Props) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
         <Form.Item label="Order Value">
-          <Input.Group compact>
+          <Space.Compact style={{ width: '100%' }}>
             <Form.Item name="orderValueAmount" noStyle>
               <InputNumber
                 placeholder="1500.00"
@@ -112,7 +112,7 @@ export function OrderForm({ initialValues, form, disabled }: Props) {
             <Form.Item name="orderValueCurrency" noStyle>
               <Select options={CURRENCY_OPTIONS} style={{ width: 90 }} />
             </Form.Item>
-          </Input.Group>
+          </Space.Compact>
         </Form.Item>
 
         <Form.Item

@@ -8,7 +8,7 @@
  * tables directly.
  */
 import { randomBytes } from 'node:crypto';
-import { eq, and, isNull, ilike, or, desc, sql, count } from 'drizzle-orm';
+import { eq, and, isNull, ilike, or, desc, sql, count, inArray } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   orders,
@@ -17,8 +17,10 @@ import {
   mockupImages,
   garmentSizeChartLinks,
   orderAccess,
+  domainEvents,
 } from '@/db/schema';
 import { generateToken, hashToken, buildConfirmationUrl } from '@/lib/tokens';
+import { STALE_THRESHOLD_DAYS } from '@/lib/config';
 import { emitDomainEvent, recordAuditEvent } from '@/server/events/outbox';
 import type { CreateOrderInput } from './contract';
 import type { UpdateOrderInput, AddGarmentInput, UpdateGarmentInput, UpsertSizingInput } from './admin-contract';
@@ -196,6 +198,87 @@ export async function listOrders(opts?: {
     orders: rows.map(({ access, ...o }) => ({ ...o, hasActiveToken: access.length > 0 })),
     total: Number(total),
   };
+}
+
+export type StaleOrder = {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  clubName: string | null;
+  status: 'sent' | 'viewed';
+  /** Last customer-facing action (link emailed / order viewed), not `orders.updatedAt`. */
+  staleSince: string;
+  daysStale: number;
+};
+
+/**
+ * Orders sitting in 'sent' or 'viewed' past their staleness threshold, i.e.
+ * emailed/opened but the customer hasn't confirmed or requested changes since.
+ *
+ * Uses `domain_events` (`link.emailed` / `order.viewed` / `token.generated`)
+ * as the "clock start" rather than `orders.updatedAt`, since `updatedAt` is
+ * also bumped by unrelated admin edits (see FEATURE_PROPOSALS.md #1).
+ */
+export async function getStaleOrders(limit = 10): Promise<StaleOrder[]> {
+  const candidates = await db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      customerName: orders.customerName,
+      clubName: orders.clubName,
+      status: orders.status,
+      updatedAt: orders.updatedAt,
+    })
+    .from(orders)
+    .where(or(eq(orders.status, 'sent'), eq(orders.status, 'viewed')));
+
+  if (candidates.length === 0) return [];
+
+  const orderIds = candidates.map((o) => o.id);
+
+  const events = await db
+    .select({
+      aggregateId: domainEvents.aggregateId,
+      createdAt: domainEvents.createdAt,
+    })
+    .from(domainEvents)
+    .where(
+      and(
+        inArray(domainEvents.aggregateId, orderIds),
+        inArray(domainEvents.eventType, ['link.emailed', 'order.viewed', 'token.generated']),
+      ),
+    )
+    .orderBy(desc(domainEvents.createdAt));
+
+  const lastEventByOrder = new Map<string, Date>();
+  for (const e of events) {
+    if (!lastEventByOrder.has(e.aggregateId)) {
+      lastEventByOrder.set(e.aggregateId, e.createdAt);
+    }
+  }
+
+  const now = Date.now();
+  const msPerDay = 1000 * 60 * 60 * 24;
+
+  const stale: StaleOrder[] = [];
+  for (const o of candidates) {
+    const status = o.status as 'sent' | 'viewed';
+    const clockStart = lastEventByOrder.get(o.id) ?? o.updatedAt;
+    const daysStale = Math.floor((now - clockStart.getTime()) / msPerDay);
+    if (daysStale >= STALE_THRESHOLD_DAYS[status]) {
+      stale.push({
+        id: o.id,
+        orderNumber: o.orderNumber,
+        customerName: o.customerName,
+        clubName: o.clubName,
+        status,
+        staleSince: clockStart.toISOString(),
+        daysStale,
+      });
+    }
+  }
+
+  return stale.sort((a, b) => b.daysStale - a.daysStale).slice(0, limit);
 }
 
 export async function getOrderAdmin(id: string) {

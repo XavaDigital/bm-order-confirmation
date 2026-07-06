@@ -129,7 +129,14 @@ almost entirely wiring, not new infrastructure.
 
 ## 2. One-click resend of the magic link
 
-**Status: mostly already built.** The functional piece exists —
+**Status: done.** A "Resend link" button was added to the order detail
+header (`OrderDetailView.tsx`), next to "Download PDF", gated to
+`currentStatus` being `sent`, `viewed`, or `changes_requested`. It calls the
+existing `send-link` endpoint directly and carries a tooltip warning that
+resending invalidates the previous link, matching the "Regenerate link"
+button's treatment in `ShareLinkPanel.tsx`.
+
+The functional piece already existed —
 `ShareLinkPanel.tsx` (`src/components/admin/orders/ShareLinkPanel.tsx`) has an
 **"Email to customer"** button (`ShareLinkPanel.tsx:179-188`) that calls
 `POST /api/admin/orders/[id]/send-link` (`src/app/api/admin/orders/[id]/send-link/route.ts`),

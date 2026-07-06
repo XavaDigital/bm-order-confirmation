@@ -1,6 +1,7 @@
 import { db } from '@/db';
 import { orders } from '@/db/schema';
 import { count, sum, desc, gte, sql } from 'drizzle-orm';
+import { getStaleOrders } from '@/server/orders/service';
 import { DashboardView } from './DashboardView';
 
 async function getDashboardData() {
@@ -8,7 +9,7 @@ async function getDashboardData() {
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
   sevenDaysAgo.setHours(0, 0, 0, 0);
 
-  const [countRows, valueRow, recentRows, trendRows] = await Promise.all([
+  const [countRows, valueRow, recentRows, trendRows, staleOrders] = await Promise.all([
     db.select({ status: orders.status, count: count() }).from(orders).groupBy(orders.status),
 
     db
@@ -37,6 +38,8 @@ async function getDashboardData() {
       .from(orders)
       .where(gte(orders.createdAt, sevenDaysAgo))
       .groupBy(sql`date_trunc('day', ${orders.createdAt})`),
+
+    getStaleOrders(),
   ]);
 
   const map = Object.fromEntries(countRows.map((r) => [r.status, Number(r.count)]));
@@ -67,6 +70,7 @@ async function getDashboardData() {
       createdAt: o.createdAt.toISOString(),
     })),
     trend,
+    staleOrders,
   };
 }
 

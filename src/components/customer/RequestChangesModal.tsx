@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Modal, Input, Button, Space, Typography } from 'antd';
 import { ExclamationCircleOutlined } from '@ant-design/icons';
 import { BEASTMODE } from '@/lib/theme';
+import { SALES_REP_LABEL } from '@/lib/config';
 
 interface Props {
   open: boolean;
@@ -59,7 +60,7 @@ export function RequestChangesModal({ open, onCancel, onSubmit }: Props) {
         style={{ color: 'rgba(255,255,255,0.65)', display: 'block', marginBottom: 16, lineHeight: 1.6 }}
       >
         Please describe what needs to change before you can confirm this order.
-        Your BeastMode sales representative will be notified and will get back to you.
+        Your {SALES_REP_LABEL} will be notified and will get back to you.
       </Typography.Text>
 
       <Input.TextArea

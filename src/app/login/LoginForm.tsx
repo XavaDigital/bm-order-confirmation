@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Form, Input, Button, Typography, Alert, ConfigProvider } from 'antd';
+import { Form, Input, Button, Typography, Alert } from 'antd';
 import { LockOutlined, MailOutlined } from '@ant-design/icons';
-import { BEASTMODE, darkTheme } from '@/lib/theme';
+import { APP_NAME, APP_TAGLINE } from '@/lib/config';
+import { AuthCard } from '@/components/auth/AuthCard';
 
 const { Title } = Typography;
 
@@ -53,112 +54,91 @@ export function LoginForm() {
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: BEASTMODE.navy,
-      }}
-    >
-      <ConfigProvider theme={darkTheme}>
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 400,
-          padding: '48px 40px',
-          background: BEASTMODE.charcoal,
-          borderRadius: 8,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-        }}
+    <AuthCard>
+      <div style={{ textAlign: 'center', marginBottom: 32 }}>
+        <Title
+          level={3}
+          style={{
+            color: '#fff',
+            letterSpacing: 2,
+            textTransform: 'uppercase',
+            marginBottom: 4,
+          }}
+        >
+          {APP_NAME}
+        </Title>
+        <Typography.Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
+          {APP_TAGLINE} Portal
+        </Typography.Text>
+      </div>
+
+      {error && (
+        <Alert
+          message={error}
+          type="error"
+          showIcon
+          style={{ marginBottom: 24 }}
+        />
+      )}
+
+      <Form<LoginFormValues>
+        layout="vertical"
+        onFinish={onFinish}
+        requiredMark={false}
+        size="large"
       >
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <Title
-            level={3}
+        <Form.Item
+          name="email"
+          rules={[
+            { required: true, message: 'Enter your email' },
+            { type: 'email', message: 'Enter a valid email' },
+          ]}
+        >
+          <Input
+            prefix={<MailOutlined style={{ color: 'rgba(255,255,255,0.3)' }} />}
+            placeholder="Email"
+            autoComplete="email"
             style={{
+              background: 'rgba(255,255,255,0.07)',
+              border: '1px solid rgba(255,255,255,0.15)',
               color: '#fff',
-              letterSpacing: 2,
+            }}
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="password"
+          rules={[{ required: true, message: 'Enter your password' }]}
+        >
+          <Input.Password
+            prefix={<LockOutlined style={{ color: 'rgba(255,255,255,0.3)' }} />}
+            placeholder="Password"
+            autoComplete="current-password"
+            style={{
+              background: 'rgba(255,255,255,0.07)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              color: '#fff',
+            }}
+          />
+        </Form.Item>
+
+        <Form.Item style={{ marginBottom: 0, marginTop: 8 }}>
+          <Button
+            type="primary"
+            htmlType="submit"
+            loading={loading}
+            block
+            style={{
+              height: 44,
+              fontWeight: 600,
+              letterSpacing: 1,
               textTransform: 'uppercase',
-              marginBottom: 4,
             }}
           >
-            BeastMode
-          </Title>
-          <Typography.Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
-            Order Confirmation Portal
-          </Typography.Text>
-        </div>
-
-        {error && (
-          <Alert
-            message={error}
-            type="error"
-            showIcon
-            style={{ marginBottom: 24 }}
-          />
-        )}
-
-        <Form<LoginFormValues>
-          layout="vertical"
-          onFinish={onFinish}
-          requiredMark={false}
-          size="large"
-        >
-          <Form.Item
-            name="email"
-            rules={[
-              { required: true, message: 'Enter your email' },
-              { type: 'email', message: 'Enter a valid email' },
-            ]}
-          >
-            <Input
-              prefix={<MailOutlined style={{ color: 'rgba(255,255,255,0.3)' }} />}
-              placeholder="Email"
-              autoComplete="email"
-              style={{
-                background: 'rgba(255,255,255,0.07)',
-                border: '1px solid rgba(255,255,255,0.15)',
-                color: '#fff',
-              }}
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="password"
-            rules={[{ required: true, message: 'Enter your password' }]}
-          >
-            <Input.Password
-              prefix={<LockOutlined style={{ color: 'rgba(255,255,255,0.3)' }} />}
-              placeholder="Password"
-              autoComplete="current-password"
-              style={{
-                background: 'rgba(255,255,255,0.07)',
-                border: '1px solid rgba(255,255,255,0.15)',
-                color: '#fff',
-              }}
-            />
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 0, marginTop: 8 }}>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={loading}
-              block
-              style={{
-                height: 44,
-                fontWeight: 600,
-                letterSpacing: 1,
-                textTransform: 'uppercase',
-              }}
-            >
-              Sign In
-            </Button>
-          </Form.Item>
-        </Form>
-      </div>
-      </ConfigProvider>
-    </div>
+            Sign In
+          </Button>
+        </Form.Item>
+      </Form>
+    </AuthCard>
   );
 }

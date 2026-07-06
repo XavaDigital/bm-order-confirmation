@@ -23,6 +23,7 @@ import {
 } from '@ant-design/icons';
 import Image from 'next/image';
 import { darkTheme, BEASTMODE, headingFont } from '@/lib/theme';
+import { APP_NAME, SALES_REP_LABEL } from '@/lib/config';
 import { pushOrderConfirmed } from '@/lib/gtm';
 import { MockupGallery, type GalleryImage } from '@/components/customer/MockupGallery';
 import { SizingTableReadOnly, type SizingRow } from '@/components/customer/SizingTableReadOnly';
@@ -34,6 +35,7 @@ import { ShippingAddressField } from '@/components/customer/ShippingAddressField
 import { SignaturePad, type SignatureData } from '@/components/customer/SignaturePad';
 import { ConfirmButton } from '@/components/customer/ConfirmButton';
 import { RequestChangesModal } from '@/components/customer/RequestChangesModal';
+import { StatusPage } from '@/components/customer/StatusPage';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -110,25 +112,13 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 // ---------------------------------------------------------------------------
 function AlreadyConfirmedPanel({ orderNumber }: { orderNumber: string }) {
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: BEASTMODE.navy,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 24,
-      }}
-    >
-      <div style={{ textAlign: 'center', maxWidth: 480 }}>
-        <CheckCircleFilled style={{ fontSize: 64, color: '#52c41a', marginBottom: 24 }} />
-        <Title style={{ color: '#fff', marginBottom: 8 }}>Order Confirmed</Title>
-        <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 16 }}>
-          Order <strong style={{ color: '#fff' }}>{orderNumber}</strong> has already been
-          confirmed. No further action is required.
-        </Text>
-      </div>
-    </div>
+    <StatusPage icon={<CheckCircleFilled style={{ fontSize: 64, color: '#52c41a', marginBottom: 24 }} />}>
+      <Title style={{ color: '#fff', marginBottom: 8 }}>Order Confirmed</Title>
+      <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 16 }}>
+        Order <strong style={{ color: '#fff' }}>{orderNumber}</strong> has already been
+        confirmed. No further action is required.
+      </Text>
+    </StatusPage>
   );
 }
 
@@ -143,49 +133,37 @@ function SuccessPanel({
   confirmedAt: string;
 }) {
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: BEASTMODE.navy,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 24,
-      }}
-    >
-      <div style={{ textAlign: 'center', maxWidth: 520 }}>
-        <CheckCircleFilled style={{ fontSize: 72, color: '#52c41a', marginBottom: 24 }} />
-        <Title
-          style={{
-            color: '#fff',
-            fontSize: 52,
-            fontFamily: headingFont,
-            fontWeight: 400,
-            letterSpacing: 6,
-            textTransform: 'uppercase',
-            marginBottom: 8,
-          }}
-        >
-          Confirmed
-        </Title>
-        <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 18, display: 'block', marginBottom: 8 }}>
-          Order <strong style={{ color: '#fff' }}>{orderNumber}</strong> has been confirmed.
-        </Text>
-        <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>
-          {new Date(confirmedAt).toLocaleString('en-NZ', {
-            weekday: 'long',
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-        </Text>
-        <Paragraph style={{ color: 'rgba(255,255,255,0.55)', marginTop: 32, fontSize: 14 }}>
-          Thank you. Your BeastMode sales representative will be in touch with next steps.
-        </Paragraph>
-      </div>
-    </div>
+    <StatusPage icon={<CheckCircleFilled style={{ fontSize: 72, color: '#52c41a', marginBottom: 24 }} />} maxWidth={520}>
+      <Title
+        style={{
+          color: '#fff',
+          fontSize: 52,
+          fontFamily: headingFont,
+          fontWeight: 400,
+          letterSpacing: 6,
+          textTransform: 'uppercase',
+          marginBottom: 8,
+        }}
+      >
+        Confirmed
+      </Title>
+      <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 18, display: 'block', marginBottom: 8 }}>
+        Order <strong style={{ color: '#fff' }}>{orderNumber}</strong> has been confirmed.
+      </Text>
+      <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>
+        {new Date(confirmedAt).toLocaleString('en-NZ', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })}
+      </Text>
+      <Paragraph style={{ color: 'rgba(255,255,255,0.55)', marginTop: 32, fontSize: 14 }}>
+        Thank you. Your {SALES_REP_LABEL} will be in touch with next steps.
+      </Paragraph>
+    </StatusPage>
   );
 }
 
@@ -194,39 +172,27 @@ function SuccessPanel({
 // ---------------------------------------------------------------------------
 function ChangesRequestedPanel({ orderNumber }: { orderNumber: string }) {
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: BEASTMODE.navy,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 24,
-      }}
-    >
-      <div style={{ textAlign: 'center', maxWidth: 520 }}>
-        <ExclamationCircleFilled style={{ fontSize: 72, color: '#faad14', marginBottom: 24 }} />
-        <Title
-          style={{
-            color: '#fff',
-            fontSize: 44,
-            fontFamily: headingFont,
-            fontWeight: 400,
-            letterSpacing: 5,
-            textTransform: 'uppercase',
-            marginBottom: 8,
-          }}
-        >
-          Changes Requested
-        </Title>
-        <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 18, display: 'block', marginBottom: 8 }}>
-          Your request for order <strong style={{ color: '#fff' }}>{orderNumber}</strong> has been received.
-        </Text>
-        <Paragraph style={{ color: 'rgba(255,255,255,0.55)', marginTop: 24, fontSize: 14 }}>
-          Your BeastMode sales representative will review your request and be in touch shortly.
-        </Paragraph>
-      </div>
-    </div>
+    <StatusPage icon={<ExclamationCircleFilled style={{ fontSize: 72, color: '#faad14', marginBottom: 24 }} />} maxWidth={520}>
+      <Title
+        style={{
+          color: '#fff',
+          fontSize: 44,
+          fontFamily: headingFont,
+          fontWeight: 400,
+          letterSpacing: 5,
+          textTransform: 'uppercase',
+          marginBottom: 8,
+        }}
+      >
+        Changes Requested
+      </Title>
+      <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 18, display: 'block', marginBottom: 8 }}>
+        Your request for order <strong style={{ color: '#fff' }}>{orderNumber}</strong> has been received.
+      </Text>
+      <Paragraph style={{ color: 'rgba(255,255,255,0.55)', marginTop: 24, fontSize: 14 }}>
+        Your {SALES_REP_LABEL} will review your request and be in touch shortly.
+      </Paragraph>
+    </StatusPage>
   );
 }
 
@@ -353,7 +319,7 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
               {/* Actual logo from beastmode.co.nz — SVG paths render correctly without page fonts */}
               <Image
                 src="/logo.svg"
-                alt="BeastMode"
+                alt={APP_NAME}
                 width={141}
                 height={44}
                 priority
@@ -401,8 +367,10 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
             <Descriptions
               column={{ xs: 1, sm: 2 }}
               size="small"
-              labelStyle={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}
-              contentStyle={{ color: 'rgba(255,255,255,0.9)' }}
+              styles={{
+                label: { color: 'rgba(255,255,255,0.45)', fontSize: 12 },
+                content: { color: 'rgba(255,255,255,0.9)' },
+              }}
             >
               <Descriptions.Item label="Order Number">{order.orderNumber}</Descriptions.Item>
               {order.orderValueAmount && (

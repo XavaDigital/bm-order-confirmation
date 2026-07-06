@@ -5,6 +5,7 @@ import {
   View,
   StyleSheet,
 } from '@react-pdf/renderer';
+import { APP_NAME, APP_TAGLINE, PDF_FOOTER_TEXT } from '@/lib/config';
 
 const RED = '#BF272D';
 const NAVY = '#0d1117';
@@ -197,13 +198,13 @@ export function OrderPdf({
   });
 
   return (
-    <Document title={`Order ${orderNumber} — BeastMode`}>
+    <Document title={`Order ${orderNumber} — ${APP_NAME}`}>
       <Page size="A4" style={s.page}>
         {/* Header */}
         <View style={s.header}>
           <View>
-            <Text style={s.brand}>BEASTMODE</Text>
-            <Text style={s.brandSub}>Order Confirmation</Text>
+            <Text style={s.brand}>{APP_NAME.toUpperCase()}</Text>
+            <Text style={s.brandSub}>{APP_TAGLINE}</Text>
           </View>
           <View style={s.headerRight}>
             <Text style={s.orderNumber}>{orderNumber}</Text>
@@ -304,7 +305,7 @@ export function OrderPdf({
 
         {/* Footer */}
         <View style={s.footer} fixed>
-          <Text>BeastMode — beastmode.co.nz</Text>
+          <Text>{PDF_FOOTER_TEXT}</Text>
           <Text>Printed {printDate}</Text>
         </View>
       </Page>

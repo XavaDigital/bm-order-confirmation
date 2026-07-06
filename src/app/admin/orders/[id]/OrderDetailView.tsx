@@ -13,12 +13,14 @@ import {
   Popconfirm,
   Breadcrumb,
   Alert,
+  Tooltip,
 } from 'antd';
 import {
   ArrowLeftOutlined,
   DeleteOutlined,
   SaveOutlined,
   FilePdfOutlined,
+  MailOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -77,6 +79,8 @@ export interface AdminOrderData {
   } | null;
 }
 
+const RESENDABLE_STATUSES = new Set(['sent', 'viewed', 'changes_requested']);
+
 interface Props {
   order: AdminOrderData;
 }
@@ -89,7 +93,16 @@ export function OrderDetailView({ order }: Props) {
   const [form] = Form.useForm<OrderFormValues>();
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [resending, setResending] = useState(false);
   const [currentStatus, setCurrentStatus] = useState(order.status);
+  const [hasActiveToken, setHasActiveToken] = useState(
+    order.currentAccess !== null && order.currentAccess.revokedAt === null,
+  );
+  const [tokenCreatedAt, setTokenCreatedAt] = useState(order.currentAccess?.createdAt ?? null);
+  // Bumped whenever the header's "Resend link" action changes the token, forcing
+  // ShareLinkPanel to remount and pick up the new hasActiveToken/tokenCreatedAt props
+  // (it otherwise only reads them once, on its own initial mount).
+  const [shareLinkVersion, setShareLinkVersion] = useState(0);
 
   const initialValues: Partial<OrderFormValues> = {
     customerName: order.customerName,
@@ -161,8 +174,26 @@ export function OrderDetailView({ order }: Props) {
     }
   }
 
-  const hasActiveToken =
-    order.currentAccess !== null && order.currentAccess.revokedAt === null;
+  async function resendLink() {
+    setResending(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${order.id}/send-link`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 503) {
+        message.error('Email delivery is not configured on this server.');
+        return;
+      }
+      if (!res.ok) throw new Error(data.error ?? 'Failed to send email');
+      setHasActiveToken(true);
+      setTokenCreatedAt(new Date().toISOString());
+      setShareLinkVersion((v) => v + 1);
+      message.success(`Link emailed to ${order.customerEmail}`);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to send email');
+    } finally {
+      setResending(false);
+    }
+  }
 
   const tabItems = [
     {
@@ -237,10 +268,11 @@ export function OrderDetailView({ order }: Props) {
       label: 'Share Link',
       children: (
         <ShareLinkPanel
+          key={shareLinkVersion}
           orderId={order.id}
           customerEmail={order.customerEmail}
           hasActiveToken={hasActiveToken}
-          tokenCreatedAt={order.currentAccess?.createdAt ?? null}
+          tokenCreatedAt={tokenCreatedAt}
         />
       ),
     },
@@ -284,26 +316,37 @@ export function OrderDetailView({ order }: Props) {
           <Typography.Text type="secondary">/ {order.clubName}</Typography.Text>
         )}
         <div style={{ marginLeft: 'auto' }}>
-          {currentStatus === 'confirmed' && (
-            <Button
-              icon={<FilePdfOutlined />}
-              href={`/api/admin/orders/${order.id}/pdf`}
-              target="_blank"
-              download
-            >
-              Download PDF
-            </Button>
-          )}
+          <Space>
+            {RESENDABLE_STATUSES.has(currentStatus) && (
+              <Tooltip
+                title={`Generates a fresh link and emails it to ${order.customerEmail} — this invalidates the current link the customer may already have`}
+              >
+                <Button icon={<MailOutlined />} loading={resending} onClick={resendLink}>
+                  Resend link
+                </Button>
+              </Tooltip>
+            )}
+            {currentStatus === 'confirmed' && (
+              <Button
+                icon={<FilePdfOutlined />}
+                href={`/api/admin/orders/${order.id}/pdf`}
+                target="_blank"
+                download
+              >
+                Download PDF
+              </Button>
+            )}
+          </Space>
         </div>
       </div>
 
-      <Card bodyStyle={{ padding: 0 }}>
+      <Card styles={{ body: { padding: 0 } }}>
         <Tabs
           items={tabItems}
           defaultActiveKey={initialTab}
           style={{ padding: '0 16px 24px' }}
           tabBarStyle={{ marginBottom: 0 }}
-          destroyInactiveTabPane={false}
+          destroyOnHidden={false}
         />
       </Card>
     </div>

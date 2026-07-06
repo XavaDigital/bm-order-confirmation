@@ -13,6 +13,7 @@ import {
   MenuUnfoldOutlined,
 } from '@ant-design/icons';
 import { darkTheme, lightTheme } from '@/lib/theme';
+import { APP_NAME } from '@/lib/config';
 import { ThemeToggle } from './ThemeToggle';
 import { UserMenu } from './UserMenu';
 
@@ -142,7 +143,7 @@ export function AppShell({ user, children }: AppShellProps) {
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  BeastMode
+                  {APP_NAME}
                 </span>
               )}
               {collapseBtn}

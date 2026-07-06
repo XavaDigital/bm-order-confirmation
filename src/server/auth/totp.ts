@@ -1,14 +1,13 @@
 import { generateSecret, generateURI, verifySync } from 'otplib';
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
-
-const ISSUER = 'BeastMode Portal';
+import { TOTP_ISSUER } from '@/lib/config';
 
 export function generateTotpSecret(): string {
   return generateSecret({ length: 20 });
 }
 
 export function generateTotpUri(secret: string, email: string): string {
-  return generateURI({ secret, label: email, issuer: ISSUER });
+  return generateURI({ secret, label: email, issuer: TOTP_ISSUER });
 }
 
 export function verifyTotp(token: string, secret: string): boolean {

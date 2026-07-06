@@ -29,6 +29,7 @@ import {
   generateAccessToken,
   revokeAccessToken,
   getOrderByToken,
+  getStaleOrders,
   NotFoundError,
   ConflictError,
 } from './service';
@@ -456,5 +457,80 @@ describe('getOrderByToken', () => {
   it('returns the order for a valid token', async () => {
     const created = await createOrder(minimalInput());
     expect((await getOrderByToken(created.token))!.id).toBe(created.orderId);
+  });
+});
+
+describe('getStaleOrders', () => {
+  async function backdateEvents(orderId: string, daysAgo: number) {
+    await db
+      .update(schema.domainEvents)
+      .set({ createdAt: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000) })
+      .where(eq(schema.domainEvents.aggregateId, orderId));
+  }
+
+  it('ignores draft/confirmed orders and orders within their threshold', async () => {
+    const draft = await createOrder(minimalInput());
+    const fresh = await createOrder(minimalInput());
+    await generateAccessToken(fresh.orderId); // status -> sent, event just now
+
+    const stale = await getStaleOrders();
+    expect(stale.map((o) => o.id)).not.toContain(draft.orderId);
+    expect(stale.map((o) => o.id)).not.toContain(fresh.orderId);
+  });
+
+  it('surfaces a "sent" order past the 3-day threshold, using the last domain event as the clock', async () => {
+    const created = await createOrder(minimalInput());
+    await generateAccessToken(created.orderId);
+    await backdateEvents(created.orderId, 4);
+
+    const stale = await getStaleOrders();
+    const match = stale.find((o) => o.id === created.orderId);
+    expect(match).toBeDefined();
+    expect(match!.status).toBe('sent');
+    expect(match!.daysStale).toBeGreaterThanOrEqual(3);
+  });
+
+  it('uses the "viewed" threshold (5 days) rather than the "sent" one once viewed', async () => {
+    const created = await createOrder(minimalInput());
+    await generateAccessToken(created.orderId);
+    await updateOrder(created.orderId, { status: 'viewed' });
+    await backdateEvents(created.orderId, 4); // stale for 'sent' (3d) but not yet for 'viewed' (5d)
+
+    expect((await getStaleOrders()).map((o) => o.id)).not.toContain(created.orderId);
+
+    await backdateEvents(created.orderId, 6);
+    const stale = await getStaleOrders();
+    const match = stale.find((o) => o.id === created.orderId);
+    expect(match).toBeDefined();
+    expect(match!.status).toBe('viewed');
+  });
+
+  it('falls back to orders.updatedAt when there is no relevant domain event', async () => {
+    const created = await createOrder(minimalInput());
+    // Advance straight to 'sent' via updateOrder rather than generateAccessToken,
+    // so no link.emailed/token.generated event exists for this order.
+    await updateOrder(created.orderId, { status: 'sent' });
+    await db
+      .update(schema.orders)
+      .set({ updatedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000) })
+      .where(eq(schema.orders.id, created.orderId));
+
+    const stale = await getStaleOrders();
+    expect(stale.map((o) => o.id)).toContain(created.orderId);
+  });
+
+  it('sorts by days stale (most stale first) and respects the limit', async () => {
+    const a = await createOrder(minimalInput());
+    const b = await createOrder(minimalInput());
+    await generateAccessToken(a.orderId);
+    await generateAccessToken(b.orderId);
+    await backdateEvents(a.orderId, 4);
+    await backdateEvents(b.orderId, 10);
+
+    const stale = await getStaleOrders();
+    expect(stale[0].id).toBe(b.orderId);
+    expect(stale[1].id).toBe(a.orderId);
+
+    expect(await getStaleOrders(1)).toHaveLength(1);
   });
 });

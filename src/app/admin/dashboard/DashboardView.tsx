@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Typography, Row, Col, Card, Statistic, Button, Badge, Tag, Space, List, Avatar } from 'antd';
+import { Typography, Row, Col, Card, Statistic, Button, Badge, Space, List, Avatar } from 'antd';
 import {
   FileAddOutlined,
   ClockCircleOutlined,
@@ -12,6 +12,7 @@ import {
   OrderedListOutlined,
   DollarOutlined,
   ArrowRightOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import {
   BarChart,
@@ -25,23 +26,18 @@ import {
   Cell,
   Legend,
 } from 'recharts';
+import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
 
 const { Title, Paragraph, Text } = Typography;
 
-const STATUS_COLORS: Record<string, string> = {
+// Raw hex per status — needed for the pie chart fill and the avatar
+// background, which can't use OrderStatusBadge's antd semantic tag colors.
+const STATUS_HEX: Record<string, string> = {
   draft: '#8c8c8c',
   sent: '#faad14',
   viewed: '#1677ff',
   confirmed: '#52c41a',
   changes_requested: '#ff4d4f',
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: 'Draft',
-  sent: 'Sent',
-  viewed: 'Viewed',
-  confirmed: 'Confirmed',
-  changes_requested: 'Changes Requested',
 };
 
 type RecentOrder = {
@@ -51,6 +47,16 @@ type RecentOrder = {
   clubName: string | null;
   status: string;
   createdAt: string;
+};
+
+type StaleOrder = {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  clubName: string | null;
+  status: string;
+  staleSince: string;
+  daysStale: number;
 };
 
 interface Props {
@@ -65,21 +71,13 @@ interface Props {
   totalValueNZD: number;
   trend: Array<{ date: string; label: string; count: number }>;
   recentOrders: RecentOrder[];
+  staleOrders: StaleOrder[];
 }
 
 function formatNZD(value: number) {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
   return `$${value.toFixed(0)}`;
-}
-
-function statusTag(status: string) {
-  const color = STATUS_COLORS[status] ?? '#8c8c8c';
-  return (
-    <Tag color={color} style={{ margin: 0, textTransform: 'capitalize' }}>
-      {STATUS_LABELS[status] ?? status}
-    </Tag>
-  );
 }
 
 function timeAgo(iso: string) {
@@ -91,7 +89,70 @@ function timeAgo(iso: string) {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-export function DashboardView({ counts, totalValueNZD, trend, recentOrders }: Props) {
+/** Shared row shape for the "Recent Orders" and "Needs Follow-up" lists below. */
+function DashboardOrderListItem({
+  id,
+  customerName,
+  clubName,
+  orderNumber,
+  status,
+  avatarColor,
+  trailing,
+}: {
+  id: string;
+  customerName: string;
+  clubName: string | null;
+  orderNumber: string;
+  status: string;
+  avatarColor?: string;
+  trailing: React.ReactNode;
+}) {
+  return (
+    <List.Item
+      style={{ padding: '10px 20px' }}
+      actions={[
+        <Link key="open" href={`/admin/orders/${id}`}>
+          <Button type="link" size="small" icon={<EyeOutlined />} style={{ padding: 0 }}>
+            Open
+          </Button>
+        </Link>,
+      ]}
+    >
+      <List.Item.Meta
+        avatar={
+          avatarColor && (
+            <Avatar
+              style={{
+                backgroundColor: avatarColor + '22',
+                color: avatarColor,
+                fontWeight: 700,
+                fontSize: 12,
+              }}
+              size={36}
+            >
+              {customerName.charAt(0).toUpperCase()}
+            </Avatar>
+          )
+        }
+        title={
+          <Space size={8}>
+            <Text strong style={{ fontSize: 13 }}>{customerName}</Text>
+            {clubName && <Text type="secondary" style={{ fontSize: 12 }}>{clubName}</Text>}
+          </Space>
+        }
+        description={
+          <Space size={8}>
+            <Text style={{ fontSize: 11 }} type="secondary">#{orderNumber}</Text>
+            <OrderStatusBadge status={status} />
+            <Text style={{ fontSize: 11 }} type="secondary">{trailing}</Text>
+          </Space>
+        }
+      />
+    </List.Item>
+  );
+}
+
+export function DashboardView({ counts, totalValueNZD, trend, recentOrders, staleOrders }: Props) {
   const pieData = [
     { name: 'Draft', value: counts.draft, key: 'draft' },
     { name: 'Sent', value: counts.sent, key: 'sent' },
@@ -226,7 +287,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders }: Pr
                     dataKey="value"
                   >
                     {pieData.map((entry) => (
-                      <Cell key={entry.key} fill={STATUS_COLORS[entry.key]} />
+                      <Cell key={entry.key} fill={STATUS_HEX[entry.key]} />
                     ))}
                   </Pie>
                   <Tooltip
@@ -249,65 +310,33 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders }: Pr
         </Col>
       </Row>
 
-      {/* Bottom row: recent activity + quick actions */}
+      {/* Bottom row: needs follow-up + quick actions */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        {/* Recent orders */}
+        {/* Needs follow-up: sent/viewed orders gone quiet past their staleness threshold */}
         <Col xs={24} lg={14}>
           <Card
-            title="Recent Orders"
-            extra={
-              <Link href="/admin/orders">
-                <Button type="link" size="small" icon={<ArrowRightOutlined />} style={{ padding: 0 }}>
-                  View all
-                </Button>
-              </Link>
+            title={
+              <Space size={8}>
+                <WarningOutlined style={{ color: staleOrders.length > 0 ? '#faad14' : undefined }} />
+                Needs Follow-up
+                {staleOrders.length > 0 && <Badge count={staleOrders.length} style={{ backgroundColor: '#faad14' }} />}
+              </Space>
             }
             styles={{ body: { padding: 0 } }}
           >
             <List
-              dataSource={recentOrders}
+              dataSource={staleOrders}
               renderItem={(order) => (
-                <List.Item
-                  style={{ padding: '10px 20px' }}
-                  actions={[
-                    <Link key="open" href={`/admin/orders/${order.id}`}>
-                      <Button type="link" size="small" icon={<EyeOutlined />} style={{ padding: 0 }}>
-                        Open
-                      </Button>
-                    </Link>,
-                  ]}
-                >
-                  <List.Item.Meta
-                    avatar={
-                      <Avatar
-                        style={{
-                          backgroundColor: STATUS_COLORS[order.status] + '22',
-                          color: STATUS_COLORS[order.status],
-                          fontWeight: 700,
-                          fontSize: 12,
-                        }}
-                        size={36}
-                      >
-                        {order.customerName.charAt(0).toUpperCase()}
-                      </Avatar>
-                    }
-                    title={
-                      <Space size={8}>
-                        <Text strong style={{ fontSize: 13 }}>{order.customerName}</Text>
-                        {order.clubName && <Text type="secondary" style={{ fontSize: 12 }}>{order.clubName}</Text>}
-                      </Space>
-                    }
-                    description={
-                      <Space size={8}>
-                        <Text style={{ fontSize: 11 }} type="secondary">#{order.orderNumber}</Text>
-                        {statusTag(order.status)}
-                        <Text style={{ fontSize: 11 }} type="secondary">{timeAgo(order.createdAt)}</Text>
-                      </Space>
-                    }
-                  />
-                </List.Item>
+                <DashboardOrderListItem
+                  id={order.id}
+                  customerName={order.customerName}
+                  clubName={order.clubName}
+                  orderNumber={order.orderNumber}
+                  status={order.status}
+                  trailing={`quiet for ${order.daysStale} ${order.daysStale === 1 ? 'day' : 'days'}`}
+                />
               )}
-              locale={{ emptyText: 'No orders yet' }}
+              locale={{ emptyText: 'No stale orders — everything sent or viewed is fresh.' }}
             />
           </Card>
         </Col>
@@ -384,6 +413,39 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders }: Pr
                 </Button>
               </Link>
             </Space>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Recent orders */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24}>
+          <Card
+            title="Recent Orders"
+            extra={
+              <Link href="/admin/orders">
+                <Button type="link" size="small" icon={<ArrowRightOutlined />} style={{ padding: 0 }}>
+                  View all
+                </Button>
+              </Link>
+            }
+            styles={{ body: { padding: 0 } }}
+          >
+            <List
+              dataSource={recentOrders}
+              renderItem={(order) => (
+                <DashboardOrderListItem
+                  id={order.id}
+                  customerName={order.customerName}
+                  clubName={order.clubName}
+                  orderNumber={order.orderNumber}
+                  status={order.status}
+                  avatarColor={STATUS_HEX[order.status]}
+                  trailing={timeAgo(order.createdAt)}
+                />
+              )}
+              locale={{ emptyText: 'No orders yet' }}
+            />
           </Card>
         </Col>
       </Row>
