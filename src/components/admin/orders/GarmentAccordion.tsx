@@ -22,6 +22,7 @@ import {
 import { SizingTable } from './SizingTable';
 import { MockupUploader, type MockupImage } from './MockupUploader';
 import { SizeChartLinker } from './SizeChartLinker';
+import { postJson, patchJson, deleteJson } from '@/lib/api-fetch';
 
 interface SizingRow {
   id?: string;
@@ -74,19 +75,15 @@ export function GarmentAccordion({ orderId, initialGarments }: Props) {
 
     setSavingId(garment.id);
     try {
-      const res = await fetch(
+      await patchJson(
         `/api/admin/orders/${orderId}/garments/${garment.id}`,
         {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: edits.name ?? garment.name,
-            fabrics: edits.fabrics ?? garment.fabrics,
-            notes: edits.notes !== undefined ? edits.notes : garment.notes,
-          }),
+          name: edits.name ?? garment.name,
+          fabrics: edits.fabrics ?? garment.fabrics,
+          notes: edits.notes !== undefined ? edits.notes : garment.notes,
         },
+        'Save failed',
       );
-      if (!res.ok) throw new Error('Save failed');
 
       setGarments((prev) =>
         prev.map((g) =>
@@ -109,11 +106,7 @@ export function GarmentAccordion({ orderId, initialGarments }: Props) {
   async function deleteGarment(garmentId: string) {
     setDeletingId(garmentId);
     try {
-      const res = await fetch(
-        `/api/admin/orders/${orderId}/garments/${garmentId}`,
-        { method: 'DELETE' },
-      );
-      if (!res.ok) throw new Error('Delete failed');
+      await deleteJson(`/api/admin/orders/${orderId}/garments/${garmentId}`, undefined, 'Delete failed');
       setGarments((prev) => prev.filter((g) => g.id !== garmentId));
       message.success('Garment removed');
     } catch {
@@ -130,13 +123,11 @@ export function GarmentAccordion({ orderId, initialGarments }: Props) {
     }
     setAddingLoading(true);
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/garments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: addingName.trim() }),
-      });
-      if (!res.ok) throw new Error('Failed to add garment');
-      const garment = await res.json();
+      const garment = await postJson<Pick<Garment, 'id' | 'name' | 'notes' | 'sortOrder'> & { fabrics?: string[] }>(
+        `/api/admin/orders/${orderId}/garments`,
+        { name: addingName.trim() },
+        'Failed to add garment',
+      );
       setGarments((prev) => [...prev, { ...garment, fabrics: garment.fabrics ?? [], sizing: [], images: [], sizeChartIds: [] }]);
       setAddingName('');
       message.success('Garment added');

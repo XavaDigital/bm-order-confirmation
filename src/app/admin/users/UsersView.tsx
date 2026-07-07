@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { formatDate } from '@/lib/format';
+import { getJson, postJson, patchJson, deleteJson } from '@/lib/api-fetch';
 
 const { Title, Text } = Typography;
 
@@ -40,9 +41,7 @@ export function UsersView({ currentUserId }: UsersViewProps) {
   async function fetchUsers() {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/users');
-      if (!res.ok) throw new Error('Failed to load users');
-      setUsers(await res.json());
+      setUsers(await getJson<StaffUser[]>('/api/admin/users', 'Failed to load users'));
     } catch {
       message.error('Failed to load users');
     } finally {
@@ -55,13 +54,7 @@ export function UsersView({ currentUserId }: UsersViewProps) {
   async function handleInvite(values: { name: string; email: string; role: 'sales' | 'admin' }) {
     setInviting(true);
     try {
-      const res = await fetch('/api/admin/users', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(values),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Failed to invite user');
+      const data = await postJson<{ setupUrl?: string }>('/api/admin/users', values, 'Failed to invite user');
 
       form.resetFields();
       setInviteOpen(false);
@@ -82,13 +75,7 @@ export function UsersView({ currentUserId }: UsersViewProps) {
 
   async function handleRoleChange(id: string, role: 'sales' | 'admin') {
     try {
-      const res = await fetch(`/api/admin/users/${id}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ role }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Failed to update role');
+      await patchJson(`/api/admin/users/${id}`, { role }, 'Failed to update role');
       setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, role } : u)));
       message.success('Role updated');
     } catch (err) {
@@ -98,13 +85,7 @@ export function UsersView({ currentUserId }: UsersViewProps) {
 
   async function handleToggleActive(id: string, isActive: boolean) {
     try {
-      const res = await fetch(`/api/admin/users/${id}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ isActive }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Failed to update status');
+      await patchJson(`/api/admin/users/${id}`, { isActive }, 'Failed to update status');
       setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, isActive } : u)));
       message.success(isActive ? 'User activated' : 'User deactivated');
     } catch (err) {
@@ -114,9 +95,7 @@ export function UsersView({ currentUserId }: UsersViewProps) {
 
   async function handleDelete(id: string) {
     try {
-      const res = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Failed to delete user');
+      await deleteJson(`/api/admin/users/${id}`, undefined, 'Failed to delete user');
       setUsers((prev) => prev.filter((u) => u.id !== id));
       message.success('Invite cancelled');
     } catch (err) {

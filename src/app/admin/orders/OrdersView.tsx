@@ -10,7 +10,7 @@ import {
   Typography,
   Tabs,
 } from 'antd';
-import { FileAddOutlined, SearchOutlined } from '@ant-design/icons';
+import { FileAddOutlined, SearchOutlined, DownloadOutlined } from '@ant-design/icons';
 import Link from 'next/link';
 import type { ColumnType } from 'antd/es/table';
 import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
@@ -87,6 +87,14 @@ export function OrdersView() {
     setPage(1);
   }, [status, debouncedSearch]);
 
+  const exportHref = (() => {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (debouncedSearch) params.set('search', debouncedSearch);
+    const qs = params.toString();
+    return `/api/admin/orders/export${qs ? `?${qs}` : ''}`;
+  })();
+
   const columns: ColumnType<OrderRow>[] = [
     {
       title: 'Order #',
@@ -156,11 +164,18 @@ export function OrdersView() {
             {total} order{total !== 1 ? 's' : ''} total
           </Typography.Paragraph>
         </div>
-        <Link href="/admin/orders/new">
-          <Button type="primary" icon={<FileAddOutlined />} size="large">
-            New Order
-          </Button>
-        </Link>
+        <Space>
+          <a href={exportHref}>
+            <Button icon={<DownloadOutlined />} size="large">
+              Export CSV
+            </Button>
+          </a>
+          <Link href="/admin/orders/new">
+            <Button type="primary" icon={<FileAddOutlined />} size="large">
+              New Order
+            </Button>
+          </Link>
+        </Space>
       </div>
 
       <Space direction="vertical" style={{ width: '100%' }} size={0}>

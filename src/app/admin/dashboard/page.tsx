@@ -1,15 +1,21 @@
 import { db } from '@/db';
 import { orders } from '@/db/schema';
-import { count, sum, desc, gte, sql } from 'drizzle-orm';
+import { count, sum, desc, asc, and, gte, lte, inArray, sql } from 'drizzle-orm';
 import { getStaleOrders } from '@/server/orders/service';
 import { DashboardView } from './DashboardView';
+
+const DEADLINE_LOOKAHEAD_DAYS = 14;
 
 async function getDashboardData() {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
   sevenDaysAgo.setHours(0, 0, 0, 0);
 
-  const [countRows, valueRow, recentRows, trendRows, staleOrders] = await Promise.all([
+  const deadlineCutoff = new Date();
+  deadlineCutoff.setDate(deadlineCutoff.getDate() + DEADLINE_LOOKAHEAD_DAYS);
+  const deadlineCutoffDate = deadlineCutoff.toISOString().slice(0, 10);
+
+  const [countRows, valueRow, recentRows, trendRows, staleOrders, upcomingDeadlineRows] = await Promise.all([
     db.select({ status: orders.status, count: count() }).from(orders).groupBy(orders.status),
 
     db
@@ -40,6 +46,26 @@ async function getDashboardData() {
       .groupBy(sql`date_trunc('day', ${orders.createdAt})`),
 
     getStaleOrders(),
+
+    db
+      .select({
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        customerName: orders.customerName,
+        clubName: orders.clubName,
+        status: orders.status,
+        deadlineDate: orders.deadlineDate,
+        expectedShipDate: orders.expectedShipDate,
+      })
+      .from(orders)
+      .where(
+        and(
+          lte(orders.deadlineDate, deadlineCutoffDate),
+          inArray(orders.status, ['sent', 'viewed', 'changes_requested']),
+        ),
+      )
+      .orderBy(asc(orders.deadlineDate))
+      .limit(10),
   ]);
 
   const map = Object.fromEntries(countRows.map((r) => [r.status, Number(r.count)]));
@@ -71,6 +97,7 @@ async function getDashboardData() {
     })),
     trend,
     staleOrders,
+    upcomingDeadlines: upcomingDeadlineRows,
   };
 }
 

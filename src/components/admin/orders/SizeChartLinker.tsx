@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Select, App, Typography } from 'antd';
+import { getJson, patchJson } from '@/lib/api-fetch';
 
 interface SizeChart {
   id: string;
@@ -23,9 +24,8 @@ export function SizeChartLinker({ orderId, garmentId, initialIds }: Props) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetch('/api/admin/size-charts')
-      .then((r) => r.json())
-      .then((data: SizeChart[]) => setAllCharts(data))
+    getJson<SizeChart[]>('/api/admin/size-charts', 'Failed to load size charts')
+      .then(setAllCharts)
       .catch(() => message.error('Failed to load size charts'))
       .finally(() => setLoading(false));
   }, []);
@@ -34,12 +34,7 @@ export function SizeChartLinker({ orderId, garmentId, initialIds }: Props) {
     setSelectedIds(ids);
     setSaving(true);
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/garments/${garmentId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sizeChartIds: ids }),
-      });
-      if (!res.ok) throw new Error('Save failed');
+      await patchJson(`/api/admin/orders/${orderId}/garments/${garmentId}`, { sizeChartIds: ids }, 'Save failed');
     } catch {
       message.error('Failed to save size chart links');
     } finally {

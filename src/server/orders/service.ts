@@ -144,16 +144,8 @@ export async function createOrder(
 // Admin reads
 // ---------------------------------------------------------------------------
 
-export async function listOrders(opts?: {
-  status?: string;
-  search?: string;
-  limit?: number;
-  offset?: number;
-}) {
-  const limit = opts?.limit ?? 100;
-  const offset = opts?.offset ?? 0;
-
-  const where = and(
+function buildOrdersWhere(opts?: { status?: string; search?: string }) {
+  return and(
     opts?.status ? eq(orders.status, opts.status as never) : undefined,
     opts?.search
       ? or(
@@ -164,6 +156,18 @@ export async function listOrders(opts?: {
         )
       : undefined,
   );
+}
+
+export async function listOrders(opts?: {
+  status?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const limit = opts?.limit ?? 100;
+  const offset = opts?.offset ?? 0;
+
+  const where = buildOrdersWhere(opts);
 
   const [rows, [{ total }]] = await Promise.all([
     db.query.orders.findMany({
@@ -198,6 +202,28 @@ export async function listOrders(opts?: {
     orders: rows.map(({ access, ...o }) => ({ ...o, hasActiveToken: access.length > 0 })),
     total: Number(total),
   };
+}
+
+/**
+ * Same filtering as `listOrders()` but unpaginated — for the CSV export,
+ * which should return every matching row, not just the current page.
+ */
+export async function listOrdersForExport(opts?: { status?: string; search?: string }) {
+  return db
+    .select({
+      orderNumber: orders.orderNumber,
+      customerName: orders.customerName,
+      customerEmail: orders.customerEmail,
+      clubName: orders.clubName,
+      status: orders.status,
+      orderValueAmount: orders.orderValueAmount,
+      orderValueCurrency: orders.orderValueCurrency,
+      createdAt: orders.createdAt,
+      confirmedAt: orders.confirmedAt,
+    })
+    .from(orders)
+    .where(buildOrdersWhere(opts))
+    .orderBy(desc(orders.createdAt));
 }
 
 export type StaleOrder = {

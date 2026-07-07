@@ -180,11 +180,11 @@ duplicated across `src/app/admin/orders/OrdersView.tsx`,
 (`Number(amount).toLocaleString('en-NZ', { minimumFractionDigits: 2 })`) is
 duplicated verbatim in `OrdersView.tsx` and `src/app/o/[token]/view.tsx`.
 
-- [ ] Add `src/lib/format.ts` with `formatDate()` / `formatDateLong()` /
+- [x] Add `src/lib/format.ts` with `formatDate()` / `formatDateLong()` /
       `formatCurrency()`, centralizing the `en-NZ` locale choice.
-- [ ] Rewire the table columns / display code in `OrdersView.tsx`,
+- [x] Rewire the table columns / display code in `OrdersView.tsx`,
       `SizeChartsView.tsx`, `UsersView.tsx`, and `view.tsx` to use it.
-- [ ] Confirm rendered values are unchanged (typecheck + visual check of
+- [x] Confirm rendered values are unchanged (typecheck + visual check of
       each table/page touched).
 
 ---
@@ -198,15 +198,23 @@ new Error(data.error ?? '<fallback>')` is repeated 10+ times across
 `SizeChartLinker.tsx`, and `SizingTable.tsx`, each wrapped in its own
 try/catch/finally with different success-side effects.
 
-- [ ] Add a narrow `apiFetch<T>()` / `postJson()` / `patchJson()` utility
+- [x] Add a narrow `apiFetch<T>()` / `postJson()` / `patchJson()` utility
       that does only the request + JSON-parse + throw-on-error mechanics —
       deliberately *not* folding in loading/state management (that's the
       same bigger-shape-mismatch territory as the deferred list-view hook
-      below).
-- [ ] Rewire the call sites above to use it, keeping each site's own
+      below). Landed as `src/lib/api-fetch.ts` with `getJson()`,
+      `postJson()`, `patchJson()`, `deleteJson()`, and an `ApiError` class
+      (carries the HTTP status) so callers that branch on a real API error
+      vs. a network/parse failure — `LoginForm.tsx`, `TwoFactorForm.tsx` —
+      can still tell the two apart.
+- [x] Rewire the call sites above to use it, keeping each site's own
       try/catch/finally and success-side effects intact.
-- [ ] Confirm typecheck passes and spot-check each rewired form/flow still
-      handles both success and error responses correctly.
+- [x] Confirm typecheck passes and spot-check each rewired form/flow still
+      handles both success and error responses correctly — full suite green
+      (437/437). Updated 3 mocked `fetch` responses in
+      `GarmentAccordion.test.tsx` that omitted `.json()` (relying on the
+      old code never parsing the body on those paths) to match the real
+      API's always-JSON responses, since the shared helper always parses.
 
 ---
 

@@ -78,7 +78,7 @@ describe('GarmentAccordion', () => {
 
   it('shows an error message when adding a garment fails, without clearing the input', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response);
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, json: async () => ({}) } as Response);
     renderAccordion([]);
 
     await user.type(screen.getByPlaceholderText(/new garment name/i), 'Away Jersey');
@@ -102,7 +102,7 @@ describe('GarmentAccordion', () => {
 
   it('saving an edited garment PATCHes it and clears the unsaved badge', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true } as Response);
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response);
     renderAccordion([garment({ name: 'Home Jersey' })]);
 
     const nameInput = screen.getByDisplayValue('Home Jersey');
@@ -135,7 +135,7 @@ describe('GarmentAccordion', () => {
 
   it('deleting a garment asks for confirmation, then DELETEs it and removes it from the list', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true } as Response);
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response);
     renderAccordion([garment({ id: 'garment-1', name: 'Home Jersey' })]);
 
     await user.click(screen.getByRole('button', { name: /delete garment/i }));

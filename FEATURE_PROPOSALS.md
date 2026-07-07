@@ -9,6 +9,14 @@ not a full CRM.
 
 ## 1. Stale-order reminders
 
+**Status: recommended variant done.** The "cheapest version" below shipped —
+`getStaleOrders()` exists in `src/server/orders/service.ts:222` (using
+`domain_events` as the staleness clock, per the gotcha below, not
+`orders.updatedAt`) and the dashboard renders it
+(`dashboard/page.tsx:42`). The cron/email variants remain unbuilt and
+optional — only revisit them if the widget alone doesn't change follow-up
+behavior.
+
 **Problem:** Once an order is emailed to a customer (`status = 'sent'`), nothing
 prompts staff to follow up if the customer never opens it, or opens it
 (`status = 'viewed'`) and then goes quiet. Today the only way to notice is a
@@ -205,6 +213,14 @@ affordance on:
 
 ## 3. CSV export of the orders list
 
+**Status: done.** `GET /api/admin/orders/export` (session-guarded, added since
+the plain list `GET` had none) accepts the same `status`/`search` params as
+the list endpoint, calls the new unpaginated `listOrdersForExport()`
+(`service.ts`), and streams a hand-rolled CSV (`src/lib/csv.ts`) — RFC 4180
+quoting plus formula-injection neutralization for customer-supplied cells.
+"Export CSV" button added to `OrdersView.tsx`'s header, next to "New Order",
+using the view's current status/search state as a plain `<a>` download.
+
 **Problem:** Sales reporting currently means manually reading the orders
 table in the UI. There's a per-order PDF export (`OrderPdf.tsx` +
 `/api/admin/orders/[id]/pdf/route.tsx`) but nothing for the list as a whole.
@@ -355,6 +371,14 @@ placeholder text is already correct, only the query needs to catch up to it.
 ---
 
 ## 5. Dashboard: upcoming deadlines / ship dates widget
+
+**Status: done.** `getDashboardData()` (`dashboard/page.tsx`) queries orders
+with a non-null `deadlineDate` within a 14-day lookahead and status in
+`sent`/`viewed`/`changes_requested` (drafts excluded, confirmed excluded),
+ordered soonest-first. Rendered as an "Upcoming Deadlines" card in
+`DashboardView.tsx` next to "Recent Orders", each row labelled "due in N
+days" / "due today" / "overdue by N days" via local-midnight date-only
+comparison (no timezone math on the underlying `date` columns).
 
 **Problem:** `orders.expectedShipDate` and `orders.deadlineDate`
 (`schema.ts:97-98`) are captured on every order but never surfaced anywhere
@@ -624,29 +648,320 @@ in practice to justify the effort.
 
 ---
 
+## 9. Fix: magic links never actually expire (dormant `expiresAt`)
+
+**Another bug wearing a feature's clothes**, same family as #4. The expiry
+machinery is half-built: enforcement exists everywhere, but nothing in
+production code ever *sets* an expiry, so every check is vacuously true and
+customer links live forever.
+
+**The mismatch, verified:**
+
+- `orderAccess.expiresAt` exists in the schema (`schema.ts:132`).
+- It is **enforced in four places** — `service.ts:535`
+  (`verifyAccessToken`-style lookup), `customer-service.ts:32`,
+  `customer-service.ts:120`, and `customer-service.ts:176` all do
+  `if (access.expiresAt && access.expiresAt.getTime() < Date.now()) return null`.
+- But the only code that ever **writes** `expiresAt` is the seed scripts
+  (`seed-demo.ts:210` etc. set 30 days). The two real insert sites —
+  `createOrder()` at `service.ts:137` and `generateAccessToken()` at
+  `service.ts:490` — insert `{ orderId, tokenHash }` and nothing else.
+
+So a magic link emailed today is valid indefinitely. For an app whose brief
+stores tokens hashed specifically so "a DB leak never exposes a live link"
+(`schema.ts:127-129`), an unbounded link lifetime is out of step with its own
+security posture: an old email forwarded months later still opens the order.
+
+### Proposed implementation
+
+1. Add `LINK_EXPIRY_DAYS: z.coerce.number().optional()` to `src/lib/env.ts`,
+   following the existing optional-config pattern (`CRON_SECRET` at
+   `env.ts:18`, `SMTP_HOST` at `env.ts:50`). Unset → no expiry → exactly
+   today's behavior; this keeps the change zero-risk to roll out.
+2. In both insert sites (`service.ts:137`, `service.ts:490`), compute
+   `expiresAt: env.LINK_EXPIRY_DAYS ? new Date(Date.now() + days * 86_400_000) : null`
+   — a shared 3-line helper next to `generateOrderNumber()` keeps the two
+   sites in sync.
+3. Suggested default once enabled: 30 days (matches what the seed data
+   already assumes).
+
+### Gotchas to watch for
+
+- **Expired and invalid are indistinguishable to the customer today** — all
+  four enforcement sites return `null`, which surfaces as the generic
+  not-found state. That's acceptable for v1 (fail closed, no information
+  leak), but the friendlier version — an "this link has expired, contact us
+  for a fresh one" page — requires the lookup functions to return a
+  discriminated result instead of `null`. Worth doing only if customers
+  actually start hitting expiries; don't build it speculatively.
+- Recovery is already one click: the "Resend link" header button (#2, done)
+  and ShareLinkPanel's "Email to customer" both mint a fresh token. That's
+  what makes this safe to turn on — an expired link costs the customer one
+  email to support, not a stuck order.
+- Existing `order_access` rows keep `expiresAt = null` and never expire.
+  That's fine (additive, no retroactive breakage), but if a hard cutover is
+  ever wanted, staff resending from the UI naturally rotates old tokens out.
+- ShareLinkPanel already displays `tokenCreatedAt`
+  (`ShareLinkPanel.tsx:113-117`) — once expiry is real, showing "expires
+  {date}" in the same spot is a two-line follow-up that saves staff
+  guessing why a customer says the link stopped working.
+
+---
+
+## 10. Customer confirmation receipt email
+
+**Problem:** When a customer confirms, *staff* get an email
+(`notifyStaffOfConfirmation`, wired as an outbox handler) — but the customer
+gets nothing. Their only record of what they agreed to is the status page
+they saw once, on whatever device they happened to confirm from. For an app
+whose entire purpose is capturing a defensible "here's what was agreed"
+moment (immutable snapshot, signature, IP — `confirmations`,
+`schema.ts:235-250`), it's odd that only one side of the agreement gets a
+copy.
+
+**Why it fits:** This is the textbook use of the existing outbox — CLAUDE.md
+literally describes the pattern as "Google Ads conversion is a consumer of
+`order.confirmed`." This adds a third consumer to an array. No migration, no
+new route, no cron changes.
+
+### What exists today (reuse, don't rebuild)
+
+- `src/server/events/processor.ts:55-58` — the `EVENT_HANDLERS` registry:
+  `'order.confirmed': [handleGoogleAdsConversion, handleConfirmationEmail]`.
+  The new handler is literally a third element in this array.
+- `src/server/orders/notifications.ts:46-75` — `notifyStaffOfConfirmation`
+  is the exact shape to copy: `isEmailConfigured()` guard (degrades
+  gracefully when SMTP is unset), fetch the order, send. The customer
+  variant is simpler — no staff lookup needed, `order.customerEmail` is
+  right on the row.
+- `src/lib/email.ts` — four senders exist (`sendMagicLink:170`,
+  `sendInviteEmail:230`, `sendStaffChangeRequestEmail:268`,
+  `sendStaffConfirmationEmail:327`); `sendMagicLink` is the only
+  customer-facing one and shows the established customer-tone template to
+  copy.
+
+### Proposed implementation
+
+1. `sendCustomerReceiptEmail()` in `email.ts` — order number, customer name,
+   a short garment summary (names + quantities), confirmed-at date, and "if
+   anything looks wrong, reply to this email." Keep it text-first like the
+   existing templates.
+2. `notifyCustomerOfConfirmation(orderId, orderNumber, confirmedAt)` in
+   `notifications.ts`, copying the staff function minus the staff lookup.
+3. Register it as a third handler on `'order.confirmed'` in
+   `processor.ts:55-58`.
+
+### Gotchas to watch for
+
+- **Outbox failure semantics — the one real design point here.** The
+  processor marks the *whole event* `failed` if *any* handler throws
+  (`processor.ts:91-110`), and failed events are never retried —
+  `processOutbox()` only selects `status = 'pending'` (`processor.ts:74`).
+  So a customer-email bounce after Google Ads already fired would strand the
+  event as `failed` with no retry. This is already true for the staff email
+  today, so it's not a new class of bug — but adding a third handler raises
+  the odds of hitting it. Cheapest mitigation: make the receipt handler
+  best-effort (catch-and-log inside the handler rather than throwing) — a
+  missed receipt is a shrug, not a stuck queue.
+- **Don't include a magic link in the receipt.** The order is confirmed; the
+  link's job is done. Minting a fresh token just for the receipt would churn
+  `order_access` rows for zero benefit, and reusing the old one is
+  impossible anyway (tokens are stored hashed, per #1's gotcha).
+- Content-wise, everything in the receipt is data the customer has already
+  seen on the confirmation page — no new exposure surface. Resist the
+  temptation to attach the PDF (`OrderPdf.tsx` is admin-shaped, renders from
+  live admin data not the confirmed snapshot, and attachment plumbing is new
+  weight); a plain summary email is the light-app answer.
+
+---
+
+## 11. Cancel a dead order (add a `cancelled` status)
+
+**Problem:** There is currently **no way to get a dead deal out of the
+list.** The status enum (`schema.ts:31-37`) is `draft → sent → viewed →
+confirmed / changes_requested` — no terminal "this isn't happening" state —
+and `deleteOrder()` refuses anything past draft (`service.ts:351-358`,
+`ConflictError: 'Only draft orders can be deleted'`, surfaced as a 409 by
+`orders/[id]/route.ts:36-47`). So an order that was sent and then died
+(customer ghosted, club folded, deal lost) sits in `sent`/`viewed` forever:
+inflating the dashboard counts, polluting the now-live stale-orders widget
+(#1) with orders staff have already written off, and keeping a live magic
+link pointing at an order nobody intends to fulfil.
+
+**Why it fits:** One additive enum value plus a small guarded transaction —
+the same shape as the existing confirm/revoke flows. The draft-only delete
+guard stays exactly as is (it's correct — sent orders have an audit trail
+worth keeping; that's precisely why they can't be hard-deleted).
+
+### Proposed implementation
+
+1. **Migration:** add `'cancelled'` to the `order_status` enum. Postgres
+   `ALTER TYPE ... ADD VALUE` is additive, satisfying the CLAUDE.md
+   migration rule; `npm run db:generate` produces it from the schema change.
+2. **Service:** `cancelOrder(id, meta)` in `service.ts`, as a guarded
+   transaction copying `generateAccessToken()`'s shape (`service.ts:483-503`):
+   - Conflict-guard: refuse if status is already `confirmed` (mirroring the
+     existing confirm-race guard pattern) or `cancelled`.
+   - Set `status: 'cancelled'`, bump `updatedAt`.
+   - Revoke active tokens — the same
+     `update(orderAccess).set({ revokedAt }).where(orderId, revokedAt is null)`
+     block that `generateAccessToken` already runs (`service.ts:485-488`),
+     so the customer's link immediately stops working.
+   - `emitDomainEvent` with a new `'order.cancelled'` type, same call shape
+     as `service.ts:498-502`.
+3. **Route:** `POST /api/admin/orders/[id]/cancel` following the standard
+   admin-route shape (session for `actorEmail`, `NotFoundError` → 404,
+   `ConflictError` → 409).
+4. **UI:** a "Cancel order" button in the `OrderDetailView` header behind a
+   `Popconfirm` (the existing Delete button's treatment), shown for
+   `sent`/`viewed`/`changes_requested`. Draft keeps its Delete button.
+
+### Touch points (the real cost of a new status)
+
+This is the part that makes it heavier than it looks — a new enum value
+fans out to every place that switches on status:
+
+- `OrderStatusBadge.tsx` — new color/label case.
+- `OrdersView.tsx` `STATUS_TABS` — add a Cancelled tab (or fold into a
+  filter; a tab matches the existing pattern).
+- Dashboard counts map (`dashboard/page.tsx:45-53`) — add `cancelled`, and
+  decide whether the headline **total value sum** (`dashboard/page.tsx:15-18`,
+  currently sums *all* orders including drafts) should exclude cancelled —
+  it almost certainly should, and arguably this feature is what makes that
+  number honest for the first time.
+- `getStaleOrders()` (`service.ts:222-233`) — already safe: it filters to
+  `sent`/`viewed` only, so cancelled orders drop out of the widget
+  automatically. This is half the point of the feature.
+- `AuditLogTab.tsx:29-65` — icon/label/color for `'order.cancelled'`.
+- The customer-facing side needs nothing: revoked tokens already surface as
+  the not-found state.
+
+### Gotchas to watch for
+
+- **No un-cancel.** Resist building a "reactivate" path — it reopens every
+  question about stale tokens and status history for a case that's rare by
+  definition. If a cancelled deal revives, staff re-send a fresh link (which
+  un-sticks the status via the existing draft→sent logic — verify the
+  transition, or simply document "duplicate the order" (#8) as the revival
+  path once that exists).
+- `ALTER TYPE ... ADD VALUE` has a Postgres quirk: the new value can't be
+  *used* in the same transaction that adds it (relevant if a future
+  migration both adds the value and backfills rows — keep those as separate
+  migration files). Adding the value alone, as here, is unaffected on
+  Supabase's Postgres.
+- Keep `POST /api/orders` (the public contract, `contract.ts`) untouched —
+  external callers should never create or set a cancelled order; cancelling
+  is a staff decision made after the fact.
+
+---
+
+## 12. Staff "last login" column
+
+**Problem:** `UsersView.tsx` shows Name / Email / Role / Status / Active /
+Joined (`UsersView.tsx:106-194`) — but nothing about whether an account is
+actually *used*. An admin deciding whether to deactivate a departed
+salesperson's account, or auditing after an incident, has no signal beyond
+"joined eight months ago." For an app that already invested in 2FA, hashed
+invite tokens, and a last-admin guard, "which accounts are dormant" is the
+cheap missing piece of the same story.
+
+### Proposed implementation
+
+1. **Migration (additive):** `lastLoginAt: timestamp('last_login_at',
+   { withTimezone: true })` on `staffUsers` (`schema.ts:60-75`), nullable —
+   null reads naturally as "never logged in" for invited-but-inactive
+   accounts.
+2. **Stamp it in `loginStaff()`** (`src/server/auth/service.ts:21-33`): one
+   `db.update(staffUsers).set({ lastLoginAt: new Date() })` after the
+   password check passes. Fire-and-forget semantics are fine — a failed
+   stamp shouldn't fail a login.
+3. **UI:** one more column in `UsersView.tsx` next to "Joined"
+   (`UsersView.tsx:188-189`), rendered with the same date formatting, with
+   `—` for null.
+
+### Gotchas to watch for
+
+- **Where the stamp goes matters because of 2FA.** `loginStaff()` succeeds
+  at the *password* stage; users with TOTP enabled aren't fully in until
+  `/api/auth/2fa/verify` completes. Stamping in `loginStaff()` records
+  "credentials verified" (fine for a dormancy signal, and one call site);
+  stamping only after 2FA completion is more precise but needs the update
+  in two places (password-only path and 2FA-verify path). For the stated
+  purpose — spotting dead accounts — the `loginStaff()` stamp is enough;
+  don't build the two-site version unless this ever feeds a real audit
+  requirement.
+- Don't add sorting/filtering on the column — at a staff table's size
+  (single digits), eyeballing is fine, and #6's "keep sortable surface
+  small" logic applies double here.
+
+---
+
+## 13. Per-order access code — finish or consciously drop `accessCodeHash`
+
+**The situation:** `orderAccess.accessCodeHash` (`schema.ts:131`) was
+designed in from the start — "only set when the optional per-order
+confirmation code is enabled (default off)," per its own comment and BRIEF
+§7 — but it is **completely dormant**: a repo-wide search finds no code that
+writes it and no code that checks it. Unlike #9 (where enforcement existed
+and only the write was missing), here *neither* side exists. The magic link
+is the sole factor protecting an order page.
+
+**Listed last on purpose:** this is the heaviest item in this document and
+the only one that touches customer-facing UX flow. It's included less as a
+recommendation and more so the dormant column doesn't sit unexplained
+forever.
+
+### If building it
+
+1. Admin side: a "Require access code" toggle in `ShareLinkPanel` that
+   generates a short numeric code, stores its hash (same SHA-256 + pepper
+   pattern as `src/lib/tokens.ts`), and shows the raw code once — identical
+   show-once semantics to the link itself. Staff relay the code out-of-band
+   (phone/text), which is the entire security value: possession of the
+   email alone stops being enough.
+2. Customer side: when `accessCodeHash` is set, `/o/[token]` renders a code
+   prompt before the order; on match (rate-limited — reuse
+   `rateLimitedResponse`, the pattern in `request-changes/route.ts:12-14`),
+   set a short-lived cookie or just gate per-request.
+
+### If not building it
+
+Also a legitimate outcome: the column is nullable, invisible, and
+safe-by-construction (nothing reads it) — the honest move is a one-line
+comment update in `schema.ts` marking it reserved-but-unimplemented, so the
+next reader doesn't assume protection that isn't there. **Decide based on
+whether any real order has ever needed more than link-possession security;
+if that's never come up, leave it dormant.**
+
+---
+
 ## Suggested order of implementation
 
-Across everything in this document, roughly lightest to heaviest:
+**Done:** #4 (email search), #2 (resend button), #1's recommended variant
+(stale-orders dashboard widget), #3 (CSV export), #5 (upcoming-deadlines
+dashboard widget).
 
-1. **Fix orders search to include email** (#4) — a one-line query change;
-   arguably should just be done immediately rather than "proposed."
-2. **CSV export** (#3) — smallest self-contained feature, no email/cron
-   dependencies, immediate reporting value.
-3. **Resend button on the Details tab** (#2) — UI-only change against an
-   endpoint that already exists.
-4. **Upcoming-deadlines dashboard widget** (#5) — read-only query, same
-   shape as existing dashboard queries.
-5. **Sortable list columns** (#6) — small UI change plus one validated query
-   parameter; slightly more surface than the widget because it touches the
+Remaining, roughly lightest to heaviest:
+
+1. **Magic-link expiry** (#9) — a handful of lines across two insert sites
+   plus one optional env var; no migration, and unset config preserves
+   today's behavior exactly. Like #4 was, this is really a fix.
+2. **Staff last-login column** (#12) — one additive column, one update
+   statement, one table column.
+3. **Customer receipt email** (#10) — no migration and pure
+   pattern-copying, but it has email copy to write and the outbox
+   failure-semantics decision to make.
+4. **Sortable list columns** (#6) — small UI change plus one validated query
+   parameter; slightly more surface than the widgets because it touches the
    shared `listOrders()` signature.
-6. **Stale-order dashboard widget** (#1, cheapest variant only — skip the
-   cron/email version for now) — same shape as the deadlines widget, listed
-   after it only because it depends on reasoning about `domain_events`
-   instead of a plain column.
-7. **Internal staff-only notes** (#7) — needs a migration and touches
+5. **Internal staff-only notes** (#7) — needs a migration and touches
    several consumers (even though each touch point is "make sure it's *not*
    there"), so more moving parts than anything above.
-8. **Duplicate / "Create similar" order** (#8) — save for last; real product
-   decisions to make (what to copy) and the most new surface area of
-   anything here. Only worth building if repeat orders turn out to be common
-   enough in practice.
+6. **Cancel a dead order** (#11) — the enum migration is trivial but the
+   status fans out to every UI surface that switches on it; budget for the
+   touch-point list, not the service function.
+7. **Duplicate / "Create similar" order** (#8) — real product decisions to
+   make (what to copy) and the most new surface area of anything here. Only
+   worth building if repeat orders turn out to be common enough in practice.
+8. **Per-order access code** (#13) — last, and possibly never; read that
+    section's "if not building it" option before starting it.

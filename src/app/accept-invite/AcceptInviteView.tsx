@@ -6,6 +6,7 @@ import { Form, Input, Button, Typography, Alert } from 'antd';
 import { LockOutlined } from '@ant-design/icons';
 import { APP_NAME } from '@/lib/config';
 import { AuthCard } from '@/components/auth/AuthCard';
+import { postJson } from '@/lib/api-fetch';
 
 const { Title, Text } = Typography;
 
@@ -26,13 +27,7 @@ export function AcceptInviteView() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/auth/accept-invite', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ token, password: values.password }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Failed to set up account');
+      await postJson('/api/auth/accept-invite', { token, password: values.password }, 'Failed to set up account');
       setDone(true);
       setTimeout(() => router.push('/login?invited=1'), 2000);
     } catch (err) {

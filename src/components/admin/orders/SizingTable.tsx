@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Table, Input, Button, Space, App, Popconfirm, Typography } from 'antd';
 import { PlusOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons';
 import type { ColumnType } from 'antd/es/table';
+import { postJson } from '@/lib/api-fetch';
 
 interface SizingRow {
   key: string; // local key for React, not stored in DB
@@ -67,15 +68,7 @@ export function SizingTable({ orderId, garmentId, initialRows }: Props) {
         notes: r.notes || null,
         sortOrder: i,
       }));
-      const res = await fetch(
-        `/api/admin/orders/${orderId}/garments/${garmentId}/sizing`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        },
-      );
-      if (!res.ok) throw new Error('Failed to save');
+      await postJson(`/api/admin/orders/${orderId}/garments/${garmentId}/sizing`, body, 'Failed to save');
       message.success('Sizing saved');
     } catch {
       message.error('Failed to save sizing');

@@ -13,6 +13,7 @@ import {
   DollarOutlined,
   ArrowRightOutlined,
   WarningOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons';
 import {
   BarChart,
@@ -59,6 +60,16 @@ type StaleOrder = {
   daysStale: number;
 };
 
+type UpcomingDeadline = {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  clubName: string | null;
+  status: string;
+  deadlineDate: string | null;
+  expectedShipDate: string | null;
+};
+
 interface Props {
   counts: {
     draft: number;
@@ -72,6 +83,7 @@ interface Props {
   trend: Array<{ date: string; label: string; count: number }>;
   recentOrders: RecentOrder[];
   staleOrders: StaleOrder[];
+  upcomingDeadlines: UpcomingDeadline[];
 }
 
 function formatNZD(value: number) {
@@ -87,6 +99,19 @@ function timeAgo(iso: string) {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+/** `deadlineDate` is a date-only string (YYYY-MM-DD) — compare at local midnight to avoid off-by-one boundary bugs. */
+function deadlineLabel(dateStr: string) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(`${dateStr}T00:00:00`);
+  const diffDays = Math.round((target.getTime() - today.getTime()) / 86_400_000);
+
+  if (diffDays < 0) return `overdue by ${-diffDays} ${-diffDays === 1 ? 'day' : 'days'}`;
+  if (diffDays === 0) return 'due today';
+  if (diffDays === 1) return 'due tomorrow';
+  return `due in ${diffDays} days`;
 }
 
 /** Shared row shape for the "Recent Orders" and "Needs Follow-up" lists below. */
@@ -152,7 +177,7 @@ function DashboardOrderListItem({
   );
 }
 
-export function DashboardView({ counts, totalValueNZD, trend, recentOrders, staleOrders }: Props) {
+export function DashboardView({ counts, totalValueNZD, trend, recentOrders, staleOrders, upcomingDeadlines }: Props) {
   const pieData = [
     { name: 'Draft', value: counts.draft, key: 'draft' },
     { name: 'Sent', value: counts.sent, key: 'sent' },
@@ -417,9 +442,9 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
         </Col>
       </Row>
 
-      {/* Recent orders */}
+      {/* Recent orders + upcoming deadlines */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24}>
+        <Col xs={24} lg={14}>
           <Card
             title="Recent Orders"
             extra={
@@ -445,6 +470,35 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
                 />
               )}
               locale={{ emptyText: 'No orders yet' }}
+            />
+          </Card>
+        </Col>
+
+        {/* Upcoming deadlines: sent/viewed/changes-requested orders due (or overdue) within the lookahead window */}
+        <Col xs={24} lg={10}>
+          <Card
+            title={
+              <Space size={8}>
+                <CalendarOutlined />
+                Upcoming Deadlines
+                {upcomingDeadlines.length > 0 && <Badge count={upcomingDeadlines.length} />}
+              </Space>
+            }
+            styles={{ body: { padding: 0 } }}
+          >
+            <List
+              dataSource={upcomingDeadlines}
+              renderItem={(order) => (
+                <DashboardOrderListItem
+                  id={order.id}
+                  customerName={order.customerName}
+                  clubName={order.clubName}
+                  orderNumber={order.orderNumber}
+                  status={order.status}
+                  trailing={order.deadlineDate ? deadlineLabel(order.deadlineDate) : '—'}
+                />
+              )}
+              locale={{ emptyText: 'Nothing due in the next two weeks.' }}
             />
           </Card>
         </Col>

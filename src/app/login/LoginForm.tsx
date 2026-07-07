@@ -6,6 +6,7 @@ import { Form, Input, Button, Typography, Alert } from 'antd';
 import { LockOutlined, MailOutlined } from '@ant-design/icons';
 import { APP_NAME, APP_TAGLINE } from '@/lib/config';
 import { AuthCard } from '@/components/auth/AuthCard';
+import { postJson, ApiError } from '@/lib/api-fetch';
 
 const { Title } = Typography;
 
@@ -25,18 +26,7 @@ export function LoginForm() {
     setError(null);
 
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error ?? 'Login failed');
-        return;
-      }
+      const data = await postJson<{ requiresMfa?: boolean }>('/api/auth/login', values, 'Login failed');
 
       if (data.requiresMfa) {
         router.push('/login/2fa');
@@ -46,8 +36,8 @@ export function LoginForm() {
       const from = searchParams.get('from') ?? '/admin/dashboard';
       router.push(from);
       router.refresh();
-    } catch {
-      setError('An unexpected error occurred. Please try again.');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }

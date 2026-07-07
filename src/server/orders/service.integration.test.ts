@@ -15,6 +15,7 @@ import { createOrderSchema } from './contract';
 import {
   createOrder,
   listOrders,
+  listOrdersForExport,
   getOrderAdmin,
   getOrderById,
   updateOrder,
@@ -147,6 +148,38 @@ describe('listOrders', () => {
     await revokeAccessToken(created.orderId);
     const withoutToken = await listOrders();
     expect(withoutToken.orders[0].hasActiveToken).toBe(false);
+  });
+});
+
+describe('listOrdersForExport', () => {
+  it('applies the same status/search filters as listOrders, with no row limit', async () => {
+    const a = await createOrder(
+      minimalInput({ customer: { name: 'Alpha Club', email: 'a@example.com' } }),
+    );
+    await createOrder(
+      minimalInput({ customer: { name: 'Beta Club', email: 'b@example.com' } }),
+    );
+    await updateOrder(a.orderId, { status: 'sent' });
+
+    const all = await listOrdersForExport();
+    expect(all).toHaveLength(2);
+
+    const sentOnly = await listOrdersForExport({ status: 'sent' });
+    expect(sentOnly).toHaveLength(1);
+    expect(sentOnly[0].customerName).toBe('Alpha Club');
+
+    const searched = await listOrdersForExport({ search: 'beta' });
+    expect(searched).toHaveLength(1);
+    expect(searched[0].customerName).toBe('Beta Club');
+  });
+
+  it('does not cap results at listOrders()\'s default limit of 100', async () => {
+    for (let i = 0; i < 101; i++) {
+      await createOrder(minimalInput({ customer: { name: `Customer ${i}`, email: `c${i}@example.com` } }));
+    }
+
+    const exported = await listOrdersForExport();
+    expect(exported).toHaveLength(101);
   });
 });
 

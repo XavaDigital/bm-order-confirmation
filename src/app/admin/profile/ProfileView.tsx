@@ -22,6 +22,7 @@ import {
   ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import Image from 'next/image';
+import { postJson, deleteJson } from '@/lib/api-fetch';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -64,13 +65,7 @@ export function ProfileView({ user }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/admin/auth/2fa/setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: values.password }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Setup failed');
+      const data = await postJson<SetupData>('/api/admin/auth/2fa/setup', { password: values.password }, 'Setup failed');
       setSetupData(data);
       setSetupStep(1);
     } catch (e) {
@@ -84,13 +79,7 @@ export function ProfileView({ user }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/admin/auth/2fa/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: values.code.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Invalid code');
+      const data = await postJson<{ backupCodes: string[] }>('/api/admin/auth/2fa/confirm', { code: values.code.trim() }, 'Invalid code');
       setBackupCodes(data.backupCodes);
       setSetupStep(2);
       fetchStatus();
@@ -105,13 +94,7 @@ export function ProfileView({ user }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/admin/auth/2fa/disable', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: values.password }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Failed to disable');
+      await deleteJson('/api/admin/auth/2fa/disable', { password: values.password }, 'Failed to disable');
       setDisableModalOpen(false);
       setSetupData(null);
       setBackupCodes(null);

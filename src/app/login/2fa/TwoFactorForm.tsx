@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Form, Input, Button, Typography, Alert, Divider } from 'antd';
 import { SafetyCertificateOutlined } from '@ant-design/icons';
 import { AuthCard } from '@/components/auth/AuthCard';
+import { postJson, ApiError } from '@/lib/api-fetch';
 
 const { Title } = Typography;
 
@@ -19,23 +20,12 @@ export function TwoFactorForm() {
     setError(null);
 
     try {
-      const res = await fetch('/api/auth/2fa/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: values.code.trim() }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error ?? 'Verification failed');
-        return;
-      }
+      await postJson('/api/auth/2fa/verify', { code: values.code.trim() }, 'Verification failed');
 
       router.push('/admin/dashboard');
       router.refresh();
-    } catch {
-      setError('An unexpected error occurred. Please try again.');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
