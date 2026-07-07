@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { addGarment } from '@/server/orders/service';
 import { addGarmentSchema } from '@/server/orders/admin-contract';
+import { badRequest } from '@/lib/api-responses';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -10,7 +11,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const parsed = addGarmentSchema.safeParse(body);
 
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 });
+    return badRequest(parsed.error);
   }
 
   try {

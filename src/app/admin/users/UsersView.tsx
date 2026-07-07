@@ -10,6 +10,7 @@ import {
   ClockCircleOutlined, StopOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { formatDate } from '@/lib/format';
 
 const { Title, Text } = Typography;
 
@@ -208,8 +209,7 @@ export function UsersView({ currentUserId }: UsersViewProps) {
       title: 'Joined',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      render: (val: string) =>
-        new Date(val).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' }),
+      render: (val: string) => formatDate(val),
     },
     {
       title: 'Actions',

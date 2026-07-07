@@ -2,34 +2,26 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'node:crypto';
 import { addMockupImage } from '@/server/orders/service';
 import { uploadFile, getSignedUrl, mockupKey } from '@/lib/storage';
+import { parseMultipartFormData, parseUploadedFile } from '@/lib/uploads';
 
 type Params = { params: Promise<{ id: string; garmentId: string }> };
 
-const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export async function POST(request: NextRequest, { params }: Params) {
   const { id: orderId, garmentId } = await params;
 
-  let formData: FormData;
-  try {
-    formData = await request.formData();
-  } catch {
-    return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 });
-  }
+  const formData = await parseMultipartFormData(request);
+  if (formData instanceof NextResponse) return formData;
 
-  const file = formData.get('file');
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: 'Missing "file" field' }, { status: 400 });
-  }
-
-  if (!ALLOWED_TYPES.has(file.type)) {
-    return NextResponse.json({ error: 'Only JPEG, PNG, WebP and GIF images are allowed' }, { status: 400 });
-  }
-
-  if (file.size > MAX_BYTES) {
-    return NextResponse.json({ error: 'File exceeds 10 MB limit' }, { status: 400 });
-  }
+  const upload = await parseUploadedFile(formData, {
+    allowedTypes: ALLOWED_TYPES,
+    maxBytes: MAX_BYTES,
+    typeErrorMessage: 'Only JPEG, PNG, WebP and GIF images are allowed',
+  });
+  if (upload instanceof NextResponse) return upload;
+  const { file, buffer } = upload;
 
   const caption = (formData.get('caption') as string | null) ?? null;
   const ext = file.name.split('.').pop() ?? 'jpg';
@@ -37,7 +29,6 @@ export async function POST(request: NextRequest, { params }: Params) {
   const key = mockupKey(orderId, garmentId, filename);
 
   try {
-    const buffer = Buffer.from(await file.arrayBuffer());
     await uploadFile(key, buffer, file.type);
 
     const image = await addMockupImage(garmentId, { storageKey: key, caption });

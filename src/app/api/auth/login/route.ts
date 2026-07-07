@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { loginStaff, AuthError } from '@/server/auth/service';
 import { getSession } from '@/lib/session';
-import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
+import { getClientIp, rateLimitedResponse } from '@/lib/rate-limit';
 
 const bodySchema = z.object({
   email: z.string().email(),
@@ -11,16 +11,8 @@ const bodySchema = z.object({
 
 export async function POST(request: NextRequest) {
   const ip = getClientIp(request.headers);
-  const rl = checkRateLimit(`login:${ip}`, 10, 15 * 60 * 1_000);
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { error: 'Too many login attempts. Please try again later.' },
-      {
-        status: 429,
-        headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1_000)) },
-      },
-    );
-  }
+  const rateLimited = rateLimitedResponse(`login:${ip}`, 10, 15 * 60 * 1_000, 'Too many login attempts. Please try again later.');
+  if (rateLimited) return rateLimited;
 
   const body = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(body);

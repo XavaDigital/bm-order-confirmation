@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { listSizeCharts, createSizeChart } from '@/server/size-charts/service';
+import { parseMultipartFormData, parseUploadedFile } from '@/lib/uploads';
 
 const ALLOWED_TYPES: Record<string, string> = {
   'application/pdf': 'pdf',
@@ -21,46 +22,32 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  let formData: FormData;
-  try {
-    formData = await request.formData();
-  } catch {
-    return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 });
-  }
+  const formData = await parseMultipartFormData(request);
+  if (formData instanceof NextResponse) return formData;
 
   const name = (formData.get('name') as string | null)?.trim();
   const description = (formData.get('description') as string | null)?.trim() || null;
-  const file = formData.get('file');
 
   const nameResult = z.string().min(1).safeParse(name);
   if (!nameResult.success) {
     return NextResponse.json({ error: 'Name is required' }, { status: 400 });
   }
 
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: 'Missing "file" field' }, { status: 400 });
-  }
-
-  const ext = ALLOWED_TYPES[file.type];
-  if (!ext) {
-    return NextResponse.json(
-      { error: 'Only PDF, JPEG, PNG and WebP files are allowed' },
-      { status: 400 },
-    );
-  }
-
-  if (file.size > MAX_BYTES) {
-    return NextResponse.json({ error: 'File exceeds 20 MB limit' }, { status: 400 });
-  }
+  const upload = await parseUploadedFile(formData, {
+    allowedTypes: Object.keys(ALLOWED_TYPES),
+    maxBytes: MAX_BYTES,
+    typeErrorMessage: 'Only PDF, JPEG, PNG and WebP files are allowed',
+  });
+  if (upload instanceof NextResponse) return upload;
+  const { file, buffer } = upload;
 
   try {
-    const buffer = Buffer.from(await file.arrayBuffer());
     const chart = await createSizeChart({
       name: nameResult.data,
       description,
       buffer,
       mimeType: file.type,
-      ext,
+      ext: ALLOWED_TYPES[file.type],
     });
     return NextResponse.json(chart, { status: 201 });
   } catch (err) {

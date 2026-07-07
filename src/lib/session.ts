@@ -1,5 +1,6 @@
 import { getIronSession } from 'iron-session';
 import type { SessionOptions } from 'iron-session';
+import { NextResponse } from 'next/server';
 import { env } from '@/lib/env';
 
 export interface SessionData {
@@ -28,4 +29,12 @@ export async function getSession() {
   const { cookies } = await import('next/headers');
   const cookieStore = await cookies();
   return getIronSession<SessionData>(cookieStore, sessionOptions);
+}
+
+/** Guards a Route Handler to admin-only staff. Returns `{ error }` to short-circuit, or `{ session }`. */
+export async function requireAdmin() {
+  const session = await getSession();
+  if (!session.userId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
+  if (session.role !== 'admin') return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
+  return { session };
 }

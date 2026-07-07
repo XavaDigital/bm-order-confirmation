@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { confirmOrder, REQUIRED_ACK_KEYS } from '@/server/orders/customer-service';
-import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
+import { getClientIp, rateLimitedResponse } from '@/lib/rate-limit';
+import { badRequest } from '@/lib/api-responses';
 
 const ackSchema = z.object({
   key: z.enum(REQUIRED_ACK_KEYS),
@@ -19,25 +20,14 @@ const bodySchema = z.object({
 
 export async function POST(request: NextRequest) {
   const ip = getClientIp(request.headers);
-  const rl = checkRateLimit(`confirm:${ip}`, 10, 15 * 60 * 1_000);
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { error: 'Too many requests. Please try again later.' },
-      {
-        status: 429,
-        headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1_000)) },
-      },
-    );
-  }
+  const rateLimited = rateLimitedResponse(`confirm:${ip}`, 10, 15 * 60 * 1_000, 'Too many requests. Please try again later.');
+  if (rateLimited) return rateLimited;
 
   const body = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(body);
 
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'Invalid request', details: parsed.error.flatten() },
-      { status: 400 },
-    );
+    return badRequest(parsed.error);
   }
 
   const ua = request.headers.get('user-agent') ?? null;

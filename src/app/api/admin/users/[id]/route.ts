@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getSession } from '@/lib/session';
+import { requireAdmin } from '@/lib/session';
+import { badRequest } from '@/lib/api-responses';
 import { updateUser, deleteUser, UserNotFoundError, LastAdminError } from '@/server/users/service';
 
 type Params = { params: Promise<{ id: string }> };
@@ -11,13 +12,6 @@ const patchSchema = z.object({
 }).refine((d) => d.role !== undefined || d.isActive !== undefined, {
   message: 'At least one of role or isActive must be provided',
 });
-
-async function requireAdmin() {
-  const session = await getSession();
-  if (!session.userId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
-  if (session.role !== 'admin') return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
-  return { session };
-}
 
 export async function PATCH(request: NextRequest, { params }: Params) {
   const check = await requireAdmin();
@@ -33,7 +27,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   const body = await request.json().catch(() => null);
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 });
+    return badRequest(parsed.error);
   }
 
   try {

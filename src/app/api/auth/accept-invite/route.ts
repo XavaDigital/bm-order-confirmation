@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { acceptInvite, InviteExpiredError } from '@/server/users/service';
+import { badRequest } from '@/lib/api-responses';
 
 const bodySchema = z.object({
   token: z.string().min(1),
@@ -12,7 +13,7 @@ export async function POST(request: NextRequest) {
   const parsed = bodySchema.safeParse(body);
 
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 });
+    return badRequest(parsed.error);
   }
 
   try {

@@ -1,7 +1,8 @@
 # Code Review Findings — Checklist
 
-From a full-app code quality/security review (2026-07-02), not tied to a specific
-diff. Check items off as they're addressed. Ranked most severe first.
+Round 1: full-app code quality/security review (2026-07-02) — all core items fixed.
+Round 2: follow-up full-app review (2026-07-07) — see the second half of this file,
+organized into implementation batches. Check items off as they're addressed.
 
 ---
 
@@ -214,10 +215,365 @@ re-check the count inside the same transaction immediately before the write.
       `src/app/api/admin/orders/[id]/garments/[garmentId]/route.ts`) never
       verify that `garmentId` actually belongs to the `id` (order) in the
       URL — low severity since all staff can already access all orders, but
-      worth tightening for audit-log correctness.
+      worth tightening for audit-log correctness. **→ folded into Round 2,
+      Batch 2 item 2.7.**
 - [ ] `src/app/api/admin/users/route.ts` — when SMTP isn't configured, the
       raw invite `setupUrl` (bearer token, 72h validity) is returned
       directly in the JSON response instead of only being emailed —
-      increases exposure surface (logs, APM, proxies).
+      increases exposure surface (logs, APM, proxies). **→ accepted
+      trade-off for now (it's the only delivery path without SMTP); revisit
+      alongside Round 2, Batch 1 item 1.6 (invite resend).**
 - [ ] `src/lib/storage.ts` / `src/server/size-charts/service.ts` — signed
       URLs have no enforced max TTL and no revocation path.
+
+---
+---
+
+# Round 2 — Full-App Review (2026-07-07)
+
+Scope: every lib, service, API route, middleware, schema, and the main UI
+views. Baseline at review time: typecheck clean, 437/437 tests passing, lint
+3 pre-existing warnings.
+
+Organized into batches, lowest-risk-first inside each batch. Rules of
+engagement (same as REFACTOR_CHECKLIST.md):
+
+- Keep `npm run typecheck` and `npm run test` green after each batch.
+- Add/extend tests when a fix changes observable behavior (error codes,
+  email content, retry semantics).
+- Batches 1–2 are bugs/hardening (do these), Batch 3–4 are optimizations and
+  consistency (cheap, low risk), Batch 5 is optional light features.
+
+---
+
+## Batch 1 — Correctness & security bugs (highest priority)
+
+### 1.1 HTML injection into emails
+- [ ] Add an `escapeHtml()` helper in `src/lib/email.ts` and apply it to
+      every dynamic string interpolated into email HTML.
+- [ ] Escape in: `buildHtml` / `buildText` (`toName`, `orderNumber`),
+      `buildRevisionHtml` (`toName`, `orderNumber`, **`priorComment`** —
+      customer-typed), `buildInviteHtml` (`toName`, `inviterName`),
+      `sendStaffChangeRequestEmail` (**`comment`** — customer-typed,
+      `customerName`, `toName`, `orderNumber`),
+      `sendStaffConfirmationEmail` (`customerName`, `toName`).
+- [ ] Extend `email.test.ts` with an assertion that `<script>`/`<img>` in a
+      customer comment arrives entity-encoded.
+
+**Files:** `src/lib/email.ts:131` (`priorComment` in revision email),
+`src/lib/email.ts:300` (`comment` in staff change-request email), plus all
+other interpolations in that file.
+
+**Problem:** Customer-typed text (the change-request `comment`, which becomes
+`priorComment` in the next revision email) is interpolated into email HTML
+with zero escaping. A customer can inject arbitrary markup — fake
+"re-confirm here" links, external images, spoofed content — into an email
+staff inherently trust, and into the customer-facing revision email.
+Admin-entered names have the same gap at lower risk.
+
+**Fix shape:** 5-line `escapeHtml()` (`& < > " '`), applied at each
+interpolation site (not on storage — DB keeps raw text).
+
+### 1.2 Failed outbox events are never retried
+- [ ] Add an `attempts` integer column (default 0) to `domain_events`
+      (additive migration).
+- [ ] In `processOutbox()`: on handler failure, increment `attempts` and
+      keep status `'pending'` while `attempts < MAX_ATTEMPTS` (suggest 5);
+      only mark `'failed'` at the cap.
+- [ ] Update `processor.test.ts` for the retry semantics.
+
+**File:** `src/server/events/processor.ts:127-132`
+
+**Problem:** `markFailed()` sets status `'failed'` and the picker only
+selects `'pending'` — one transient SMTP timeout or Google Ads outage
+permanently drops that notification/conversion with no retry and no
+visibility. (Batch 5.4 adds the admin-facing surface for events that exhaust
+retries.)
+
+### 1.3 Concurrent outbox runs double-fire handlers
+- [ ] Claim events before handling: single
+      `UPDATE domain_events SET status='processing' WHERE id IN (SELECT id
+      ... WHERE status='pending' ORDER BY created_at LIMIT n FOR UPDATE SKIP
+      LOCKED) RETURNING *` (or equivalent two-step claim in one
+      transaction), then run handlers on the claimed rows only.
+- [ ] Add `'processing'` to the `event_status` enum (additive migration);
+      treat stuck `'processing'` rows older than a threshold (suggest
+      15 min) as re-claimable.
+- [ ] Test: two concurrent `processOutbox()` calls deliver each event's
+      handlers exactly once.
+
+**File:** `src/server/events/processor.ts:70-113`
+
+**Problem:** The SELECT→handle→UPDATE sequence means two overlapping runs
+(cron tick + manual POST, or two cron ticks) both read the same `'pending'`
+rows and both execute handlers before either marks delivered. The
+`WHERE status='pending'` guard dedupes only the status write, not the side
+effects. Google Ads dedups by `orderId`; **staff emails go out twice**.
+
+### 1.4 Vercel Cron gets a 405
+- [ ] Export a `GET` handler from
+      `src/app/api/internal/process-outbox/route.ts` guarded by
+      `isCronAuthorized()` only (keep `POST` for x-api-key/external cron).
+- [ ] Update the route doc comment to say Vercel Cron invokes with GET.
+- [ ] Route test: GET + valid `Authorization: Bearer $CRON_SECRET` → 200;
+      GET without → 401.
+
+**File:** `src/app/api/internal/process-outbox/route.ts` (only exports POST)
+
+**Problem:** Vercel Cron makes **GET** requests. The route's own doc comment
+tells you to wire it via `vercel.json` crons — doing so today yields 405 on
+every tick and the outbox silently never drains. (Latent: no `vercel.json`
+exists yet. Round 1 item #1 fixed the auth header for this same endpoint;
+the method was the remaining gap.)
+
+### 1.5 Platform-created orders never notify staff
+- [ ] In `src/server/orders/notifications.ts`, when `order.createdBy` is
+      null, fall back to sending the notification to
+      `STAFF_NOTIFICATIONS_CC` (as `to`) instead of returning early; still
+      no-op when neither a creator nor a CC exists.
+- [ ] Unit test both notification functions for the createdBy-null + CC-set
+      path.
+
+**File:** `src/server/orders/notifications.ts:23-24` (and the same early
+return in `notifyStaffOfConfirmation`)
+
+**Problem:** Every order created through `POST /api/orders` (the platform
+integration seam) has `createdBy = null`, so confirmation and change-request
+notifications are silently skipped — even when `STAFF_NOTIFICATIONS_CC` is
+configured, because the early return happens before the CC is ever read.
+
+### 1.6 Invite email failure loses the setup URL
+- [ ] In `src/app/api/admin/users/route.ts` POST: wrap `sendInviteEmail` in
+      try/catch; on failure return 201 with `{ ok: true, emailFailed: true,
+      setupUrl }` so the admin can deliver the link manually.
+- [ ] In `UsersView.handleInvite`, surface the "email failed — share this
+      link manually" path (reuse the existing no-SMTP `setupUrl` modal).
+- [ ] Route test: SMTP configured + send throws → 201 with `setupUrl`.
+
+**File:** `src/app/api/admin/users/route.ts:44-54`
+
+**Problem:** The user row is inserted, then `sendInviteEmail` throws → the
+whole request 500s, the one-time `setupUrl` is discarded, and a retry hits
+409 `UserConflictError`. With no resend-invite endpoint (see Batch 5.2), the
+invite is bricked until someone cancels and re-invites.
+
+### 1.7 Deactivated/demoted staff keep access until cookie expiry
+- [ ] Decide the mechanism: (a) `requireAdmin()` + a new `requireStaff()`
+      verify `isActive` (and role for admin routes) against the DB per
+      request — one indexed PK lookup (recommended); or (b) short session
+      TTL + accept the window; or (c) a `sessionVersion` bumped on
+      deactivate/demote.
+- [ ] Implement for `/api/admin/**` route handlers at minimum (middleware
+      stays cookie-only — it runs on Edge without DB access).
+- [ ] Test: deactivated user with a live session cookie → 401/403 on admin
+      APIs; demoted admin → 403 on admin-only routes.
+
+**Files:** `src/lib/session.ts:35-40` (`requireAdmin` trusts cookie role),
+`src/middleware.ts` (auth = cookie only)
+
+**Problem:** Sessions bake `role` at login and nothing ever re-checks the
+DB. Deactivating a user (`isActive=false`) or demoting an admin leaves their
+existing session fully powered for the iron-session default TTL (~14 days).
+The Users page offers "Deactivate" as the security action for departing
+staff — it currently doesn't do what it implies.
+
+---
+
+## Batch 2 — Input hardening & small correctness
+
+### 2.1 Dead duplicate state call in customer view
+- [ ] Remove the first of the two back-to-back `setChangesRequested(...)`
+      calls in `handleRequestChanges`.
+
+**File:** `src/app/o/[token]/view.tsx:295-296` — leftover from an edit;
+the first call's value is immediately overwritten.
+
+### 2.2 Unbounded customer-supplied payloads on /api/o/confirm
+- [ ] Cap `signatureBase64` (`z.string().max(700_000)` ≈ 500 KB decoded —
+      generous for a signature PNG).
+- [ ] Constrain `shippingAddress` to a flat record of bounded strings
+      (`z.record(z.string().max(500))`, max ~20 keys) instead of
+      `z.record(z.unknown())`.
+- [ ] Route test: oversized signature → 400.
+
+**File:** `src/app/api/o/confirm/route.ts:16-17`
+
+**Problem:** A valid-token holder can POST arbitrarily large bodies —
+`request.json()` buffers it all, the signature is decoded and uploaded to
+S3, and the address JSON lands in `orders.shipping_address` and inside the
+immutable confirmation snapshot.
+
+### 2.3 `z.string().url()` accepts `javascript:` URLs
+- [ ] Add a shared `httpUrl` Zod refinement (must start `http://`/`https://`)
+      and use it for `invoiceUrl` in both `contract.ts` and
+      `admin-contract.ts`.
+
+**Files:** `src/server/orders/contract.ts:50`,
+`src/server/orders/admin-contract.ts:10`; rendered as `<a href>` at
+`src/app/o/[token]/view.tsx:405`.
+
+**Problem:** `new URL('javascript:alert(1)')` is valid, so `.url()` passes
+it. Admin-entered (low risk), but the sink is the customer page.
+
+### 2.4 Business-rule error returned as 500 with raw message
+- [ ] Add a `PendingUserOnlyError` (or reuse a typed conflict error) in
+      `src/server/users/service.ts` `deleteUser`; map it to **409** in the
+      route.
+- [ ] Stop echoing `err.message` in the 500 fallback of
+      `src/app/api/admin/users/[id]/route.ts:60` (return generic message,
+      keep the `console.error`).
+- [ ] Same leak in `src/app/api/admin/orders/[id]/send-link/route.ts:66-67`
+      — return a generic 500 body (SMTP internals shouldn't reach the
+      client); the admin-facing "email failed" message can stay generic.
+
+### 2.5 Unclamped list pagination + ILIKE wildcards
+- [ ] In `src/app/api/admin/orders/route.ts` GET: clamp `limit` to 1–100,
+      `offset` to ≥ 0, defaulting NaN to the defaults.
+- [ ] In `listOrders` (`src/server/orders/service.ts:156-165`): escape `%`,
+      `_`, and `\` in the search term before building the ILIKE patterns.
+
+### 2.6 Missing rate limits on 2FA management endpoints
+- [ ] `POST /api/admin/auth/2fa/confirm` — limit code attempts (e.g. 10 /
+      5 min per user); a 6-digit space is brute-forceable with a hijacked
+      session mid-enrollment.
+- [ ] `POST /api/admin/auth/2fa/setup` and `DELETE /2fa/disable` — limit
+      password attempts (e.g. 5 / 5 min per user), matching the login and
+      verify endpoints' posture.
+
+**Files:** `src/app/api/admin/auth/2fa/confirm/route.ts`,
+`.../setup/route.ts`, `.../disable/route.ts`
+
+### 2.7 Garment sub-routes don't verify ownership (Round 1 leftover)
+- [ ] In the garment/sizing/images handlers, verify the garment's `orderId`
+      matches the `id` URL segment before mutating (single indexed lookup);
+      404 on mismatch.
+- [ ] While there: `updateGarment` + `updateGarmentSizeChartLinks` in the
+      PATCH handler run as two separate operations — wrap in one
+      transaction (e.g. a combined service function).
+
+**Files:** `src/app/api/admin/orders/[id]/garments/[garmentId]/route.ts`,
+`.../sizing/route.ts`, `.../images/route.ts`, `.../images/[imgId]/route.ts`
+
+### 2.8 TOTP codes are replayable within their window
+- [ ] Track the last-accepted TOTP counter/step per user (new nullable
+      column, additive) and reject a code whose step is ≤ the stored one.
+      Enforce on both `/api/auth/2fa/verify` and the `/2fa/confirm`
+      enrollment check.
+
+**Files:** `src/server/auth/totp.ts`, `src/app/api/auth/2fa/verify/route.ts`,
+`src/app/api/admin/auth/2fa/confirm/route.ts`
+
+**Problem:** Standard hardening — a shoulder-surfed/phished code stays valid
+for the remaining ~30–60 s window even after legitimate use.
+
+---
+
+## Batch 3 — Optimizations (all minor at current scale)
+
+### 3.1 Per-call client construction
+- [ ] Memoize the `S3Client` at module level in `src/lib/storage.ts:10`
+      (lazy singleton).
+- [ ] Memoize the nodemailer transport in `src/lib/email.ts:11` (lazy
+      singleton — env-derived config doesn't change at runtime).
+
+### 3.2 OrdersView fetch races
+- [ ] Add an `AbortController` (or stale-response guard) to `fetchOrders`
+      in `src/app/admin/orders/OrdersView.tsx:58-78` so a slow older
+      response can't overwrite a newer one.
+- [ ] Fold the "reset to page 1 on filter change" effect into the fetch
+      flow to avoid the double fetch when filters change while `page > 1`.
+
+### 3.3 `getStaleOrders` does app-side aggregation
+- [ ] (Defer until order volume warrants) Replace the
+      load-all-candidates-and-events approach in
+      `src/server/orders/service.ts:222-282` with a single SQL query
+      (lateral join / `DISTINCT ON` for latest event per order).
+
+### 3.4 Doc drift in rate limiter
+- [ ] `src/lib/rate-limit.ts:2` says "sliding-window"; the implementation
+      is a fixed window (and the body text below it says so). Fix the
+      header line.
+
+### 3.5 Google Ads OAuth token refreshed per conversion
+- [ ] (Optional) Cache the access token until expiry in
+      `src/server/conversions/google-ads.ts:141-158`. Conversions are rare;
+      lowest priority in this batch.
+
+---
+
+## Batch 4 — Quality / consistency
+
+### 4.1 Staff confirmation email bypasses the shared layout
+- [ ] Route `sendStaffConfirmationEmail`'s HTML
+      (`src/lib/email.ts:350-352`) through `wrapEmailLayout` +
+      `emailButton` like the other four templates (Phase 4 of
+      REFACTOR_CHECKLIST missed it).
+
+### 4.2 PDF route hand-rolls session reading
+- [ ] Replace the manual `getIronSession(await cookies(), sessionOptions)`
+      in `src/app/api/admin/orders/[id]/pdf/route.tsx:13` with
+      `getSession()` (or whatever guard Batch 1.7 introduces).
+
+### 4.3 Upload extension handling inconsistent
+- [ ] Mockup uploads (`.../garments/[garmentId]/images/route.ts:35`) derive
+      the file extension from the user-supplied filename; size-charts derive
+      it from a MIME→ext map. Use the MIME map in both.
+
+### 4.4 `requireAccessCode` is a documented no-op
+- [ ] The create-order contract (`src/server/orders/contract.ts:65`)
+      accepts `requireAccessCode` but nothing ever sets
+      `order_access.access_code_hash`. Either remove the field from the
+      contract (additive-safe: it was never honored) or implement it.
+      Decide and do one.
+
+### 4.5 S3 orphans on delete
+- [ ] `deleteOrder` (draft-only) and `deleteGarment` cascade DB rows but
+      never delete mockup/signature objects from S3. Collect `storageKey`s
+      before delete and fire best-effort `deleteFile()`s (pattern already
+      exists in `deleteSizeChart`).
+
+**File:** `src/server/orders/service.ts:351-358`, `:397-401`
+
+### 4.6 Bookkeeping
+- [ ] Check off REFACTOR_CHECKLIST.md Phase 5 items (implemented in the
+      working tree: `requireAdmin` moved to `session.ts`,
+      `rateLimitedResponse`, `badRequest`) once committed.
+- [ ] `listOrders` currently also powers `GET /api/orders` (integration
+      surface) with default limit 100 and no documented pagination contract
+      — document the pagination params in the endpoint docs when touching
+      it (and consider wiring `limit`/`offset` query params through with
+      the same clamping as 2.5).
+
+---
+
+## Batch 5 — Lightweight feature ideas (optional, pick per need)
+
+### 5.1 Magic-link expiry
+- [ ] `order_access.expires_at` exists in the schema and is enforced in all
+      four read paths — but production code never sets it (only demo seeds
+      do). Set it in `generateAccessToken()` from a new
+      `LINK_EXPIRY_DAYS` constant in `src/lib/config.ts` (suggest 30–60
+      days; `null` = no expiry stays supported).
+
+### 5.2 Resend invite
+- [ ] `POST /api/admin/users/[id]/resend-invite` (admin-only): regenerate
+      invite token + expiry for a pending user, email it (or return
+      `setupUrl` when SMTP is absent/fails — consistent with 1.6). Add a
+      "Resend" button next to "Cancel invite" in `UsersView`.
+
+### 5.3 Confirmation details on the admin order page
+- [ ] The confirmation record (ack list, IP, user-agent, signature image,
+      immutable snapshot) is stored but never shown anywhere — and the PDF
+      omits the signature. Add a "Confirmation" tab to `OrderDetailView`
+      rendering the acks, metadata, and a signed-URL signature image for
+      confirmed orders.
+
+### 5.4 Failed-events visibility
+- [ ] Dashboard stat (or Users-page-style list) of `domain_events` /
+      `conversion_events` in `'failed'` status, with a "retry" action that
+      re-marks them `'pending'` (pairs with 1.2/1.3).
+
+### 5.5 CSV export of orders
+- [ ] `GET /api/admin/orders/export` reusing `listOrders` filters →
+      `text/csv` attachment; "Export CSV" button on the Orders page next to
+      the search box.

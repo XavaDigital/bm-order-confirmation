@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { listOrders, createOrder, NotFoundError, ConflictError } from '@/server/orders/service';
 import { createOrderSchema } from '@/server/orders/contract';
+import { badRequest } from '@/lib/api-responses';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
   const parsed = createOrderSchema.safeParse(body);
 
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 });
+    return badRequest(parsed.error);
   }
 
   try {

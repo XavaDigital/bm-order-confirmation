@@ -5,7 +5,7 @@ import { db } from '@/db';
 import { staffUsers } from '@/db/schema';
 import { getSession } from '@/lib/session';
 import { verifyTotp, consumeBackupCode } from '@/server/auth/totp';
-import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
+import { getClientIp, rateLimitedResponse } from '@/lib/rate-limit';
 
 const bodySchema = z.object({
   code: z.string().min(1).max(20),
@@ -20,13 +20,8 @@ export async function POST(request: NextRequest) {
   }
 
   const ip = getClientIp(request.headers);
-  const rl = checkRateLimit(`2fa:${session.userId}:${ip}`, 5, 5 * 60 * 1_000);
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { error: 'Too many attempts. Please try again later.' },
-      { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1_000)) } },
-    );
-  }
+  const rateLimited = rateLimitedResponse(`2fa:${session.userId}:${ip}`, 5, 5 * 60 * 1_000, 'Too many attempts. Please try again later.');
+  if (rateLimited) return rateLimited;
 
   const body = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(body);

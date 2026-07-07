@@ -9,6 +9,7 @@
  * counter that resets at windowMs. Subsequent requests in that same window
  * increment the counter and are rejected once it hits maxRequests.
  */
+import { NextResponse } from 'next/server';
 
 interface Entry {
   count: number;
@@ -52,6 +53,25 @@ export function checkRateLimit(
 
   entry.count++;
   return { allowed: true, retryAfterMs: 0 };
+}
+
+/**
+ * Checks the rate limit and returns a ready-to-return 429 `NextResponse`
+ * (with `Retry-After` set) when exceeded, or `null` when the request is
+ * allowed through.
+ */
+export function rateLimitedResponse(
+  key: string,
+  maxRequests: number,
+  windowMs: number,
+  message: string,
+): NextResponse | null {
+  const rl = checkRateLimit(key, maxRequests, windowMs);
+  if (rl.allowed) return null;
+  return NextResponse.json(
+    { error: message },
+    { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1_000)) } },
+  );
 }
 
 /**

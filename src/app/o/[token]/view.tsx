@@ -23,6 +23,7 @@ import {
 } from '@ant-design/icons';
 import Image from 'next/image';
 import { darkTheme, BEASTMODE, headingFont } from '@/lib/theme';
+import { formatDateLong, formatCurrency } from '@/lib/format';
 import { APP_NAME, SALES_REP_LABEL } from '@/lib/config';
 import { pushOrderConfirmed } from '@/lib/gtm';
 import { MockupGallery, type GalleryImage } from '@/components/customer/MockupGallery';
@@ -375,28 +376,17 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
               <Descriptions.Item label="Order Number">{order.orderNumber}</Descriptions.Item>
               {order.orderValueAmount && (
                 <Descriptions.Item label="Order Value">
-                  {order.orderValueCurrency}{' '}
-                  {Number(order.orderValueAmount).toLocaleString('en-NZ', {
-                    minimumFractionDigits: 2,
-                  })}
+                  {order.orderValueCurrency} {formatCurrency(order.orderValueAmount)}
                 </Descriptions.Item>
               )}
               {order.expectedShipDate && (
                 <Descriptions.Item label="Expected Ship">
-                  {new Date(order.expectedShipDate).toLocaleDateString('en-NZ', {
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                  })}
+                  {formatDateLong(order.expectedShipDate)}
                 </Descriptions.Item>
               )}
               {order.deadlineDate && (
                 <Descriptions.Item label="Required By">
-                  {new Date(order.deadlineDate).toLocaleDateString('en-NZ', {
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                  })}
+                  {formatDateLong(order.deadlineDate)}
                 </Descriptions.Item>
               )}
               {order.invoiceUrl && (

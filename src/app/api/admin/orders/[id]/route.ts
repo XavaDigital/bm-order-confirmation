@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getOrderAdmin, updateOrder, deleteOrder, NotFoundError, ConflictError } from '@/server/orders/service';
 import { updateOrderSchema } from '@/server/orders/admin-contract';
 import { getSession } from '@/lib/session';
+import { badRequest } from '@/lib/api-responses';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -18,7 +19,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   const parsed = updateOrderSchema.safeParse(body);
 
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 });
+    return badRequest(parsed.error);
   }
 
   try {

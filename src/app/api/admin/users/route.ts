@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getSession } from '@/lib/session';
+import { requireAdmin } from '@/lib/session';
+import { badRequest } from '@/lib/api-responses';
 import { listStaffUsers, inviteUser, UserConflictError } from '@/server/users/service';
 import { sendInviteEmail, isEmailConfigured } from '@/lib/email';
 
@@ -9,13 +10,6 @@ const inviteSchema = z.object({
   email: z.string().email(),
   role: z.enum(['sales', 'admin']),
 });
-
-async function requireAdmin() {
-  const session = await getSession();
-  if (!session.userId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
-  if (session.role !== 'admin') return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
-  return { session };
-}
 
 export async function GET() {
   const check = await requireAdmin();
@@ -37,7 +31,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const parsed = inviteSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 });
+    return badRequest(parsed.error);
   }
 
   try {

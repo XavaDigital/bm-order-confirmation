@@ -14,6 +14,7 @@ import { FileAddOutlined, SearchOutlined } from '@ant-design/icons';
 import Link from 'next/link';
 import type { ColumnType } from 'antd/es/table';
 import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
+import { formatDate, formatCurrency } from '@/lib/format';
 
 interface OrderRow {
   id: string;
@@ -126,19 +127,14 @@ export function OrdersView() {
       width: 120,
       render: (amount: string | null, record: OrderRow) =>
         amount
-          ? `${record.orderValueCurrency ?? 'NZD'} ${Number(amount).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}`
+          ? `${record.orderValueCurrency ?? 'NZD'} ${formatCurrency(amount)}`
           : <Typography.Text type="secondary">—</Typography.Text>,
     },
     {
       title: 'Created',
       dataIndex: 'createdAt',
       width: 140,
-      render: (val: string) =>
-        new Date(val).toLocaleDateString('en-NZ', {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric',
-        }),
+      render: (val: string) => formatDate(val),
     },
   ];
 

@@ -25,6 +25,7 @@ import {
   EyeOutlined,
 } from '@ant-design/icons';
 import type { ColumnType } from 'antd/es/table';
+import { formatDate } from '@/lib/format';
 
 interface SizeChart {
   id: string;
@@ -184,7 +185,7 @@ export function SizeChartsView() {
       dataIndex: 'createdAt',
       width: 140,
       render(v: string) {
-        return new Date(v).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' });
+        return formatDate(v);
       },
     },
     {
