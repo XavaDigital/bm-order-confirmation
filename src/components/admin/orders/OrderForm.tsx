@@ -136,10 +136,10 @@ export function OrderForm({ initialValues, form, disabled }: Props) {
         <Select options={SHIPPING_OPTIONS} style={{ maxWidth: 320 }} />
       </Form.Item>
 
-      <Form.Item name="generalNotes" label="General Notes">
+      <Form.Item name="generalNotes" label="General Notes (shown to the customer)">
         <TextArea
           rows={3}
-          placeholder="Internal notes visible to sales only (not shown to customer)"
+          placeholder="Visible to the customer on their confirmation page and PDF"
           style={{ resize: 'vertical' }}
         />
       </Form.Item>

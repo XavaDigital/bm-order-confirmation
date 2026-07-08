@@ -20,7 +20,7 @@ import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
 import { createOrderSchema } from './contract';
-import { createOrder, generateAccessToken, revokeAccessToken } from './service';
+import { createOrder, generateAccessToken, revokeAccessToken, updateOrder } from './service';
 import {
   getOrderForCustomer,
   recordOrderViewed,
@@ -264,6 +264,28 @@ describe('confirmOrder', () => {
       where: eq(schema.orderAccess.orderId, created.orderId),
     });
     expect(access!.lastViewedAt).not.toBeNull();
+  });
+
+  it('never leaks staff-only internalNotes into the customer-facing confirmation snapshot', async () => {
+    const created = await createOrder(minimalInput());
+    await updateOrder(created.orderId, { internalNotes: 'Discount approved by manager — do not disclose' });
+
+    await confirmOrder({
+      rawToken: created.token,
+      acks: allAcks(),
+      signatureType: 'none',
+      ipAddress: '203.0.113.5',
+      userAgent: 'vitest',
+    });
+
+    const confirmationRows = await db
+      .select()
+      .from(schema.confirmations)
+      .where(eq(schema.confirmations.orderId, created.orderId));
+    const snapshot = confirmationRows[0].confirmedSnapshot as Record<string, unknown>;
+
+    expect(snapshot.internal_notes).toBeUndefined();
+    expect(JSON.stringify(snapshot)).not.toContain('Discount approved by manager');
   });
 
   it('uploads a drawn signature and stores the returned storage key', async () => {

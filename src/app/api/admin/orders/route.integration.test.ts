@@ -145,4 +145,15 @@ describe('GET /api/admin/orders', () => {
     expect(json.orders).toHaveLength(1);
     expect(json.orders[0].customerName).toBe('B');
   });
+
+  it('applies sortBy and sortDir query params', async () => {
+    await POST(postRequest(validPayload({ customer: { name: 'A', email: 'a@example.com' }, orderValue: { amount: 20, currency: 'NZD' } })));
+    await POST(postRequest(validPayload({ customer: { name: 'B', email: 'b@example.com' }, orderValue: { amount: 5, currency: 'NZD' } })));
+
+    const res = await GET(getRequest('?sortBy=orderValueAmount&sortDir=asc'));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.orders.map((row: { customerName: string }) => row.customerName)).toEqual(['B', 'A']);
+  });
 });

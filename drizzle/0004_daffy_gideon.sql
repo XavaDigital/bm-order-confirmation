@@ -1,0 +1,1 @@
+ALTER TYPE "confirmation"."order_status" ADD VALUE 'cancelled';

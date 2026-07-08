@@ -10,6 +10,8 @@ import {
   EyeOutlined,
   CheckCircleOutlined,
   MessageOutlined,
+  CopyOutlined,
+  CloseCircleOutlined,
 } from '@ant-design/icons';
 
 const { Text } = Typography;
@@ -35,6 +37,8 @@ function eventIcon(type: string) {
     case 'order.viewed':    return <EyeOutlined style={{ color: '#722ed1' }} />;
     case 'order.confirmed': return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
     case 'order.changes_requested': return <MessageOutlined style={{ color: '#faad14' }} />;
+    case 'order.duplicated': return <CopyOutlined style={{ color: '#13c2c2' }} />;
+    case 'order.cancelled': return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
     default: return null;
   }
 }
@@ -48,6 +52,8 @@ function eventLabel(type: string): string {
     'order.viewed':    'Customer viewed order',
     'order.confirmed': 'Customer confirmed order',
     'order.changes_requested': 'Changes requested',
+    'order.duplicated': 'Duplicated from another order',
+    'order.cancelled': 'Order cancelled',
   };
   return labels[type] ?? type;
 }
@@ -60,6 +66,8 @@ function eventColor(type: string): string {
     case 'order.viewed':           return 'purple';
     case 'token.generated':        return 'blue';
     case 'order.changes_requested': return 'orange';
+    case 'order.duplicated':       return 'cyan';
+    case 'order.cancelled':        return 'red';
     default:                       return 'gray';
   }
 }
@@ -90,6 +98,9 @@ function EventDetail({ event }: { event: AuditEvent }) {
   }
   if (Array.isArray(p.fields) && p.fields.length > 0) {
     parts.push(`(${(p.fields as string[]).join(', ')})`);
+  }
+  if (p.sourceOrderNumber && typeof p.sourceOrderNumber === 'string') {
+    parts.push(`from ${p.sourceOrderNumber}`);
   }
 
   return parts.length > 0 ? (

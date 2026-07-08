@@ -8,9 +8,15 @@ vi.mock('@/db', async () => {
   return { db, schema };
 });
 
+vi.mock('@/lib/env', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/env')>();
+  return { env: { ...actual.env, LINK_EXPIRY_DAYS: undefined as number | undefined } };
+});
+
 import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
+import { env } from '@/lib/env';
 import { createOrderSchema } from './contract';
 import {
   createOrder,
@@ -20,6 +26,7 @@ import {
   getOrderById,
   updateOrder,
   deleteOrder,
+  duplicateOrder,
   addGarment,
   updateGarment,
   deleteGarment,
@@ -29,6 +36,7 @@ import {
   deleteMockupImage,
   generateAccessToken,
   revokeAccessToken,
+  cancelOrder,
   getOrderByToken,
   getStaleOrders,
   NotFoundError,
@@ -38,6 +46,7 @@ import { tokensMatch } from '@/lib/tokens';
 
 afterEach(async () => {
   await resetTestDb(db);
+  env.LINK_EXPIRY_DAYS = undefined;
 });
 
 async function seedSizeChart(name = 'Adult Unisex') {
@@ -140,6 +149,28 @@ describe('listOrders', () => {
     expect(paginated.total).toBe(2);
   });
 
+  it('sorts by createdAt and orderValueAmount when requested', async () => {
+    const first = await createOrder(
+      minimalInput({
+        customer: { name: 'First Order', email: 'first@example.com' },
+        orderValue: { amount: 20, currency: 'NZD' },
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const second = await createOrder(
+      minimalInput({
+        customer: { name: 'Second Order', email: 'second@example.com' },
+        orderValue: { amount: 5, currency: 'NZD' },
+      }),
+    );
+
+    const byCreated = await listOrders({ sortBy: 'createdAt', sortDir: 'desc' });
+    expect(byCreated.orders.map((row) => row.id)).toEqual([second.orderId, first.orderId]);
+
+    const byValue = await listOrders({ sortBy: 'orderValueAmount', sortDir: 'asc' });
+    expect(byValue.orders.map((row) => row.id)).toEqual([second.orderId, first.orderId]);
+  });
+
   it('reflects hasActiveToken correctly', async () => {
     const created = await createOrder(minimalInput());
     const withToken = await listOrders();
@@ -219,6 +250,103 @@ describe('getOrderAdmin / getOrderById', () => {
   });
 });
 
+describe('duplicateOrder', () => {
+  it('throws NotFoundError for an unknown id', async () => {
+    await expect(duplicateOrder('00000000-0000-0000-0000-000000000000')).rejects.toThrow(
+      NotFoundError,
+    );
+  });
+
+  it('copies garments/sizing/size-chart links but skips mock-up images', async () => {
+    const chart = await seedSizeChart();
+    const created = await createOrder(
+      minimalInput({
+        garments: [
+          {
+            name: 'Home Jersey',
+            fabrics: ['Polyester'],
+            notes: 'Garment note',
+            sizing: [{ size: 'M', playerName: 'A. Smith', playerNumber: '7' }],
+            mockupStorageKeys: ['mockup.png'],
+            sizeChartIds: [chart.id],
+          },
+        ],
+      }),
+    );
+
+    const dup = await duplicateOrder(created.orderId);
+    const dupOrder = await getOrderAdmin(dup.orderId);
+
+    expect(dupOrder!.garments).toHaveLength(1);
+    expect(dupOrder!.garments[0].name).toBe('Home Jersey');
+    expect(dupOrder!.garments[0].fabrics).toEqual(['Polyester']);
+    expect(dupOrder!.garments[0].notes).toBe('Garment note');
+    expect(dupOrder!.garments[0].sizing).toHaveLength(1);
+    expect(dupOrder!.garments[0].sizing[0].playerName).toBe('A. Smith');
+    expect(dupOrder!.garments[0].sizeChartLinks.map((l) => l.sizeChartId)).toEqual([chart.id]);
+    expect(dupOrder!.garments[0].images).toHaveLength(0); // mock-ups intentionally not copied
+  });
+
+  it('starts the duplicate at draft with a fresh order number and no externalRef/internalNotes', async () => {
+    const created = await createOrder(minimalInput({ externalRef: 'PLATFORM-123' }));
+    await updateOrder(created.orderId, {
+      status: 'sent',
+      internalNotes: 'Discount approved by manager',
+    });
+
+    const dup = await duplicateOrder(created.orderId);
+    expect(dup.orderNumber).not.toBe(created.orderNumber);
+
+    const dupOrder = await getOrderAdmin(dup.orderId);
+    expect(dupOrder!.status).toBe('draft');
+    expect(dupOrder!.confirmedAt).toBeNull();
+    expect(dupOrder!.externalRef).toBeNull();
+    expect(dupOrder!.internalNotes).toBeNull();
+  });
+
+  it('prefills customer/club/shipping details from the source order', async () => {
+    const created = await createOrder(
+      minimalInput({
+        customer: { name: 'Jane Coach', email: 'jane@example.com', clubName: 'Wildcats' },
+      }),
+    );
+
+    const dup = await duplicateOrder(created.orderId);
+    const dupOrder = await getOrderAdmin(dup.orderId);
+    expect(dupOrder!.customerName).toBe('Jane Coach');
+    expect(dupOrder!.customerEmail).toBe('jane@example.com');
+    expect(dupOrder!.clubName).toBe('Wildcats');
+  });
+
+  it('picks up the current (edited) garment state, not the state at order creation', async () => {
+    const created = await createOrder(minimalInput({ garments: [{ name: 'Home Jersey' }] }));
+    const source = await getOrderAdmin(created.orderId);
+    await updateGarment(source!.garments[0].id, { name: 'Renamed Jersey' });
+    await updateOrder(created.orderId, { status: 'changes_requested' });
+
+    const dup = await duplicateOrder(created.orderId);
+    const dupOrder = await getOrderAdmin(dup.orderId);
+    expect(dupOrder!.garments[0].name).toBe('Renamed Jersey');
+  });
+
+  it('emits an order.duplicated event referencing the source order', async () => {
+    const created = await createOrder(minimalInput());
+    const dup = await duplicateOrder(created.orderId, undefined, { actorEmail: 'staff@x.com' });
+
+    const events = await db
+      .select()
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.aggregateId, dup.orderId));
+    const dupEvent = events.find((e) => e.eventType === 'order.duplicated');
+    expect(dupEvent).toBeDefined();
+    expect(dupEvent!.payload).toMatchObject({
+      sourceOrderId: created.orderId,
+      sourceOrderNumber: created.orderNumber,
+      actorEmail: 'staff@x.com',
+    });
+  });
+});
+
 describe('updateOrder', () => {
   it('patches only the provided fields and writes an audit event', async () => {
     const created = await createOrder(minimalInput());
@@ -242,6 +370,20 @@ describe('updateOrder', () => {
     await expect(
       updateOrder('00000000-0000-0000-0000-000000000000', { clubName: 'X' }),
     ).rejects.toThrow(NotFoundError);
+  });
+
+  it('sets and clears internalNotes independently of generalNotes, visible via getOrderAdmin', async () => {
+    const created = await createOrder(minimalInput({ generalNotes: 'Customer-facing note' }));
+
+    await updateOrder(created.orderId, { internalNotes: 'Staff-only note' });
+    let order = await getOrderAdmin(created.orderId);
+    expect(order!.internalNotes).toBe('Staff-only note');
+    expect(order!.generalNotes).toBe('Customer-facing note');
+
+    await updateOrder(created.orderId, { internalNotes: null });
+    order = await getOrderAdmin(created.orderId);
+    expect(order!.internalNotes).toBeNull();
+    expect(order!.generalNotes).toBe('Customer-facing note'); // untouched
   });
 });
 
@@ -475,6 +617,76 @@ describe('generateAccessToken / revokeAccessToken', () => {
       .where(eq(schema.domainEvents.aggregateId, created.orderId));
     expect(events.some((e) => e.eventType === 'token.revoked')).toBe(true);
   });
+
+  it('generateAccessToken throws NotFoundError for an unknown order id', async () => {
+    await expect(generateAccessToken('00000000-0000-0000-0000-000000000000')).rejects.toThrow(
+      NotFoundError,
+    );
+  });
+
+  it('generateAccessToken throws ConflictError for a cancelled order', async () => {
+    const created = await createOrder(minimalInput());
+    await generateAccessToken(created.orderId);
+    await cancelOrder(created.orderId);
+
+    await expect(generateAccessToken(created.orderId)).rejects.toThrow(ConflictError);
+  });
+});
+
+describe('cancelOrder', () => {
+  it('throws NotFoundError for an unknown id', async () => {
+    await expect(cancelOrder('00000000-0000-0000-0000-000000000000')).rejects.toThrow(
+      NotFoundError,
+    );
+  });
+
+  it('throws ConflictError for a confirmed order', async () => {
+    const created = await createOrder(minimalInput());
+    await db.update(schema.orders).set({ status: 'confirmed' }).where(eq(schema.orders.id, created.orderId));
+
+    await expect(cancelOrder(created.orderId)).rejects.toThrow(ConflictError);
+  });
+
+  it('throws ConflictError when already cancelled', async () => {
+    const created = await createOrder(minimalInput());
+    await cancelOrder(created.orderId);
+
+    await expect(cancelOrder(created.orderId)).rejects.toThrow(ConflictError);
+  });
+
+  it('sets status to cancelled, revokes the active token, and emits order.cancelled', async () => {
+    const created = await createOrder(minimalInput());
+    await generateAccessToken(created.orderId);
+
+    await cancelOrder(created.orderId, { actorEmail: 'staff@x.com' });
+
+    const order = await getOrderById(created.orderId);
+    expect(order!.status).toBe('cancelled');
+
+    const access = await db
+      .select()
+      .from(schema.orderAccess)
+      .where(eq(schema.orderAccess.orderId, created.orderId));
+    expect(access.every((a) => a.revokedAt !== null)).toBe(true);
+
+    const events = await db
+      .select()
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+    const cancelEvent = events.find((e) => e.eventType === 'order.cancelled');
+    expect(cancelEvent).toBeDefined();
+    expect(cancelEvent!.payload).toMatchObject({ actorEmail: 'staff@x.com' });
+
+    expect(await getOrderByToken(created.token)).toBeNull();
+  });
+
+  it('cancelling a draft order works (no active token to revoke)', async () => {
+    const created = await createOrder(minimalInput());
+    await cancelOrder(created.orderId);
+
+    const order = await getOrderById(created.orderId);
+    expect(order!.status).toBe('cancelled');
+  });
 });
 
 describe('getOrderByToken', () => {
@@ -490,6 +702,53 @@ describe('getOrderByToken', () => {
   it('returns the order for a valid token', async () => {
     const created = await createOrder(minimalInput());
     expect((await getOrderByToken(created.token))!.id).toBe(created.orderId);
+  });
+});
+
+describe('link expiry (LINK_EXPIRY_DAYS)', () => {
+  it('leaves expiresAt null when LINK_EXPIRY_DAYS is unset, on every issuance path', async () => {
+    const created = await createOrder(minimalInput());
+    const duplicated = await duplicateOrder(created.orderId);
+    const { token: regenerated } = await generateAccessToken(duplicated.orderId);
+
+    const rows = await db.select().from(schema.orderAccess);
+    expect(rows.every((r) => r.expiresAt === null)).toBe(true);
+    expect(await getOrderByToken(regenerated)).not.toBeNull();
+  });
+
+  it('stamps a future expiresAt on createOrder/duplicateOrder/generateAccessToken when set', async () => {
+    env.LINK_EXPIRY_DAYS = 30;
+    const before = Date.now();
+
+    const created = await createOrder(minimalInput());
+    const duplicated = await duplicateOrder(created.orderId);
+    await generateAccessToken(created.orderId);
+
+    const rows = await db
+      .select()
+      .from(schema.orderAccess)
+      .where(eq(schema.orderAccess.orderId, created.orderId));
+    const duplicateRows = await db
+      .select()
+      .from(schema.orderAccess)
+      .where(eq(schema.orderAccess.orderId, duplicated.orderId));
+
+    for (const row of [...rows, ...duplicateRows]) {
+      expect(row.expiresAt).not.toBeNull();
+      const deltaMs = row.expiresAt!.getTime() - before;
+      expect(deltaMs).toBeGreaterThan(29 * 86_400_000);
+      expect(deltaMs).toBeLessThanOrEqual(30 * 86_400_000 + 5000);
+    }
+  });
+
+  it('getOrderByToken rejects a token past its expiresAt', async () => {
+    const created = await createOrder(minimalInput());
+    await db
+      .update(schema.orderAccess)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(schema.orderAccess.orderId, created.orderId));
+
+    expect(await getOrderByToken(created.token)).toBeNull();
   });
 });
 

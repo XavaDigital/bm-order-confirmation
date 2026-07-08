@@ -95,6 +95,19 @@ describe('PATCH /api/admin/orders/[id]', () => {
     const row = await db.query.orders.findFirst({ where: eq(schema.orders.id, created.orderId) });
     expect(row!.clubName).toBe('New Club');
   });
+
+  it('sets internalNotes without touching generalNotes', async () => {
+    const created = await createOrder(minimalOrderInput({ generalNotes: 'Customer-facing note' }));
+
+    const res = await PATCH(patchRequest({ internalNotes: 'Staff-only note' }), {
+      params: Promise.resolve({ id: created.orderId }),
+    });
+    expect(res.status).toBe(200);
+
+    const row = await db.query.orders.findFirst({ where: eq(schema.orders.id, created.orderId) });
+    expect(row!.internalNotes).toBe('Staff-only note');
+    expect(row!.generalNotes).toBe('Customer-facing note');
+  });
 });
 
 describe('DELETE /api/admin/orders/[id]', () => {

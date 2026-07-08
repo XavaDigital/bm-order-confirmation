@@ -39,6 +39,7 @@ const STATUS_HEX: Record<string, string> = {
   viewed: '#1677ff',
   confirmed: '#52c41a',
   changes_requested: '#ff4d4f',
+  cancelled: '#595959',
 };
 
 type RecentOrder = {
@@ -77,6 +78,7 @@ interface Props {
     viewed: number;
     confirmed: number;
     changesRequested: number;
+    cancelled: number;
     total: number;
   };
   totalValueNZD: number;
@@ -184,6 +186,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
     { name: 'Viewed', value: counts.viewed, key: 'viewed' },
     { name: 'Confirmed', value: counts.confirmed, key: 'confirmed' },
     { name: 'Changes', value: counts.changesRequested, key: 'changes_requested' },
+    { name: 'Cancelled', value: counts.cancelled, key: 'cancelled' },
   ].filter((d) => d.value > 0);
 
   const awaitingCount = counts.sent + counts.viewed;

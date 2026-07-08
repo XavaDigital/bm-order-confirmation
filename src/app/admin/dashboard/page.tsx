@@ -1,6 +1,6 @@
 import { db } from '@/db';
 import { orders } from '@/db/schema';
-import { count, sum, desc, asc, and, gte, lte, inArray, sql } from 'drizzle-orm';
+import { count, sum, desc, asc, and, gte, lte, inArray, ne, sql } from 'drizzle-orm';
 import { getStaleOrders } from '@/server/orders/service';
 import { DashboardView } from './DashboardView';
 
@@ -18,9 +18,11 @@ async function getDashboardData() {
   const [countRows, valueRow, recentRows, trendRows, staleOrders, upcomingDeadlineRows] = await Promise.all([
     db.select({ status: orders.status, count: count() }).from(orders).groupBy(orders.status),
 
+    // Excludes cancelled orders — a dead deal's value shouldn't inflate the pipeline total.
     db
       .select({ total: sum(orders.orderValueAmount) })
       .from(orders)
+      .where(ne(orders.status, 'cancelled'))
       .then((r) => r[0]),
 
     db
@@ -75,6 +77,7 @@ async function getDashboardData() {
     viewed: map.viewed ?? 0,
     confirmed: map.confirmed ?? 0,
     changesRequested: map.changes_requested ?? 0,
+    cancelled: map.cancelled ?? 0,
     total: countRows.reduce((s, r) => s + Number(r.count), 0),
   };
 

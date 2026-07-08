@@ -8,11 +8,13 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const status = searchParams.get('status') ?? undefined;
   const search = searchParams.get('search') ?? undefined;
+  const sortBy = searchParams.get('sortBy') ?? undefined;
+  const sortDir = searchParams.get('sortDir') ?? undefined;
   const limit = Number(searchParams.get('limit') ?? 100);
   const offset = Number(searchParams.get('offset') ?? 0);
 
   try {
-    const result = await listOrders({ status, search, limit, offset });
+    const result = await listOrders({ status, search, limit, offset, sortBy, sortDir });
     return NextResponse.json(result);
   } catch (err) {
     console.error('[admin/orders GET]', err);

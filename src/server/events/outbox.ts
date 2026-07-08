@@ -23,10 +23,12 @@ export type DomainEventType =
   | 'order.viewed'
   | 'order.confirmed'
   | 'order.changes_requested'
+  | 'order.cancelled'
   | 'token.generated'
   | 'token.revoked'
   | 'link.emailed'
-  | 'order.updated';
+  | 'order.updated'
+  | 'order.duplicated';
 
 export async function emitDomainEvent(
   tx: Transaction,

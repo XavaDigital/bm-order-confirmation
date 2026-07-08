@@ -91,6 +91,22 @@ describe('GET /api/admin/orders/export', () => {
     expect(lines[1]).toContain('Beta Club');
   });
 
+  it('applies sortBy and sortDir query params, same as the list endpoint', async () => {
+    const session = (await getSession()) as unknown as Record<string, unknown>;
+    session.userId = 'staff-1';
+
+    await createOrder(minimalInput({ customer: { name: 'A', email: 'a@example.com' }, orderValue: { amount: 20, currency: 'NZD' } }));
+    await createOrder(minimalInput({ customer: { name: 'B', email: 'b@example.com' }, orderValue: { amount: 5, currency: 'NZD' } }));
+
+    const res = await GET(getRequest('?sortBy=orderValueAmount&sortDir=asc'));
+    const body = await res.text();
+    const lines = body.replace(/^﻿/, '').split('\r\n');
+
+    expect(lines).toHaveLength(3); // header + 2 orders
+    expect(lines[1]).toContain('B');
+    expect(lines[2]).toContain('A');
+  });
+
   it('neutralizes a leading formula character in customer-supplied text', async () => {
     const session = (await getSession()) as unknown as Record<string, unknown>;
     session.userId = 'staff-1';

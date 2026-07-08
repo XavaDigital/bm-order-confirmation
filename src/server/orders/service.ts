@@ -8,7 +8,7 @@
  * tables directly.
  */
 import { randomBytes } from 'node:crypto';
-import { eq, and, isNull, ilike, or, desc, sql, count, inArray } from 'drizzle-orm';
+import { eq, and, ne, isNull, ilike, or, asc, desc, sql, count, inArray } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   orders,
@@ -21,6 +21,7 @@ import {
 } from '@/db/schema';
 import { generateToken, hashToken, buildConfirmationUrl } from '@/lib/tokens';
 import { STALE_THRESHOLD_DAYS } from '@/lib/config';
+import { env } from '@/lib/env';
 import { emitDomainEvent, recordAuditEvent } from '@/server/events/outbox';
 import type { CreateOrderInput } from './contract';
 import type { UpdateOrderInput, AddGarmentInput, UpdateGarmentInput, UpsertSizingInput } from './admin-contract';
@@ -49,6 +50,11 @@ export class ConflictError extends Error {
 
 function generateOrderNumber(): string {
   return `OC-${randomBytes(4).toString('hex').toUpperCase()}`;
+}
+
+/** Null when `LINK_EXPIRY_DAYS` is unset — links never expire. */
+function computeAccessExpiry(): Date | null {
+  return env.LINK_EXPIRY_DAYS ? new Date(Date.now() + env.LINK_EXPIRY_DAYS * 86_400_000) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +140,7 @@ export async function createOrder(
       }
     }
 
-    await tx.insert(orderAccess).values({ orderId, tokenHash: hashToken(rawToken) });
+    await tx.insert(orderAccess).values({ orderId, tokenHash: hashToken(rawToken), expiresAt: computeAccessExpiry() });
   });
 
   return { orderId: createdOrderId, orderNumber, token: rawToken, url: buildConfirmationUrl(rawToken) };
@@ -143,6 +149,15 @@ export async function createOrder(
 // ---------------------------------------------------------------------------
 // Admin reads
 // ---------------------------------------------------------------------------
+
+type OrderSortField = 'createdAt' | 'orderValueAmount';
+type OrderSortDir = 'asc' | 'desc';
+
+function normalizeSortOptions(opts?: { sortBy?: string; sortDir?: string }) {
+  const sortBy = opts?.sortBy === 'orderValueAmount' ? 'orderValueAmount' : 'createdAt';
+  const sortDir = opts?.sortDir === 'asc' ? 'asc' : 'desc';
+  return { sortBy: sortBy as OrderSortField, sortDir: sortDir as OrderSortDir };
+}
 
 function buildOrdersWhere(opts?: { status?: string; search?: string }) {
   return and(
@@ -158,14 +173,29 @@ function buildOrdersWhere(opts?: { status?: string; search?: string }) {
   );
 }
 
+function buildOrdersOrderBy(sortBy: OrderSortField, sortDir: OrderSortDir) {
+  const direction = sortDir === 'asc' ? asc : desc;
+
+  switch (sortBy) {
+    case 'orderValueAmount':
+      return [direction(orders.orderValueAmount)];
+    case 'createdAt':
+    default:
+      return [direction(orders.createdAt)];
+  }
+}
+
 export async function listOrders(opts?: {
   status?: string;
   search?: string;
   limit?: number;
   offset?: number;
+  sortBy?: string;
+  sortDir?: string;
 }) {
   const limit = opts?.limit ?? 100;
   const offset = opts?.offset ?? 0;
+  const { sortBy, sortDir } = normalizeSortOptions(opts);
 
   const where = buildOrdersWhere(opts);
 
@@ -191,7 +221,7 @@ export async function listOrders(opts?: {
         },
       },
       where,
-      orderBy: [desc(orders.createdAt)],
+      orderBy: buildOrdersOrderBy(sortBy, sortDir),
       limit,
       offset,
     }),
@@ -208,7 +238,14 @@ export async function listOrders(opts?: {
  * Same filtering as `listOrders()` but unpaginated — for the CSV export,
  * which should return every matching row, not just the current page.
  */
-export async function listOrdersForExport(opts?: { status?: string; search?: string }) {
+export async function listOrdersForExport(opts?: {
+  status?: string;
+  search?: string;
+  sortBy?: string;
+  sortDir?: string;
+}) {
+  const { sortBy, sortDir } = normalizeSortOptions(opts);
+
   return db
     .select({
       orderNumber: orders.orderNumber,
@@ -223,7 +260,7 @@ export async function listOrdersForExport(opts?: { status?: string; search?: str
     })
     .from(orders)
     .where(buildOrdersWhere(opts))
-    .orderBy(desc(orders.createdAt));
+    .orderBy(...buildOrdersOrderBy(sortBy, sortDir));
 }
 
 export type StaleOrder = {
@@ -336,6 +373,122 @@ export async function getOrderById(id: string) {
   return db.query.orders.findFirst({ where: eq(orders.id, id) });
 }
 
+/**
+ * Create a new draft order pre-filled from an existing one — for repeat
+ * customers re-ordering the same/similar kit. Structured like `createOrder()`
+ * but sources its values from a fetched order instead of a `CreateOrderInput`.
+ *
+ * Deliberately NOT copied onto the duplicate:
+ * - status/confirmedAt/confirmations/conversionEvents/domainEvents — the
+ *   duplicate is a brand-new order and must start at 'draft' with no history.
+ * - mock-up images — storage keys are namespaced per-order
+ *   (`mockupKey(orderId, ...)`, `src/lib/storage.ts`), so copying the row
+ *   would point at the source order's S3 object. Staff re-upload as needed.
+ * - externalRef — has a partial unique index and ties an order to a specific
+ *   record in the future sales platform; copying it verbatim would either
+ *   collision-fail the insert or misattribute the duplicate.
+ * - internalNotes — staff context tied to what happened on the *original*
+ *   order (e.g. "third reprint due to fabric issue") that would be stale and
+ *   potentially misleading if silently carried onto a new order.
+ * - orderNumber — freshly generated; it's `unique()` and reusing it would
+ *   fail the insert outright.
+ *
+ * Customer name/email/club/shipping ARE copied — a re-order for the same
+ * customer/club is the more common case for this business, and staff can
+ * clear fields that don't apply before sending.
+ *
+ * Reads the source via `getOrderAdmin()`, which always reflects current
+ * state (not a historical snapshot) — so duplicating an order that's
+ * `changes_requested` automatically picks up whatever staff already edited
+ * in response to the customer's feedback, with no special-casing needed.
+ */
+export async function duplicateOrder(
+  id: string,
+  createdBy?: string,
+  meta?: { actorEmail?: string },
+): Promise<CreateOrderResult> {
+  const source = await getOrderAdmin(id);
+  if (!source) throw new NotFoundError('Order');
+
+  const orderNumber = generateOrderNumber();
+  const rawToken = generateToken();
+  let createdOrderId = '';
+
+  await db.transaction(async (tx) => {
+    const [order] = await tx
+      .insert(orders)
+      .values({
+        orderNumber,
+        source: 'internal_admin',
+        externalRef: null,
+        customerName: source.customerName,
+        customerEmail: source.customerEmail,
+        customerContact: source.customerContact,
+        clubName: source.clubName,
+        orderValueAmount: source.orderValueAmount,
+        orderValueCurrency: source.orderValueCurrency,
+        invoiceUrl: source.invoiceUrl,
+        expectedShipDate: source.expectedShipDate,
+        deadlineDate: source.deadlineDate,
+        generalNotes: source.generalNotes,
+        shippingMode: source.shippingMode,
+        shippingAddress: source.shippingAddress,
+        status: 'draft',
+        createdBy: createdBy ?? null,
+      })
+      .returning({ id: orders.id });
+
+    const orderId = order.id;
+    createdOrderId = orderId;
+
+    for (const g of source.garments) {
+      const [garment] = await tx
+        .insert(garments)
+        .values({
+          orderId,
+          name: g.name,
+          fabrics: Array.isArray(g.fabrics) ? g.fabrics : [],
+          notes: g.notes,
+          sortOrder: g.sortOrder,
+        })
+        .returning({ id: garments.id });
+
+      if (g.sizing.length) {
+        await tx.insert(garmentSizing).values(
+          g.sizing.map((row) => ({
+            garmentId: garment.id,
+            size: row.size,
+            playerName: row.playerName,
+            playerNumber: row.playerNumber,
+            notes: row.notes,
+            sortOrder: row.sortOrder,
+          })),
+        );
+      }
+
+      if (g.sizeChartLinks.length) {
+        await tx.insert(garmentSizeChartLinks).values(
+          g.sizeChartLinks.map((l) => ({ garmentId: garment.id, sizeChartId: l.sizeChartId })),
+        );
+      }
+    }
+
+    await tx.insert(orderAccess).values({ orderId, tokenHash: hashToken(rawToken), expiresAt: computeAccessExpiry() });
+
+    await emitDomainEvent(tx, {
+      aggregateId: orderId,
+      eventType: 'order.duplicated',
+      payload: {
+        sourceOrderId: id,
+        sourceOrderNumber: source.orderNumber,
+        actorEmail: meta?.actorEmail ?? null,
+      },
+    });
+  });
+
+  return { orderId: createdOrderId, orderNumber, token: rawToken, url: buildConfirmationUrl(rawToken) };
+}
+
 // ---------------------------------------------------------------------------
 // Admin writes — order level
 // ---------------------------------------------------------------------------
@@ -361,6 +514,7 @@ export async function updateOrder(
     ...(patch.expectedShipDate !== undefined && { expectedShipDate: patch.expectedShipDate }),
     ...(patch.deadlineDate !== undefined && { deadlineDate: patch.deadlineDate }),
     ...(patch.generalNotes !== undefined && { generalNotes: patch.generalNotes }),
+    ...(patch.internalNotes !== undefined && { internalNotes: patch.internalNotes }),
     ...(patch.shippingMode !== undefined && { shippingMode: patch.shippingMode }),
     ...(patch.shippingAddress !== undefined && { shippingAddress: patch.shippingAddress }),
     ...(patch.status !== undefined && { status: patch.status }),
@@ -504,6 +658,12 @@ export async function generateAccessToken(
   orderId: string,
   meta?: { actorEmail?: string },
 ): Promise<{ token: string; url: string }> {
+  const existing = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
+  if (!existing) throw new NotFoundError('Order');
+  if (existing.status === 'cancelled') {
+    throw new ConflictError('Cannot generate a link for a cancelled order');
+  }
+
   const rawToken = generateToken();
 
   await db.transaction(async (tx) => {
@@ -513,7 +673,7 @@ export async function generateAccessToken(
       .set({ revokedAt: new Date() })
       .where(and(eq(orderAccess.orderId, orderId), isNull(orderAccess.revokedAt)));
 
-    await tx.insert(orderAccess).values({ orderId, tokenHash: hashToken(rawToken) });
+    await tx.insert(orderAccess).values({ orderId, tokenHash: hashToken(rawToken), expiresAt: computeAccessExpiry() });
 
     // Advance status from draft → sent on first link generation.
     await tx
@@ -544,6 +704,50 @@ export async function revokeAccessToken(
     await emitDomainEvent(tx, {
       aggregateId: orderId,
       eventType: 'token.revoked',
+      payload: { actorEmail: meta?.actorEmail ?? null },
+    });
+  });
+}
+
+/**
+ * Mark a dead deal as cancelled and revoke its customer link. Terminal —
+ * there is no un-cancel; a revived deal should be duplicated (#8) into a
+ * fresh draft instead.
+ */
+export async function cancelOrder(
+  id: string,
+  meta?: { actorEmail?: string },
+): Promise<void> {
+  const existing = await db.query.orders.findFirst({ where: eq(orders.id, id) });
+  if (!existing) throw new NotFoundError('Order');
+  if (existing.status === 'confirmed') {
+    throw new ConflictError('Cannot cancel a confirmed order');
+  }
+  if (existing.status === 'cancelled') {
+    throw new ConflictError('Order is already cancelled');
+  }
+
+  await db.transaction(async (tx) => {
+    // Guard against a concurrent confirm/re-cancel racing this update — mirrors
+    // the confirm-race guard in customer-service.ts's confirmOrder().
+    const updated = await tx
+      .update(orders)
+      .set({ status: 'cancelled', updatedAt: new Date() })
+      .where(and(eq(orders.id, id), ne(orders.status, 'confirmed'), ne(orders.status, 'cancelled')))
+      .returning({ id: orders.id });
+
+    if (updated.length === 0) {
+      throw new ConflictError('Order cannot be cancelled in its current state');
+    }
+
+    await tx
+      .update(orderAccess)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(orderAccess.orderId, id), isNull(orderAccess.revokedAt)));
+
+    await emitDomainEvent(tx, {
+      aggregateId: id,
+      eventType: 'order.cancelled',
       payload: { actorEmail: meta?.actorEmail ?? null },
     });
   });

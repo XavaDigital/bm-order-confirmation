@@ -54,6 +54,7 @@ export default async function OrderDetailPage({ params }: Props) {
     expectedShipDate: order.expectedShipDate ?? null,
     deadlineDate: order.deadlineDate ?? null,
     generalNotes: order.generalNotes ?? null,
+    internalNotes: order.internalNotes ?? null,
     shippingMode: order.shippingMode,
     status: order.status,
     createdAt: order.createdAt.toISOString(),

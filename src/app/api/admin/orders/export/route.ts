@@ -24,9 +24,11 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const status = searchParams.get('status') ?? undefined;
   const search = searchParams.get('search') ?? undefined;
+  const sortBy = searchParams.get('sortBy') ?? undefined;
+  const sortDir = searchParams.get('sortDir') ?? undefined;
 
   try {
-    const rows = await listOrdersForExport({ status, search });
+    const rows = await listOrdersForExport({ status, search, sortBy, sortDir });
 
     const csv = toCsv([
       HEADER,

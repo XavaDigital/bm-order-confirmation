@@ -40,10 +40,21 @@ describe('updateOrderSchema', () => {
       expectedShipDate: null,
       deadlineDate: null,
       generalNotes: null,
+      internalNotes: null,
       shippingAddress: null,
     });
     expect(result.customerContact).toBeNull();
     expect(result.clubName).toBeNull();
+    expect(result.internalNotes).toBeNull();
+  });
+
+  it('accepts an internalNotes string, independent of generalNotes', () => {
+    const result = updateOrderSchema.parse({
+      generalNotes: 'Shown to customer',
+      internalNotes: 'Discount approved by manager',
+    });
+    expect(result.generalNotes).toBe('Shown to customer');
+    expect(result.internalNotes).toBe('Discount approved by manager');
   });
 });
 

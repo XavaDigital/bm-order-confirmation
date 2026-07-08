@@ -423,6 +423,18 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
                     Mock-up Images
                   </Text>
                   <MockupGallery images={garment.images} />
+                  <Text
+                    style={{
+                      color: 'rgba(255,255,255,0.4)',
+                      fontSize: 12,
+                      fontStyle: 'italic',
+                      display: 'block',
+                      marginTop: 10,
+                    }}
+                  >
+                    Note: colours and print detail may appear slightly different in person than
+                    shown on screen, due to monitor display settings and the printing process.
+                  </Text>
                 </div>
               )}
 

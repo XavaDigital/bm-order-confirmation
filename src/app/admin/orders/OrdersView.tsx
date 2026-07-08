@@ -16,6 +16,9 @@ import type { ColumnType } from 'antd/es/table';
 import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
 import { formatDate, formatCurrency } from '@/lib/format';
 
+type SortField = 'createdAt' | 'orderValueAmount';
+type SortDirection = 'ascend' | 'descend' | null;
+
 interface OrderRow {
   id: string;
   orderNumber: string;
@@ -36,6 +39,7 @@ const STATUS_TABS = [
   { key: 'viewed', label: 'Viewed' },
   { key: 'confirmed', label: 'Confirmed' },
   { key: 'changes_requested', label: 'Changes Requested' },
+  { key: 'cancelled', label: 'Cancelled' },
 ];
 
 export function OrdersView() {
@@ -47,6 +51,16 @@ export function OrdersView() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [status, setStatus] = useState(() => searchParams.get('status') ?? '');
+  const [sortField, setSortField] = useState<SortField | null>(() => {
+    const initialSortBy = searchParams.get('sortBy');
+    return initialSortBy === 'createdAt' || initialSortBy === 'orderValueAmount'
+      ? initialSortBy
+      : null;
+  });
+  const [sortOrder, setSortOrder] = useState<SortDirection>(() => {
+    const initialSortDir = searchParams.get('sortDir');
+    return initialSortDir === 'asc' ? 'ascend' : initialSortDir === 'desc' ? 'descend' : null;
+  });
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
 
@@ -65,6 +79,10 @@ export function OrdersView() {
       });
       if (status) params.set('status', status);
       if (debouncedSearch) params.set('search', debouncedSearch);
+      if (sortField && sortOrder) {
+        params.set('sortBy', sortField);
+        params.set('sortDir', sortOrder === 'ascend' ? 'asc' : 'desc');
+      }
 
       const res = await fetch(`/api/admin/orders?${params}`);
       if (!res.ok) throw new Error('Failed to load');
@@ -76,7 +94,7 @@ export function OrdersView() {
     } finally {
       setLoading(false);
     }
-  }, [status, debouncedSearch, page]);
+  }, [status, debouncedSearch, page, sortField, sortOrder]);
 
   useEffect(() => {
     fetchOrders();
@@ -85,12 +103,16 @@ export function OrdersView() {
   // Reset to page 1 when filters change
   useEffect(() => {
     setPage(1);
-  }, [status, debouncedSearch]);
+  }, [status, debouncedSearch, sortField, sortOrder]);
 
   const exportHref = (() => {
     const params = new URLSearchParams();
     if (status) params.set('status', status);
     if (debouncedSearch) params.set('search', debouncedSearch);
+    if (sortField && sortOrder) {
+      params.set('sortBy', sortField);
+      params.set('sortDir', sortOrder === 'ascend' ? 'asc' : 'desc');
+    }
     const qs = params.toString();
     return `/api/admin/orders/export${qs ? `?${qs}` : ''}`;
   })();
@@ -133,6 +155,8 @@ export function OrdersView() {
       title: 'Value',
       dataIndex: 'orderValueAmount',
       width: 120,
+      sorter: true,
+      sortOrder: sortField === 'orderValueAmount' ? sortOrder : null,
       render: (amount: string | null, record: OrderRow) =>
         amount
           ? `${record.orderValueCurrency ?? 'NZD'} ${formatCurrency(amount)}`
@@ -142,6 +166,8 @@ export function OrdersView() {
       title: 'Created',
       dataIndex: 'createdAt',
       width: 140,
+      sorter: true,
+      sortOrder: sortField === 'createdAt' ? sortOrder : null,
       render: (val: string) => formatDate(val),
     },
   ];
@@ -202,6 +228,18 @@ export function OrdersView() {
           columns={columns}
           rowKey="id"
           loading={loading}
+          onChange={(_, __, sorter) => {
+            if (Array.isArray(sorter)) return;
+
+            const field = sorter.field;
+            if (field === 'createdAt' || field === 'orderValueAmount') {
+              setSortField(field);
+              setSortOrder(sorter.order === 'ascend' || sorter.order === 'descend' ? sorter.order : null);
+            } else {
+              setSortField(null);
+              setSortOrder(null);
+            }
+          }}
           pagination={{
             current: page,
             pageSize: PAGE_SIZE,

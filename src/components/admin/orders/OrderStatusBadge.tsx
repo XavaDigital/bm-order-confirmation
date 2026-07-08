@@ -8,6 +8,7 @@ const STATUS_COLORS: Record<string, string> = {
   viewed: 'warning',
   confirmed: 'success',
   changes_requested: 'error',
+  cancelled: 'default',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -16,6 +17,7 @@ const STATUS_LABELS: Record<string, string> = {
   viewed: 'Viewed',
   confirmed: 'Confirmed',
   changes_requested: 'Changes Requested',
+  cancelled: 'Cancelled',
 };
 
 export function OrderStatusBadge({ status }: { status: string }) {

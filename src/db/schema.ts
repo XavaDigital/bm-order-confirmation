@@ -34,6 +34,7 @@ export const orderStatus = confirmation.enum('order_status', [
   'viewed',
   'confirmed',
   'changes_requested',
+  'cancelled',
 ]);
 export const shippingMode = confirmation.enum('shipping_mode', [
   'prefilled',
@@ -97,7 +98,8 @@ export const orders = confirmation.table(
     expectedShipDate: date('expected_ship_date'),
     deadlineDate: date('deadline_date'),
 
-    generalNotes: text('general_notes'),
+    generalNotes: text('general_notes'), // shown to the customer (confirmation page + PDF)
+    internalNotes: text('internal_notes'), // staff-only; never shown to the customer
     shippingMode: shippingMode('shipping_mode').notNull().default('prefilled'),
     shippingAddress: jsonb('shipping_address'),
 

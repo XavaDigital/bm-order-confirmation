@@ -87,6 +87,35 @@ describe('CustomerOrderView', () => {
     expect(screen.getByRole('button', { name: /confirm order/i })).toBeDisabled();
   });
 
+  it('shows a print-accuracy disclaimer under mock-up images but not when a garment has none', () => {
+    renderView(
+      baseOrder({
+        garments: [
+          {
+            id: 'garment-1',
+            name: 'Home Jersey',
+            fabrics: [],
+            notes: null,
+            sizing: [],
+            images: [{ id: 'img-1', caption: null, url: 'https://example.com/mockup.png' }],
+            sizeCharts: [],
+          },
+          {
+            id: 'garment-2',
+            name: 'Shorts',
+            fabrics: [],
+            notes: null,
+            sizing: [],
+            images: [],
+            sizeCharts: [],
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getAllByText(/may appear slightly different in person/i)).toHaveLength(1);
+  });
+
   it('enables the Confirm button once all acknowledgments are checked', async () => {
     const user = userEvent.setup();
     renderView(baseOrder());

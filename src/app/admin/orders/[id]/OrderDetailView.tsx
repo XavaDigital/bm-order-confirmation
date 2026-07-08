@@ -14,6 +14,7 @@ import {
   Breadcrumb,
   Alert,
   Tooltip,
+  Input,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -21,6 +22,9 @@ import {
   SaveOutlined,
   FilePdfOutlined,
   MailOutlined,
+  LockOutlined,
+  CopyOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -64,6 +68,7 @@ export interface AdminOrderData {
   expectedShipDate: string | null;
   deadlineDate: string | null;
   generalNotes: string | null;
+  internalNotes: string | null;
   shippingMode: 'prefilled' | 'customer_entered' | 'later';
   status: string;
   createdAt: string;
@@ -80,6 +85,7 @@ export interface AdminOrderData {
 }
 
 const RESENDABLE_STATUSES = new Set(['sent', 'viewed', 'changes_requested']);
+const CANCELLABLE_STATUSES = new Set(['sent', 'viewed', 'changes_requested']);
 
 interface Props {
   order: AdminOrderData;
@@ -94,7 +100,10 @@ export function OrderDetailView({ order }: Props) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [resending, setResending] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [currentStatus, setCurrentStatus] = useState(order.status);
+  const [internalNotes, setInternalNotes] = useState(order.internalNotes ?? '');
   const [hasActiveToken, setHasActiveToken] = useState(
     order.currentAccess !== null && order.currentAccess.revokedAt === null,
   );
@@ -140,6 +149,7 @@ export function OrderDetailView({ order }: Props) {
         expectedShipDate: payload.expectedShipDate ?? null,
         deadlineDate: payload.deadlineDate ?? null,
         generalNotes: payload.generalNotes ?? null,
+        internalNotes: internalNotes || null,
         shippingMode: payload.shippingMode,
       };
 
@@ -195,12 +205,53 @@ export function OrderDetailView({ order }: Props) {
     }
   }
 
+  async function duplicateOrder() {
+    setDuplicating(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${order.id}/duplicate`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? 'Failed to duplicate order');
+      message.success(`Created ${data.orderNumber} from this order`);
+      router.push(`/admin/orders/${data.orderId}`);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to duplicate order');
+      setDuplicating(false);
+    }
+  }
+
+  async function cancelOrder() {
+    setCancelling(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${order.id}/cancel`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? 'Failed to cancel order');
+      }
+      setCurrentStatus('cancelled');
+      setHasActiveToken(false);
+      setShareLinkVersion((v) => v + 1);
+      message.success('Order cancelled');
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to cancel order');
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   const tabItems = [
     {
       key: 'details',
       label: 'Details',
       children: (
         <Space direction="vertical" style={{ width: '100%' }} size={16}>
+          {currentStatus === 'cancelled' && (
+            <Alert
+              type="error"
+              showIcon
+              message="This order has been cancelled."
+              description="The customer's link has been revoked. Duplicate this order if the deal is revived."
+            />
+          )}
           {currentStatus === 'confirmed' && (
             <Alert
               type="success"
@@ -230,6 +281,22 @@ export function OrderDetailView({ order }: Props) {
             />
           )}
           <OrderForm form={form} initialValues={initialValues} />
+          <Card
+            size="small"
+            style={{ borderColor: '#faad14', background: 'rgba(250, 173, 20, 0.06)' }}
+          >
+            <Typography.Text strong>
+              <LockOutlined style={{ color: '#faad14', marginRight: 6 }} />
+              Internal notes — staff only, never shown to the customer
+            </Typography.Text>
+            <Input.TextArea
+              rows={3}
+              value={internalNotes}
+              onChange={(e) => setInternalNotes(e.target.value)}
+              placeholder="e.g. customer called, wants to hold shipment; discount approved by manager"
+              style={{ resize: 'vertical', marginTop: 8 }}
+            />
+          </Card>
           <Space>
             <Button
               type="primary"
@@ -335,6 +402,24 @@ export function OrderDetailView({ order }: Props) {
               >
                 Download PDF
               </Button>
+            )}
+            <Tooltip title="Creates a new draft order pre-filled with this order's customer, garments, sizing, and size charts (mock-ups are not copied)">
+              <Button icon={<CopyOutlined />} loading={duplicating} onClick={duplicateOrder}>
+                Duplicate
+              </Button>
+            </Tooltip>
+            {CANCELLABLE_STATUSES.has(currentStatus) && (
+              <Popconfirm
+                title="Cancel this order?"
+                description="This marks the order as dead and immediately revokes the customer's link. This cannot be undone."
+                onConfirm={cancelOrder}
+                okText="Cancel order"
+                okType="danger"
+              >
+                <Button danger icon={<StopOutlined />} loading={cancelling}>
+                  Cancel order
+                </Button>
+              </Popconfirm>
             )}
           </Space>
         </div>

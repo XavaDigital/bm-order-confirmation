@@ -17,6 +17,10 @@ const schema = z.object({
   // `Authorization: Bearer $CRON_SECRET` on cron-triggered requests.
   CRON_SECRET: z.string().optional(),
 
+  // Customer magic-link lifetime, in days. Unset → links never expire
+  // (today's behavior). Suggested value once enabled: 30.
+  LINK_EXPIRY_DAYS: z.coerce.number().optional(),
+
   // Object storage (AWS S3). Optional at boot — fails gracefully at upload time if absent.
   AWS_S3_BUCKET: z.string().optional(),
   AWS_S3_REGION: z.string().optional(),
