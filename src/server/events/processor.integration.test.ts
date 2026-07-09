@@ -12,6 +12,7 @@ vi.mock('@/server/conversions/google-ads', () => ({ fireGoogleAdsConversion: vi.
 vi.mock('@/server/orders/notifications', () => ({
   notifyStaffOfConfirmation: vi.fn(),
   notifyStaffOfChangeRequest: vi.fn(),
+  notifyCustomerOfConfirmation: vi.fn(),
 }));
 
 import { db } from '@/db';
@@ -19,13 +20,18 @@ import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
 import { processOutbox } from './processor';
 import { fireGoogleAdsConversion } from '@/server/conversions/google-ads';
-import { notifyStaffOfConfirmation, notifyStaffOfChangeRequest } from '@/server/orders/notifications';
+import {
+  notifyStaffOfConfirmation,
+  notifyStaffOfChangeRequest,
+  notifyCustomerOfConfirmation,
+} from '@/server/orders/notifications';
 
 afterEach(async () => {
   await resetTestDb(db);
   vi.mocked(fireGoogleAdsConversion).mockReset();
   vi.mocked(notifyStaffOfConfirmation).mockReset();
   vi.mocked(notifyStaffOfChangeRequest).mockReset();
+  vi.mocked(notifyCustomerOfConfirmation).mockReset();
 });
 
 const FAKE_ORDER_ID = '11111111-1111-1111-1111-111111111111';
@@ -70,7 +76,7 @@ describe('processOutbox', () => {
     expect(deliveredRows.map((r) => r.id).sort()).toEqual(oldest20Ids);
   });
 
-  it('order.confirmed calls both Google Ads and confirmation-email handlers, ends up delivered', async () => {
+  it('order.confirmed calls Google Ads, staff email, and customer receipt handlers, ends up delivered', async () => {
     const event = await seedEvent({ eventType: 'order.confirmed', payload: { orderNumber: 'OC-1' } });
 
     const result = await processOutbox();
@@ -79,7 +85,24 @@ describe('processOutbox', () => {
     expect(fireGoogleAdsConversion).toHaveBeenCalledTimes(1);
     expect(fireGoogleAdsConversion).toHaveBeenCalledWith(FAKE_ORDER_ID);
     expect(notifyStaffOfConfirmation).toHaveBeenCalledTimes(1);
+    expect(notifyCustomerOfConfirmation).toHaveBeenCalledTimes(1);
+    expect(notifyCustomerOfConfirmation).toHaveBeenCalledWith(FAKE_ORDER_ID, 'OC-1', event.createdAt);
     expect(notifyStaffOfChangeRequest).not.toHaveBeenCalled();
+
+    const row = await db.query.domainEvents.findFirst({ where: eq(schema.domainEvents.id, event.id) });
+    expect(row!.status).toBe('delivered');
+  });
+
+  it('a failing customer receipt email does not fail the order.confirmed event (best-effort)', async () => {
+    vi.mocked(notifyCustomerOfConfirmation).mockRejectedValueOnce(new Error('smtp bounce'));
+    const event = await seedEvent({ eventType: 'order.confirmed', payload: { orderNumber: 'OC-1' } });
+
+    const result = await processOutbox();
+
+    expect(result).toEqual({ processed: 1, delivered: 1, failed: 0 });
+    expect(fireGoogleAdsConversion).toHaveBeenCalledTimes(1);
+    expect(notifyStaffOfConfirmation).toHaveBeenCalledTimes(1);
+    expect(notifyCustomerOfConfirmation).toHaveBeenCalledTimes(1);
 
     const row = await db.query.domainEvents.findFirst({ where: eq(schema.domainEvents.id, event.id) });
     expect(row!.status).toBe('delivered');

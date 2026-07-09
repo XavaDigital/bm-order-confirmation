@@ -92,6 +92,7 @@ export default async function OrderDetailPage({ params }: Props) {
           revokedAt: order.currentAccess.revokedAt
             ? order.currentAccess.revokedAt.toISOString()
             : null,
+          hasAccessCode: order.currentAccess.accessCodeHash !== null,
         }
       : null,
   };

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { eq } from 'drizzle-orm';
 
 vi.mock('@/db', async () => {
   const { createTestDb } = await import('@/db/test-helpers');
@@ -94,5 +95,30 @@ describe('loginStaff', () => {
     const result = await loginStaff('STAFF@Example.com', 'correct-horse-battery-staple');
 
     expect(result.email).toBe('staff@example.com');
+  });
+
+  it('stamps lastLoginAt on a successful login', async () => {
+    const user = await seedStaffUser();
+    expect(user.lastLoginAt).toBeNull();
+
+    const before = new Date();
+    await loginStaff('staff@example.com', 'correct-horse-battery-staple');
+
+    const updated = await db.query.staffUsers.findFirst({
+      where: eq(schema.staffUsers.id, user.id),
+    });
+    expect(updated?.lastLoginAt).toBeInstanceOf(Date);
+    expect(updated!.lastLoginAt!.getTime()).toBeGreaterThanOrEqual(before.getTime());
+  });
+
+  it('does not stamp lastLoginAt on a failed login', async () => {
+    const user = await seedStaffUser();
+
+    await expect(loginStaff('staff@example.com', 'wrong-password')).rejects.toThrow(AuthError);
+
+    const unchanged = await db.query.staffUsers.findFirst({
+      where: eq(schema.staffUsers.id, user.id),
+    });
+    expect(unchanged?.lastLoginAt).toBeNull();
   });
 });

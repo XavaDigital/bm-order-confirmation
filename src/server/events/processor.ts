@@ -15,6 +15,7 @@ import { fireGoogleAdsConversion } from '@/server/conversions/google-ads';
 import {
   notifyStaffOfConfirmation,
   notifyStaffOfChangeRequest,
+  notifyCustomerOfConfirmation,
 } from '@/server/orders/notifications';
 
 const BATCH_SIZE = 20;
@@ -48,12 +49,24 @@ async function handleChangesRequestedEmail(event: DomainEvent): Promise<void> {
   );
 }
 
+// Best-effort: caught here rather than left to propagate, so a bounced/failed
+// customer receipt doesn't mark the whole event 'failed' (which would strand
+// it with no retry, even though Google Ads + the staff email already succeeded).
+async function handleCustomerReceiptEmail(event: DomainEvent): Promise<void> {
+  const p = event.payload as { orderNumber?: string };
+  try {
+    await notifyCustomerOfConfirmation(event.aggregateId, p.orderNumber ?? '', event.createdAt);
+  } catch (err) {
+    console.error(`[outbox] customer receipt email failed for event ${event.id}:`, err);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
 const EVENT_HANDLERS: Record<string, EventHandler[]> = {
-  'order.confirmed': [handleGoogleAdsConversion, handleConfirmationEmail],
+  'order.confirmed': [handleGoogleAdsConversion, handleConfirmationEmail, handleCustomerReceiptEmail],
   'order.changes_requested': [handleChangesRequestedEmail],
 };
 

@@ -31,6 +31,16 @@ export async function loginStaff(email: string, password: string): Promise<AuthU
     throw new AuthError();
   }
 
+  // Dormancy signal only — a failed stamp must never fail the login.
+  try {
+    await db
+      .update(staffUsers)
+      .set({ lastLoginAt: new Date() })
+      .where(eq(staffUsers.id, user.id));
+  } catch (err) {
+    console.error('[auth] failed to stamp lastLoginAt', err);
+  }
+
   return {
     id: user.id,
     email: user.email,

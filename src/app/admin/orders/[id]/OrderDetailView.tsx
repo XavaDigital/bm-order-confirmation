@@ -81,6 +81,7 @@ export interface AdminOrderData {
     id: string;
     createdAt: string;
     revokedAt: string | null;
+    hasAccessCode: boolean;
   } | null;
 }
 
@@ -340,6 +341,12 @@ export function OrderDetailView({ order }: Props) {
           customerEmail={order.customerEmail}
           hasActiveToken={hasActiveToken}
           tokenCreatedAt={tokenCreatedAt}
+          hasAccessCode={order.currentAccess?.hasAccessCode ?? false}
+          garmentSummary={{
+            total: order.garments.length,
+            missingSizing: order.garments.filter((g) => g.sizing.length === 0).map((g) => g.name),
+            missingImages: order.garments.filter((g) => g.images.length === 0).map((g) => g.name),
+          }}
         />
       ),
     },

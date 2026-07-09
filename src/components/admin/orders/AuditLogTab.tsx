@@ -12,6 +12,7 @@ import {
   MessageOutlined,
   CopyOutlined,
   CloseCircleOutlined,
+  KeyOutlined,
 } from '@ant-design/icons';
 
 const { Text } = Typography;
@@ -39,6 +40,8 @@ function eventIcon(type: string) {
     case 'order.changes_requested': return <MessageOutlined style={{ color: '#faad14' }} />;
     case 'order.duplicated': return <CopyOutlined style={{ color: '#13c2c2' }} />;
     case 'order.cancelled': return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
+    case 'access_code.enabled':  return <KeyOutlined style={{ color: '#1677ff' }} />;
+    case 'access_code.disabled': return <KeyOutlined style={{ color: '#ff4d4f' }} />;
     default: return null;
   }
 }
@@ -54,6 +57,8 @@ function eventLabel(type: string): string {
     'order.changes_requested': 'Changes requested',
     'order.duplicated': 'Duplicated from another order',
     'order.cancelled': 'Order cancelled',
+    'access_code.enabled':  'Access code enabled',
+    'access_code.disabled': 'Access code removed',
   };
   return labels[type] ?? type;
 }
@@ -68,6 +73,8 @@ function eventColor(type: string): string {
     case 'order.changes_requested': return 'orange';
     case 'order.duplicated':       return 'cyan';
     case 'order.cancelled':        return 'red';
+    case 'access_code.enabled':    return 'blue';
+    case 'access_code.disabled':   return 'red';
     default:                       return 'gray';
   }
 }

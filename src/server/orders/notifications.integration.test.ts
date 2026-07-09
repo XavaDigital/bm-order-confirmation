@@ -7,13 +7,19 @@ vi.mock('@/db', async () => {
   return { db, schema };
 });
 
-const { sendStaffConfirmationEmail, sendStaffChangeRequestEmail, isEmailConfigured } = vi.hoisted(() => ({
+const { sendStaffConfirmationEmail, sendStaffChangeRequestEmail, sendCustomerReceiptEmail, isEmailConfigured } = vi.hoisted(() => ({
   sendStaffConfirmationEmail: vi.fn().mockResolvedValue(undefined),
   sendStaffChangeRequestEmail: vi.fn().mockResolvedValue(undefined),
+  sendCustomerReceiptEmail: vi.fn().mockResolvedValue(undefined),
   isEmailConfigured: vi.fn().mockReturnValue(true),
 }));
 
-vi.mock('@/lib/email', () => ({ sendStaffConfirmationEmail, sendStaffChangeRequestEmail, isEmailConfigured }));
+vi.mock('@/lib/email', () => ({
+  sendStaffConfirmationEmail,
+  sendStaffChangeRequestEmail,
+  sendCustomerReceiptEmail,
+  isEmailConfigured,
+}));
 
 vi.mock('@/lib/env', () => ({
   env: {
@@ -26,12 +32,13 @@ import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
 import { env } from '@/lib/env';
-import { notifyStaffOfChangeRequest, notifyStaffOfConfirmation } from './notifications';
+import { notifyStaffOfChangeRequest, notifyStaffOfConfirmation, notifyCustomerOfConfirmation } from './notifications';
 
 afterEach(async () => {
   await resetTestDb(db);
   sendStaffConfirmationEmail.mockClear();
   sendStaffChangeRequestEmail.mockClear();
+  sendCustomerReceiptEmail.mockClear();
   isEmailConfigured.mockReturnValue(true);
   env.STAFF_NOTIFICATIONS_CC = undefined;
 });
@@ -55,6 +62,14 @@ async function seedOrder(overrides: Partial<typeof schema.orders.$inferInsert> =
     })
     .returning();
   return order;
+}
+
+async function seedConfirmation(orderId: string, snapshot: Record<string, unknown>) {
+  const [row] = await db
+    .insert(schema.confirmations)
+    .values({ orderId, confirmedSnapshot: snapshot })
+    .returning();
+  return row;
 }
 
 describe('notifyStaffOfChangeRequest', () => {
@@ -140,5 +155,67 @@ describe('notifyStaffOfConfirmation', () => {
       adminOrderUrl: `http://localhost:3000/admin/orders/${order.id}`,
       cc: undefined,
     });
+  });
+});
+
+describe('notifyCustomerOfConfirmation', () => {
+  it('does nothing when email is not configured', async () => {
+    isEmailConfigured.mockReturnValue(false);
+    const order = await seedOrder();
+
+    await notifyCustomerOfConfirmation(order.id, order.orderNumber, new Date());
+
+    expect(sendCustomerReceiptEmail).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when the order does not exist', async () => {
+    await notifyCustomerOfConfirmation('00000000-0000-0000-0000-000000000000', 'OC-X', new Date());
+
+    expect(sendCustomerReceiptEmail).not.toHaveBeenCalled();
+  });
+
+  it('emails the customer directly (no staff lookup) with a quantity summary, order value, and ship date derived from the confirmed snapshot', async () => {
+    const order = await seedOrder();
+    await seedConfirmation(order.id, {
+      garments: [
+        { name: 'Home Jersey', sizing: [{ size: 'M' }, { size: 'L' }] },
+        { name: 'Away Jersey', sizing: [{ size: 'S' }] },
+      ],
+      order_value_amount: '1240.00',
+      order_value_currency: 'NZD',
+      expected_ship_date: '2026-08-01',
+    });
+    const confirmedAt = new Date('2026-01-15T10:30:00Z');
+
+    await notifyCustomerOfConfirmation(order.id, order.orderNumber, confirmedAt);
+
+    expect(sendCustomerReceiptEmail).toHaveBeenCalledWith({
+      to: order.customerEmail,
+      toName: order.customerName,
+      orderNumber: order.orderNumber,
+      confirmedAt,
+      garments: [
+        { name: 'Home Jersey', quantity: 2 },
+        { name: 'Away Jersey', quantity: 1 },
+      ],
+      orderValueAmount: '1240.00',
+      orderValueCurrency: 'NZD',
+      expectedShipDate: '2026-08-01',
+    });
+  });
+
+  it('sends an empty garment list and null order value/ship date when there is no confirmation snapshot yet', async () => {
+    const order = await seedOrder();
+
+    await notifyCustomerOfConfirmation(order.id, order.orderNumber, new Date());
+
+    expect(sendCustomerReceiptEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        garments: [],
+        orderValueAmount: null,
+        orderValueCurrency: null,
+        expectedShipDate: null,
+      }),
+    );
   });
 });

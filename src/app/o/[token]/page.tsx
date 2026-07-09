@@ -1,6 +1,9 @@
 import { notFound } from 'next/navigation';
+import { cookies } from 'next/headers';
 import { getOrderForCustomer, recordOrderViewed } from '@/server/orders/customer-service';
 import { getSignedUrl } from '@/lib/storage';
+import { ACCESS_CODE_COOKIE, isAccessCodeCookieValid } from '@/lib/access-code';
+import { AccessCodeGate } from '@/components/customer/AccessCodeGate';
 import { CustomerOrderView, type CustomerOrderViewProps } from './view';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +37,16 @@ export default async function CustomerOrderPage({ params }: Props) {
   if (!result) notFound();
 
   const { order, access } = result;
+
+  // Optional per-order access code: until the signed verification cookie is
+  // present, show only the code prompt — no order details, no view recording.
+  if (access.accessCodeHash) {
+    const cookieStore = await cookies();
+    const codeCookie = cookieStore.get(ACCESS_CODE_COOKIE)?.value ?? null;
+    if (!isAccessCodeCookieValid(access, codeCookie)) {
+      return <AccessCodeGate token={token} />;
+    }
+  }
 
   // Record the view (transitions 'sent' → 'viewed', emits domain event, updates last_viewed_at).
   // Fire-and-forget: a view-recording failure must not block the customer seeing their order.

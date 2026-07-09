@@ -13,6 +13,7 @@ import {
   conversionEvents,
 } from '@/db/schema';
 import { hashToken } from '@/lib/tokens';
+import { accessCodeMatches, isAccessCodeCookieValid } from '@/lib/access-code';
 import { uploadFile, signatureKey } from '@/lib/storage';
 import { emitDomainEvent } from '@/server/events/outbox';
 
@@ -47,6 +48,55 @@ export async function getOrderForCustomer(rawToken: string) {
 
   if (!order) return null;
   return { order, access };
+}
+
+// ---------------------------------------------------------------------------
+// Per-order access code verification
+// ---------------------------------------------------------------------------
+
+/**
+ * Check a customer-entered access code against the active link's stored hash.
+ * Route sets the signed verification cookie on 'ok' (see /api/o/verify-code).
+ */
+export async function verifyOrderAccessCode(params: {
+  rawToken: string;
+  code: string;
+}): Promise<
+  | { status: 'ok'; access: { id: string; accessCodeHash: string | null } }
+  | { status: 'invalid_token' }
+  | { status: 'wrong_code' }
+> {
+  const access = await db.query.orderAccess.findFirst({
+    where: and(
+      eq(orderAccess.tokenHash, hashToken(params.rawToken)),
+      isNull(orderAccess.revokedAt),
+    ),
+  });
+
+  if (!access) return { status: 'invalid_token' };
+  if (access.expiresAt && access.expiresAt.getTime() < Date.now()) {
+    return { status: 'invalid_token' };
+  }
+
+  // No code enabled on this link — nothing to verify.
+  if (!access.accessCodeHash) {
+    return { status: 'ok', access: { id: access.id, accessCodeHash: null } };
+  }
+
+  const matches = await accessCodeMatches(params.code, access.accessCodeHash);
+  if (!matches) return { status: 'wrong_code' };
+
+  return { status: 'ok', access: { id: access.id, accessCodeHash: access.accessCodeHash } };
+}
+
+/** Throws 'code_required' unless the request carries a valid verification cookie. */
+function assertAccessCodeSatisfied(
+  access: { id: string; accessCodeHash: string | null },
+  codeCookie: string | null | undefined,
+): void {
+  if (access.accessCodeHash && !isAccessCodeCookieValid(access, codeCookie)) {
+    throw new Error('code_required');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +158,8 @@ export interface AckInput {
 export async function requestOrderChanges(params: {
   rawToken: string;
   comment: string;
+  /** Signed verification cookie value — required when the link has an access code. */
+  codeCookie?: string | null;
 }): Promise<{ orderNumber: string; orderId: string }> {
   const access = await db.query.orderAccess.findFirst({
     where: and(
@@ -120,6 +172,7 @@ export async function requestOrderChanges(params: {
   if (access.expiresAt && access.expiresAt.getTime() < Date.now()) {
     throw new Error('invalid_token');
   }
+  assertAccessCodeSatisfied(access, params.codeCookie);
 
   const order = await db.query.orders.findFirst({
     where: eq(orders.id, access.orderId),
@@ -164,6 +217,8 @@ export async function confirmOrder(params: {
   signatureType: 'drawn' | 'uploaded' | 'none';
   ipAddress?: string | null;
   userAgent?: string | null;
+  /** Signed verification cookie value — required when the link has an access code. */
+  codeCookie?: string | null;
 }): Promise<{ orderNumber: string; confirmedAt: Date; orderId: string }> {
   const access = await db.query.orderAccess.findFirst({
     where: and(
@@ -176,6 +231,7 @@ export async function confirmOrder(params: {
   if (access.expiresAt && access.expiresAt.getTime() < Date.now()) {
     throw new Error('invalid_token');
   }
+  assertAccessCodeSatisfied(access, params.codeCookie);
 
   const order = await db.query.orders.findFirst({
     where: eq(orders.id, access.orderId),

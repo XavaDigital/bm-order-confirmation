@@ -29,6 +29,7 @@ import {
   sendMagicLink,
   sendStaffChangeRequestEmail,
   sendStaffConfirmationEmail,
+  sendCustomerReceiptEmail,
 } from './email';
 
 beforeEach(() => {
@@ -251,5 +252,98 @@ describe('sendStaffConfirmationEmail', () => {
     expect(call.subject).toContain('Cust confirmed order OC-4');
     expect(call.text).toContain('http://admin/orders/4');
     expect(call.html).toContain('http://admin/orders/4');
+  });
+});
+
+describe('sendCustomerReceiptEmail', () => {
+  it('throws when SMTP is not configured', async () => {
+    await expect(
+      sendCustomerReceiptEmail({
+        to: 'cust@b.com',
+        toName: 'Jane Coach',
+        orderNumber: 'OC-1',
+        confirmedAt: new Date(),
+        garments: [],
+      }),
+    ).rejects.toThrow('SMTP is not configured');
+  });
+
+  it('sends a receipt with the garment summary, order value, ship date, and no magic link', async () => {
+    configureSmtp();
+    await sendCustomerReceiptEmail({
+      to: 'cust@b.com',
+      toName: 'Jane Coach',
+      orderNumber: 'OC-5',
+      confirmedAt: new Date('2026-01-15T10:30:00Z'),
+      garments: [
+        { name: 'Home Jersey', quantity: 3 },
+        { name: 'Away Jersey', quantity: 2 },
+      ],
+      orderValueAmount: '1240.00',
+      orderValueCurrency: 'NZD',
+      expectedShipDate: '2026-08-01',
+    });
+
+    const call = sendMail.mock.calls[0][0];
+    expect(call.to).toBe('Jane Coach <cust@b.com>');
+    expect(call.subject).toBe('Your BeastMode order OC-5 is confirmed');
+    expect(call.html).toContain('Home Jersey');
+    expect(call.html).toContain('&times;3');
+    expect(call.text).toContain('- Home Jersey x3');
+    expect(call.text).toContain('- Away Jersey x2');
+    expect(call.html).not.toContain('/o/');
+    expect(call.html).toContain('NZD 1,240.00');
+    expect(call.html).toContain('1 August 2026');
+    expect(call.text).toContain('Order value: NZD 1,240.00');
+    expect(call.text).toContain('Expected ship date: 1 August 2026');
+  });
+
+  it('omits the order value / ship date lines when not provided', async () => {
+    configureSmtp();
+    await sendCustomerReceiptEmail({
+      to: 'cust@b.com',
+      toName: 'Jane',
+      orderNumber: 'OC-8',
+      confirmedAt: new Date(),
+      garments: [{ name: 'Home Jersey', quantity: 1 }],
+    });
+
+    const call = sendMail.mock.calls[0][0];
+    expect(call.html).not.toContain('Order value');
+    expect(call.html).not.toContain('Expected ship date');
+    expect(call.text).not.toContain('Order value');
+    expect(call.text).not.toContain('Expected ship date');
+  });
+
+  it('omits the garment summary block when there are no garments', async () => {
+    configureSmtp();
+    await sendCustomerReceiptEmail({
+      to: 'cust@b.com',
+      toName: 'Jane',
+      orderNumber: 'OC-6',
+      confirmedAt: new Date(),
+      garments: [],
+    });
+
+    expect(sendMail).toHaveBeenCalledTimes(1);
+    expect(sendMail.mock.calls[0][0].text).not.toContain('Summary:');
+  });
+
+  it('lists a garment with no sizing rows without an "x0" quantity', async () => {
+    configureSmtp();
+    await sendCustomerReceiptEmail({
+      to: 'cust@b.com',
+      toName: 'Jane',
+      orderNumber: 'OC-7',
+      confirmedAt: new Date(),
+      garments: [{ name: 'Rain Jacket', quantity: 0 }],
+    });
+
+    const call = sendMail.mock.calls[0][0];
+    expect(call.html).toContain('Rain Jacket');
+    expect(call.html).not.toContain('x0');
+    expect(call.html).not.toContain('&times;0');
+    expect(call.text).toContain('- Rain Jacket');
+    expect(call.text).not.toContain('x0');
   });
 });

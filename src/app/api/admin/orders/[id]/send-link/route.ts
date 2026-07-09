@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateAccessToken, getOrderAdmin, NotFoundError } from '@/server/orders/service';
+import { generateAccessToken, getOrderAdmin, NotFoundError, ConflictError } from '@/server/orders/service';
 import { recordAuditEvent, getChangesRequestedComment, getChangesRequestedCount } from '@/server/events/outbox';
 import { sendMagicLink, isEmailConfigured } from '@/lib/email';
 import { getSession } from '@/lib/session';
@@ -62,6 +62,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ ok: true, url }, { status: 200 });
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
+    if (err instanceof ConflictError) return NextResponse.json({ error: err.message }, { status: 409 });
     console.error('[admin/send-link POST]', err);
     const msg = err instanceof Error ? err.message : 'Internal server error';
     return NextResponse.json({ error: msg }, { status: 500 });

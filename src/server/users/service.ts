@@ -48,6 +48,7 @@ export type StaffUserRow = {
   role: 'sales' | 'admin';
   isActive: boolean;
   isPending: boolean; // true = invited but not yet accepted
+  lastLoginAt: Date | null; // null = never logged in
   createdAt: Date;
   updatedAt: Date;
 };
@@ -68,6 +69,7 @@ export async function listStaffUsers(): Promise<StaffUserRow[]> {
     role: u.role,
     isActive: u.isActive,
     isPending: Boolean(u.inviteTokenHash),
+    lastLoginAt: u.lastLoginAt,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
   }));
@@ -188,6 +190,7 @@ export async function updateUser(
       role: updated.role,
       isActive: updated.isActive,
       isPending: Boolean(updated.inviteTokenHash),
+      lastLoginAt: updated.lastLoginAt,
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     };

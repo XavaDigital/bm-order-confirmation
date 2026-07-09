@@ -28,7 +28,9 @@ export type DomainEventType =
   | 'token.revoked'
   | 'link.emailed'
   | 'order.updated'
-  | 'order.duplicated';
+  | 'order.duplicated'
+  | 'access_code.enabled'
+  | 'access_code.disabled';
 
 export async function emitDomainEvent(
   tx: Transaction,

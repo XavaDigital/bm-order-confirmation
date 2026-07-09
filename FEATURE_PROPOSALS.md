@@ -572,6 +572,10 @@ no cron, no email, no new route beyond extending the existing update path.
 
 ## 8. Duplicate / "Create similar" order
 
+**Status: done.** `duplicateOrder()` in `src/server/orders/service.ts` and
+`POST /api/admin/orders/[id]/duplicate` exist, wired to a "Duplicate" button
+on the order detail header; emits `order.duplicated` to the audit log.
+
 **Problem:** Repeat customers (a club ordering the same kit again next
 season, or a re-order with only sizing changes) require staff to rebuild the
 entire order from scratch — every garment, every fabric note, every size
@@ -709,6 +713,15 @@ security posture: an old email forwarded months later still opens the order.
 ---
 
 ## 10. Customer confirmation receipt email
+
+**Status: done.** `sendCustomerReceiptEmail()` added to `src/lib/email.ts`
+(text-first template, no magic link) and `notifyCustomerOfConfirmation()`
+added to `src/server/orders/notifications.ts` — it reads the garment summary
+from `confirmations.confirmedSnapshot` (the immutable record of what was
+actually agreed to), not live order/garment rows. Registered as a third,
+best-effort handler on `'order.confirmed'` in `processor.ts`'s
+`EVENT_HANDLERS` (catches and logs internally, per the gotcha below, so a
+bounced customer email can't strand the whole event as `failed`).
 
 **Problem:** When a customer confirms, *staff* get an email
 (`notifyStaffOfConfirmation`, wired as an outbox handler) — but the customer
@@ -939,29 +952,10 @@ if that's never come up, leave it dormant.**
 
 **Done:** #4 (email search), #2 (resend button), #1's recommended variant
 (stale-orders dashboard widget), #3 (CSV export), #5 (upcoming-deadlines
-dashboard widget).
+dashboard widget), #9 (magic-link expiry), #6 (sortable list columns), #7
+(internal staff-only notes), #11 (cancel a dead order), #8 (duplicate order),
+#10 (customer receipt email), #12 (staff last-login column), #13 (per-order
+access code — built: bcrypt-hashed 6-digit code, show-once admin toggle in
+ShareLinkPanel, rate-limited customer gate with signed HttpOnly cookie).
 
-Remaining, roughly lightest to heaviest:
-
-1. **Magic-link expiry** (#9) — a handful of lines across two insert sites
-   plus one optional env var; no migration, and unset config preserves
-   today's behavior exactly. Like #4 was, this is really a fix.
-2. **Staff last-login column** (#12) — one additive column, one update
-   statement, one table column.
-3. **Customer receipt email** (#10) — no migration and pure
-   pattern-copying, but it has email copy to write and the outbox
-   failure-semantics decision to make.
-4. **Sortable list columns** (#6) — small UI change plus one validated query
-   parameter; slightly more surface than the widgets because it touches the
-   shared `listOrders()` signature.
-5. **Internal staff-only notes** (#7) — needs a migration and touches
-   several consumers (even though each touch point is "make sure it's *not*
-   there"), so more moving parts than anything above.
-6. **Cancel a dead order** (#11) — the enum migration is trivial but the
-   status fans out to every UI surface that switches on it; budget for the
-   touch-point list, not the service function.
-7. **Duplicate / "Create similar" order** (#8) — real product decisions to
-   make (what to copy) and the most new surface area of anything here. Only
-   worth building if repeat orders turn out to be common enough in practice.
-8. **Per-order access code** (#13) — last, and possibly never; read that
-    section's "if not building it" option before starting it.
+All proposals in this document are now implemented.

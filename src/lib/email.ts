@@ -7,6 +7,7 @@
 import nodemailer from 'nodemailer';
 import { env } from '@/lib/env';
 import { APP_NAME, APP_TAGLINE, APP_PORTAL_NAME, SALES_REP_LABEL, EMAIL_FROM_DEFAULT } from '@/lib/config';
+import { formatCurrency, formatDateLong } from '@/lib/format';
 
 function createTransport() {
   return nodemailer.createTransport({
@@ -350,5 +351,118 @@ export async function sendStaffConfirmationEmail(params: SendStaffConfirmationPa
     html: `<p>Hi ${params.toName},</p>
 <p><strong>${params.customerName}</strong> has confirmed order <strong>${params.orderNumber}</strong> on ${dateStr}.</p>
 <p><a href="${params.adminOrderUrl}">View order in admin</a></p>`,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Customer receipt — sent after the customer confirms, so they have their
+// own record of what they agreed to (staff already get a copy via
+// sendStaffConfirmationEmail above). No magic link: the order is done, and
+// tokens can't be recovered/resent from storage anyway (hashed at rest).
+// ---------------------------------------------------------------------------
+
+export interface SendCustomerReceiptParams {
+  to: string;
+  toName: string;
+  orderNumber: string;
+  confirmedAt: Date;
+  garments: { name: string; quantity: number }[];
+  orderValueAmount?: string | null;
+  orderValueCurrency?: string | null;
+  expectedShipDate?: string | null;
+}
+
+function buildReceiptMeta(params: SendCustomerReceiptParams): { label: string; value: string }[] {
+  const { orderValueAmount, orderValueCurrency, expectedShipDate } = params;
+  const meta: { label: string; value: string }[] = [];
+  if (orderValueAmount) {
+    meta.push({ label: 'Order value', value: `${orderValueCurrency ?? 'NZD'} ${formatCurrency(orderValueAmount)}` });
+  }
+  if (expectedShipDate) {
+    meta.push({ label: 'Expected ship date', value: formatDateLong(expectedShipDate) });
+  }
+  return meta;
+}
+
+function buildReceiptHtml(params: SendCustomerReceiptParams): string {
+  const { toName, orderNumber, confirmedAt, garments } = params;
+  const dateStr = confirmedAt.toLocaleString('en-NZ', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+
+  const meta = buildReceiptMeta(params);
+  const metaBlock = meta.length
+    ? `<p style="color:rgba(255,255,255,0.65);font-size:14px;line-height:1.8;margin:0 0 20px;">
+                ${meta.map((m) => `<strong style="color:#ffffff;">${m.label}:</strong> ${m.value}`).join('<br>')}
+              </p>`
+    : '';
+
+  const garmentsBlock = garments.length
+    ? `<table cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 24px;">
+              ${garments
+                .map(
+                  (g) => `<tr>
+                <td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px;border-bottom:1px solid rgba(255,255,255,0.08);">${g.name}</td>
+                <td style="padding:6px 0;color:rgba(255,255,255,0.5);font-size:14px;text-align:right;border-bottom:1px solid rgba(255,255,255,0.08);">${g.quantity > 0 ? `&times;${g.quantity}` : ''}</td>
+              </tr>`,
+                )
+                .join('')}
+            </table>`
+    : '';
+
+  return wrapEmailLayout({
+    title: 'Order Confirmed',
+    headerLabel: 'Order Confirmed',
+    bodyHtml: `<p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${toName},</p>
+              <p style="color:rgba(255,255,255,0.65);font-size:15px;line-height:1.6;margin:0 0 24px;">
+                This confirms your ${APP_NAME} order <strong style="color:#ffffff;">${orderNumber}</strong> was confirmed on ${dateStr}. Here's a summary of what's on order:
+              </p>
+              ${metaBlock}
+              ${garmentsBlock}
+              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;">
+              <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.5;margin:0;">
+                If anything above looks wrong, just reply to this email and we'll sort it out.
+              </p>`,
+  });
+}
+
+function buildReceiptText(params: SendCustomerReceiptParams): string {
+  const { toName, orderNumber, confirmedAt, garments } = params;
+  const dateStr = confirmedAt.toLocaleString('en-NZ', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+
+  const lines = [
+    `Hi ${toName},`,
+    '',
+    `This confirms your ${APP_NAME} order ${orderNumber} was confirmed on ${dateStr}.`,
+    '',
+  ];
+  const meta = buildReceiptMeta(params);
+  for (const m of meta) lines.push(`${m.label}: ${m.value}`);
+  if (meta.length > 0) lines.push('');
+  if (garments.length > 0) {
+    lines.push('Summary:');
+    for (const g of garments) lines.push(g.quantity > 0 ? `- ${g.name} x${g.quantity}` : `- ${g.name}`);
+    lines.push('');
+  }
+  lines.push(`If anything above looks wrong, just reply to this email and we'll sort it out.`);
+  return lines.join('\n');
+}
+
+export async function sendCustomerReceiptEmail(params: SendCustomerReceiptParams): Promise<void> {
+  if (!env.SMTP_HOST) throw new Error('SMTP is not configured');
+
+  const from = env.MAIL_FROM ?? EMAIL_FROM_DEFAULT;
+  const transport = createTransport();
+
+  await transport.sendMail({
+    from,
+    to: `${params.toName} <${params.to}>`,
+    subject: `Your ${APP_NAME} order ${params.orderNumber} is confirmed`,
+    html: buildReceiptHtml(params),
+    text: buildReceiptText(params),
   });
 }

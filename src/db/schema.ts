@@ -71,6 +71,8 @@ export const staffUsers = confirmation.table('staff_users', {
   totpSecret: text('totp_secret'),
   totpEnabled: boolean('totp_enabled').notNull().default(false),
   totpBackupCodes: jsonb('totp_backup_codes').$type<string[]>(),
+  // Stamped on successful password verification (loginStaff). Null = never logged in.
+  lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -129,7 +131,8 @@ export const orderAccess = confirmation.table(
     // SHA-256 of the high-entropy token (+ pepper). We look up by hashing the
     // incoming token, so a DB leak never exposes a live link. (BRIEF §7)
     tokenHash: text('token_hash').notNull().unique(),
-    // only set when the optional per-order confirmation code is enabled (default off)
+    // only set when the optional per-order confirmation code is enabled (default off).
+    // bcrypt hash (low-entropy code needs a slow KDF) — see src/lib/access-code.ts
     accessCodeHash: text('access_code_hash'),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     lastViewedAt: timestamp('last_viewed_at', { withTimezone: true }),

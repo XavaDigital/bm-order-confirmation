@@ -8,7 +8,7 @@
  * tables directly.
  */
 import { randomBytes } from 'node:crypto';
-import { eq, and, ne, isNull, ilike, or, asc, desc, sql, count, inArray } from 'drizzle-orm';
+import { eq, and, ne, isNull, isNotNull, ilike, or, asc, desc, sql, count, inArray } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   orders,
@@ -20,6 +20,7 @@ import {
   domainEvents,
 } from '@/db/schema';
 import { generateToken, hashToken, buildConfirmationUrl } from '@/lib/tokens';
+import { generateAccessCode, hashAccessCode } from '@/lib/access-code';
 import { STALE_THRESHOLD_DAYS } from '@/lib/config';
 import { env } from '@/lib/env';
 import { emitDomainEvent, recordAuditEvent } from '@/server/events/outbox';
@@ -664,16 +665,36 @@ export async function generateAccessToken(
     throw new ConflictError('Cannot generate a link for a cancelled order');
   }
 
+  const [{ total: garmentCount }] = await db
+    .select({ total: count() })
+    .from(garments)
+    .where(eq(garments.orderId, orderId));
+  if (garmentCount === 0) {
+    throw new ConflictError('Add at least one garment before generating a customer link');
+  }
+
   const rawToken = generateToken();
 
   await db.transaction(async (tx) => {
+    // Carry the per-order access code (if enabled) onto the replacement link,
+    // so regenerating the URL doesn't force staff to relay a new code.
+    const previous = await tx.query.orderAccess.findFirst({
+      where: and(eq(orderAccess.orderId, orderId), isNull(orderAccess.revokedAt)),
+      orderBy: [desc(orderAccess.createdAt)],
+    });
+
     // Revoke any existing active tokens for this order.
     await tx
       .update(orderAccess)
       .set({ revokedAt: new Date() })
       .where(and(eq(orderAccess.orderId, orderId), isNull(orderAccess.revokedAt)));
 
-    await tx.insert(orderAccess).values({ orderId, tokenHash: hashToken(rawToken), expiresAt: computeAccessExpiry() });
+    await tx.insert(orderAccess).values({
+      orderId,
+      tokenHash: hashToken(rawToken),
+      expiresAt: computeAccessExpiry(),
+      accessCodeHash: previous?.accessCodeHash ?? null,
+    });
 
     // Advance status from draft → sent on first link generation.
     await tx
@@ -704,6 +725,71 @@ export async function revokeAccessToken(
     await emitDomainEvent(tx, {
       aggregateId: orderId,
       eventType: 'token.revoked',
+      payload: { actorEmail: meta?.actorEmail ?? null },
+    });
+  });
+}
+
+/**
+ * Enable (or rotate) the optional per-order access code on the active
+ * customer link. Returns the raw code ONCE — only the bcrypt hash is stored.
+ * Staff relay the code out-of-band (phone/text); it is never emailed.
+ */
+export async function setOrderAccessCode(
+  orderId: string,
+  meta?: { actorEmail?: string },
+): Promise<{ code: string }> {
+  const access = await db.query.orderAccess.findFirst({
+    where: and(eq(orderAccess.orderId, orderId), isNull(orderAccess.revokedAt)),
+    orderBy: [desc(orderAccess.createdAt)],
+  });
+  if (!access) {
+    throw new ConflictError('Generate a customer link before enabling an access code');
+  }
+
+  const code = generateAccessCode();
+  const accessCodeHash = await hashAccessCode(code);
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(orderAccess)
+      .set({ accessCodeHash })
+      .where(eq(orderAccess.id, access.id));
+
+    await emitDomainEvent(tx, {
+      aggregateId: orderId,
+      eventType: 'access_code.enabled',
+      payload: { actorEmail: meta?.actorEmail ?? null },
+    });
+  });
+
+  return { code };
+}
+
+/** Remove the per-order access code — the link alone opens the order again. */
+export async function clearOrderAccessCode(
+  orderId: string,
+  meta?: { actorEmail?: string },
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(orderAccess)
+      .set({ accessCodeHash: null })
+      .where(
+        and(
+          eq(orderAccess.orderId, orderId),
+          isNull(orderAccess.revokedAt),
+          isNotNull(orderAccess.accessCodeHash),
+        ),
+      )
+      .returning({ id: orderAccess.id });
+
+    // Idempotent: no event when there was no code to clear.
+    if (updated.length === 0) return;
+
+    await emitDomainEvent(tx, {
+      aggregateId: orderId,
+      eventType: 'access_code.disabled',
       payload: { actorEmail: meta?.actorEmail ?? null },
     });
   });

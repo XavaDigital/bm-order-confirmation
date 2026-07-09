@@ -42,7 +42,10 @@ export function SignaturePad({ onChange }: Props) {
   const onDrawEnd = useCallback(() => {
     if (!canvasRef.current || canvasRef.current.isEmpty()) return;
     setHasDrawn(true);
-    const dataUrl = canvasRef.current.getTrimmedCanvas().toDataURL('image/png');
+    // Not using getTrimmedCanvas(): its trim-canvas dependency breaks under Next's
+    // webpack ESM/CJS interop, and trimming is a no-op anyway since the canvas has
+    // an opaque white background (trim-canvas trims by alpha, which is always 255).
+    const dataUrl = canvasRef.current.getCanvas().toDataURL('image/png');
     onChange({ dataUrl, type: 'drawn' });
   }, [onChange]);
 

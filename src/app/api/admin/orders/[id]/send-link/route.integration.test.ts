@@ -36,7 +36,7 @@ import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { createOrderSchema } from '@/server/orders/contract';
-import { createOrder } from '@/server/orders/service';
+import { createOrder, deleteGarment, getOrderAdmin } from '@/server/orders/service';
 import { getSession } from '@/lib/session';
 import { POST } from './route';
 
@@ -79,6 +79,19 @@ describe('POST /api/admin/orders/[id]/send-link', () => {
   it('returns 404 for an unknown order id', async () => {
     const res = await POST(postRequest(), { params: Promise.resolve({ id: UNKNOWN_ID }) });
     expect(res.status).toBe(404);
+  });
+
+  it('returns 409 when the order has no garments left', async () => {
+    const created = await createOrder(minimalOrderInput());
+    const order = await getOrderAdmin(created.orderId);
+    await deleteGarment(order!.garments[0].id);
+
+    const res = await POST(postRequest(), { params: Promise.resolve({ id: created.orderId }) });
+    const json = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(json.error).toMatch(/at least one garment/i);
+    expect(sendMagicLink).not.toHaveBeenCalled();
   });
 
   it('sends a non-revision email for a fresh order and returns the url', async () => {

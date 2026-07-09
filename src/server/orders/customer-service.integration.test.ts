@@ -20,16 +20,18 @@ import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
 import { createOrderSchema } from './contract';
-import { createOrder, generateAccessToken, revokeAccessToken, updateOrder } from './service';
+import { createOrder, generateAccessToken, revokeAccessToken, updateOrder, setOrderAccessCode } from './service';
 import {
   getOrderForCustomer,
   recordOrderViewed,
   requestOrderChanges,
   confirmOrder,
+  verifyOrderAccessCode,
   REQUIRED_ACK_KEYS,
   ACK_TEXT_VERSION,
   type AckInput,
 } from './customer-service';
+import { buildAccessCodeCookie } from '@/lib/access-code';
 import { uploadFile } from '@/lib/storage';
 
 afterEach(async () => {
@@ -126,6 +128,96 @@ describe('recordOrderViewed', () => {
       .from(schema.domainEvents)
       .where(eq(schema.domainEvents.aggregateId, first.order.id));
     expect(events.filter((e) => e.eventType === 'order.viewed')).toHaveLength(1);
+  });
+});
+
+describe('per-order access code', () => {
+  /** Create an order with a code enabled; return the token, raw code, and a valid cookie. */
+  async function seedCodedOrder() {
+    const created = await createOrder(minimalInput());
+    const { code } = await setOrderAccessCode(created.orderId);
+    const access = await db.query.orderAccess.findFirst({
+      where: eq(schema.orderAccess.orderId, created.orderId),
+    });
+    const cookie = buildAccessCodeCookie({ id: access!.id, accessCodeHash: access!.accessCodeHash! });
+    return { ...created, code, cookieValue: cookie.value };
+  }
+
+  describe('verifyOrderAccessCode', () => {
+    it('returns ok for the right code and wrong_code for anything else', async () => {
+      const seeded = await seedCodedOrder();
+
+      const good = await verifyOrderAccessCode({ rawToken: seeded.token, code: seeded.code });
+      expect(good.status).toBe('ok');
+
+      const bad = await verifyOrderAccessCode({ rawToken: seeded.token, code: '000000' });
+      // 1-in-a-million collision guard: only assert when the guess differs from the real code
+      if (seeded.code !== '000000') expect(bad.status).toBe('wrong_code');
+    });
+
+    it('returns invalid_token for unknown or revoked tokens', async () => {
+      expect((await verifyOrderAccessCode({ rawToken: 'bogus', code: '123456' })).status).toBe(
+        'invalid_token',
+      );
+
+      const seeded = await seedCodedOrder();
+      await revokeAccessToken(seeded.orderId);
+      expect(
+        (await verifyOrderAccessCode({ rawToken: seeded.token, code: seeded.code })).status,
+      ).toBe('invalid_token');
+    });
+
+    it('returns ok without requiring a code when none is enabled', async () => {
+      const created = await createOrder(minimalInput());
+      const result = await verifyOrderAccessCode({ rawToken: created.token, code: 'anything' });
+      expect(result.status).toBe('ok');
+      expect(result.status === 'ok' && result.access.accessCodeHash).toBeNull();
+    });
+  });
+
+  it('confirmOrder throws code_required without a valid cookie and succeeds with one', async () => {
+    const seeded = await seedCodedOrder();
+
+    await expect(
+      confirmOrder({ rawToken: seeded.token, acks: allAcks(), signatureType: 'none' }),
+    ).rejects.toThrow('code_required');
+    await expect(
+      confirmOrder({
+        rawToken: seeded.token,
+        acks: allAcks(),
+        signatureType: 'none',
+        codeCookie: 'tampered-cookie',
+      }),
+    ).rejects.toThrow('code_required');
+
+    const result = await confirmOrder({
+      rawToken: seeded.token,
+      acks: allAcks(),
+      signatureType: 'none',
+      codeCookie: seeded.cookieValue,
+    });
+    expect(result.orderNumber).toBe(seeded.orderNumber);
+  });
+
+  it('requestOrderChanges throws code_required without a valid cookie and succeeds with one', async () => {
+    const seeded = await seedCodedOrder();
+
+    await expect(
+      requestOrderChanges({ rawToken: seeded.token, comment: 'change please' }),
+    ).rejects.toThrow('code_required');
+
+    const result = await requestOrderChanges({
+      rawToken: seeded.token,
+      comment: 'change please',
+      codeCookie: seeded.cookieValue,
+    });
+    expect(result.orderId).toBe(seeded.orderId);
+  });
+
+  it('orders without a code are unaffected — no cookie needed', async () => {
+    const created = await createOrder(minimalInput());
+    const result = await requestOrderChanges({ rawToken: created.token, comment: 'no code here' });
+    expect(result.orderId).toBe(created.orderId);
   });
 });
 

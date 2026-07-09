@@ -101,6 +101,82 @@ describe('ShareLinkPanel', () => {
     expect(screen.getByText('http://localhost/o/fresh-token')).toBeInTheDocument();
   });
 
+  it('disables the access-code switch when there is no active link', () => {
+    renderPanel({ hasActiveToken: false });
+
+    expect(screen.getByText(/require access code/i)).toBeInTheDocument();
+    expect(screen.getByRole('switch')).toBeDisabled();
+  });
+
+  it('enabling the access code POSTs and shows the code once with a copy warning', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ code: '483920' }),
+    } as Response);
+    renderPanel({ hasActiveToken: true, hasAccessCode: false });
+
+    await user.click(screen.getByRole('switch'));
+
+    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/access-code', { method: 'POST' });
+    expect(await screen.findByText('483920')).toBeInTheDocument();
+    expect(await screen.findByText(/access code set/i)).toBeInTheDocument();
+  });
+
+  it('shows the "code active but not shown" state with a rotate button when a code exists', () => {
+    renderPanel({ hasActiveToken: true, hasAccessCode: true });
+
+    expect(screen.getByText(/access code active — code not shown/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /generate new code/i })).toBeInTheDocument();
+    expect(screen.getByRole('switch')).toBeChecked();
+  });
+
+  it('disabling the access code DELETEs and clears the code state', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response);
+    renderPanel({ hasActiveToken: true, hasAccessCode: true });
+
+    await user.click(screen.getByRole('switch'));
+
+    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/access-code', { method: 'DELETE' });
+    expect(await screen.findByText(/access code removed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/access code active/i)).not.toBeInTheDocument();
+  });
+
+  it('blocks link generation and shows an error banner when the order has no garments', async () => {
+    renderPanel({ hasActiveToken: false, garmentSummary: { total: 0, missingSizing: [], missingImages: [] } });
+
+    expect(screen.getByText(/this order has no garments/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /generate link/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /email to customer/i })).toBeDisabled();
+  });
+
+  it('shows a non-blocking warning banner listing garments missing sizing or mock-ups', () => {
+    renderPanel({
+      hasActiveToken: false,
+      garmentSummary: { total: 2, missingSizing: ['Away Jersey'], missingImages: ['Home Jersey'] },
+    });
+
+    expect(screen.getByText(/this order looks incomplete/i)).toBeInTheDocument();
+    expect(screen.getByText(/no sizing\/roster entered: away jersey/i)).toBeInTheDocument();
+    expect(screen.getByText(/no mock-up image uploaded: home jersey/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /generate link/i })).toBeEnabled();
+  });
+
+  it('shows the server error message when generating a link fails', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'Add at least one garment before generating a customer link' }),
+    } as Response);
+    renderPanel({ hasActiveToken: false });
+
+    await user.click(screen.getByRole('button', { name: /generate link/i }));
+
+    expect(await screen.findByText(/add at least one garment before generating a customer link/i)).toBeInTheDocument();
+  });
+
   it('copies the url to the clipboard when Copy is clicked', async () => {
     const user = userEvent.setup();
     // user-event installs its own navigator.clipboard stub during setup(), so ours

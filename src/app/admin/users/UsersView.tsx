@@ -22,6 +22,7 @@ interface StaffUser {
   role: 'sales' | 'admin';
   isActive: boolean;
   isPending: boolean;
+  lastLoginAt: string | null;
   createdAt: string;
 }
 
@@ -183,6 +184,12 @@ export function UsersView({ currentUserId }: UsersViewProps) {
           </Tooltip>
         );
       },
+    },
+    {
+      title: 'Last login',
+      dataIndex: 'lastLoginAt',
+      key: 'lastLoginAt',
+      render: (val: string | null) => (val ? formatDate(val) : '—'),
     },
     {
       title: 'Joined',

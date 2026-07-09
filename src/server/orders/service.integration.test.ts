@@ -39,10 +39,13 @@ import {
   cancelOrder,
   getOrderByToken,
   getStaleOrders,
+  setOrderAccessCode,
+  clearOrderAccessCode,
   NotFoundError,
   ConflictError,
 } from './service';
 import { tokensMatch } from '@/lib/tokens';
+import { accessCodeMatches } from '@/lib/access-code';
 
 afterEach(async () => {
   await resetTestDb(db);
@@ -630,6 +633,100 @@ describe('generateAccessToken / revokeAccessToken', () => {
     await cancelOrder(created.orderId);
 
     await expect(generateAccessToken(created.orderId)).rejects.toThrow(ConflictError);
+  });
+
+  it('generateAccessToken throws ConflictError once the order has no garments left', async () => {
+    const created = await createOrder(minimalInput());
+    const order = await getOrderAdmin(created.orderId);
+    await deleteGarment(order!.garments[0].id);
+
+    await expect(generateAccessToken(created.orderId)).rejects.toThrow(ConflictError);
+  });
+});
+
+describe('setOrderAccessCode / clearOrderAccessCode', () => {
+  async function activeAccess(orderId: string) {
+    const rows = await db
+      .select()
+      .from(schema.orderAccess)
+      .where(eq(schema.orderAccess.orderId, orderId));
+    return rows.find((r) => r.revokedAt === null) ?? null;
+  }
+
+  it('stores a bcrypt hash of a 6-digit code and emits access_code.enabled', async () => {
+    const created = await createOrder(minimalInput());
+
+    const { code } = await setOrderAccessCode(created.orderId, { actorEmail: 'staff@x.com' });
+
+    expect(code).toMatch(/^\d{6}$/);
+    const access = await activeAccess(created.orderId);
+    expect(access!.accessCodeHash).not.toBeNull();
+    expect(access!.accessCodeHash).not.toContain(code);
+    expect(await accessCodeMatches(code, access!.accessCodeHash!)).toBe(true);
+
+    const events = await db
+      .select()
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+    expect(events.filter((e) => e.eventType === 'access_code.enabled')).toHaveLength(1);
+  });
+
+  it('rotating invalidates the previous code', async () => {
+    const created = await createOrder(minimalInput());
+    const first = await setOrderAccessCode(created.orderId);
+    const second = await setOrderAccessCode(created.orderId);
+
+    const access = await activeAccess(created.orderId);
+    expect(await accessCodeMatches(second.code, access!.accessCodeHash!)).toBe(true);
+    if (first.code !== second.code) {
+      expect(await accessCodeMatches(first.code, access!.accessCodeHash!)).toBe(false);
+    }
+  });
+
+  it('throws ConflictError when the order has no active link', async () => {
+    const created = await createOrder(minimalInput());
+    await revokeAccessToken(created.orderId);
+
+    await expect(setOrderAccessCode(created.orderId)).rejects.toThrow(ConflictError);
+  });
+
+  it('regenerating the link carries the code hash onto the new access row', async () => {
+    const created = await createOrder(minimalInput());
+    const { code } = await setOrderAccessCode(created.orderId);
+
+    await generateAccessToken(created.orderId);
+
+    const access = await activeAccess(created.orderId);
+    expect(access!.accessCodeHash).not.toBeNull();
+    expect(await accessCodeMatches(code, access!.accessCodeHash!)).toBe(true);
+  });
+
+  it('a link generated after a revoke starts without a code', async () => {
+    const created = await createOrder(minimalInput());
+    await setOrderAccessCode(created.orderId);
+    await revokeAccessToken(created.orderId);
+
+    await generateAccessToken(created.orderId);
+
+    const access = await activeAccess(created.orderId);
+    expect(access!.accessCodeHash).toBeNull();
+  });
+
+  it('clearOrderAccessCode removes the code and emits access_code.disabled once', async () => {
+    const created = await createOrder(minimalInput());
+    await setOrderAccessCode(created.orderId);
+
+    await clearOrderAccessCode(created.orderId, { actorEmail: 'staff@x.com' });
+    await clearOrderAccessCode(created.orderId); // idempotent — no second event
+
+    const access = await activeAccess(created.orderId);
+    expect(access!.accessCodeHash).toBeNull();
+
+    const events = await db
+      .select()
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+    expect(events.filter((e) => e.eventType === 'access_code.disabled')).toHaveLength(1);
   });
 });
 
