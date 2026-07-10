@@ -55,6 +55,14 @@ function postRequest(body: unknown) {
   });
 }
 
+function postRequestRaw(rawBody: string) {
+  return new NextRequest('http://localhost/api/admin/orders', {
+    method: 'POST',
+    body: rawBody,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 function getRequest(query = '') {
   return new NextRequest(`http://localhost/api/admin/orders${query}`);
 }
@@ -70,6 +78,11 @@ describe('POST /api/admin/orders', () => {
 
   it('returns 400 for a body with no garments', async () => {
     const res = await POST(postRequest(validPayload({ garments: [] })));
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for a request body that is not valid JSON', async () => {
+    const res = await POST(postRequestRaw('not-json{{'));
     expect(res.status).toBe(400);
   });
 

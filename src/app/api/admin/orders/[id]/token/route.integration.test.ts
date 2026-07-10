@@ -29,7 +29,7 @@ import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
 import { createOrderSchema } from '@/server/orders/contract';
-import { createOrder } from '@/server/orders/service';
+import { createOrder, cancelOrder } from '@/server/orders/service';
 import { getSession } from '@/lib/session';
 import { POST, DELETE } from './route';
 
@@ -87,6 +87,21 @@ describe('POST /api/admin/orders/[id]/token', () => {
 
     const allAccess = await db.query.orderAccess.findMany({ where: eq(schema.orderAccess.orderId, created.orderId) });
     expect(allAccess.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('returns 404 for an order that does not exist', async () => {
+    const res = await POST(postRequest(), { params: Promise.resolve({ id: '00000000-0000-0000-0000-000000000000' }) });
+
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 409 when the order is cancelled', async () => {
+    const created = await createOrder(minimalOrderInput());
+    await cancelOrder(created.orderId);
+
+    const res = await POST(postRequest(), { params: Promise.resolve({ id: created.orderId }) });
+
+    expect(res.status).toBe(409);
   });
 });
 

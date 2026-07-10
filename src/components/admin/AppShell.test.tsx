@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { AppShell } from './AppShell';
 
 vi.mock('next/navigation', () => ({
@@ -44,5 +45,36 @@ describe('AppShell nav', () => {
     );
 
     expect(await screen.findByText('Order list goes here')).toBeInTheDocument();
+  });
+
+  it('collapsing the sidebar hides the logo text and switches the trigger icon', async () => {
+    const user = userEvent.setup();
+    render(
+      <AppShell user={{ name: 'Sales Rep', email: 'sales@example.com', role: 'sales' }}>
+        <div>content</div>
+      </AppShell>,
+    );
+    await screen.findByRole('menuitem', { name: /dashboard/i });
+
+    expect(screen.getByText('BeastMode')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'menu-fold' }));
+
+    expect(screen.queryByText('BeastMode')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'menu-unfold' })).toBeInTheDocument();
+  });
+
+  it('toggling the theme persists the choice to localStorage', async () => {
+    const user = userEvent.setup();
+    render(
+      <AppShell user={{ name: 'Sales Rep', email: 'sales@example.com', role: 'sales' }}>
+        <div>content</div>
+      </AppShell>,
+    );
+    await screen.findByRole('menuitem', { name: /dashboard/i });
+
+    await user.click(screen.getByRole('button', { name: 'moon' }));
+
+    expect(localStorage.getItem('bm-admin-theme')).toBe('dark');
+    expect(screen.getByRole('button', { name: 'sun' })).toBeInTheDocument();
   });
 });

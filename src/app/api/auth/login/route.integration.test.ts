@@ -66,7 +66,25 @@ function loginRequest(body: unknown, ip = '10.0.0.1') {
   });
 }
 
+function loginRequestRaw(rawBody: string, ip = '10.0.0.1') {
+  return new NextRequest('http://localhost/api/auth/login', {
+    method: 'POST',
+    body: rawBody,
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+  });
+}
+
 describe('POST /api/auth/login', () => {
+  it('returns 400 for a request body that is not valid JSON', async () => {
+    const res = await POST(loginRequestRaw('not-json{{'));
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for a malformed email address', async () => {
+    const res = await POST(loginRequest({ email: 'not-an-email', password: 'x' }));
+    expect(res.status).toBe(400);
+  });
+
   it('returns 401 for wrong credentials', async () => {
     await seedStaff();
     const res = await POST(loginRequest({ email: 'staff@example.com', password: 'wrong' }));

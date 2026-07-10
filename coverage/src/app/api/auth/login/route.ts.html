@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">85.71% </span>
+                <span class="strong">92.85% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>24/28</span>
+                <span class='fraction'>26/28</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">75% </span>
+                <span class="strong">87.5% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>6/8</span>
+                <span class='fraction'>7/8</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">50% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>1/2</span>
+                <span class='fraction'>2/2</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">88.88% </span>
+                <span class="strong">92.3% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>24/27</span>
+                <span class='fraction'>24/26</span>
             </div>
         
             
@@ -113,15 +113,7 @@
 <a name='L48'></a><a href='#L48'>48</a>
 <a name='L49'></a><a href='#L49'>49</a>
 <a name='L50'></a><a href='#L50'>50</a>
-<a name='L51'></a><a href='#L51'>51</a>
-<a name='L52'></a><a href='#L52'>52</a>
-<a name='L53'></a><a href='#L53'>53</a>
-<a name='L54'></a><a href='#L54'>54</a>
-<a name='L55'></a><a href='#L55'>55</a>
-<a name='L56'></a><a href='#L56'>56</a>
-<a name='L57'></a><a href='#L57'>57</a>
-<a name='L58'></a><a href='#L58'>58</a>
-<a name='L59'></a><a href='#L59'>59</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L51'></a><a href='#L51'>51</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -133,23 +125,15 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">15x</span>
-<span class="cline-any cline-yes">15x</span>
-<span class="cline-any cline-yes">15x</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">17x</span>
+<span class="cline-any cline-yes">17x</span>
+<span class="cline-any cline-yes">17x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">16x</span>
+<span class="cline-any cline-yes">16x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">14x</span>
-<span class="cline-any cline-yes">14x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">14x</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">16x</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">14x</span>
@@ -183,7 +167,7 @@
 import { z } from 'zod';
 import { loginStaff, AuthError } from '@/server/auth/service';
 import { getSession } from '@/lib/session';
-import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
+import { getClientIp, rateLimitedResponse } from '@/lib/rate-limit';
 &nbsp;
 const bodySchema = z.object({
   email: z.string().email(),
@@ -192,22 +176,14 @@ const bodySchema = z.object({
 &nbsp;
 export async function POST(request: NextRequest) {
   const ip = getClientIp(request.headers);
-  const rl = checkRateLimit(`login:${ip}`, 10, 15 * 60 * 1_000);
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { error: 'Too many login attempts. Please try again later.' },
-      {
-        status: 429,
-        headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1_000)) },
-      },
-    );
-  }
+  const rateLimited = rateLimitedResponse(`login:${ip}`, 10, 15 * 60 * 1_000, 'Too many login attempts. Please try again later.');
+  if (rateLimited) return rateLimited;
 &nbsp;
-  const body = await request.json().<span class="fstat-no" title="function not covered" >catch(() =&gt; <span class="cstat-no" title="statement not covered" >n</span>ull)</span>;
+  const body = await request.json().catch(() =&gt; null);
   const parsed = bodySchema.safeParse(body);
 &nbsp;
-  <span class="missing-if-branch" title="if path not taken" >I</span>if (!parsed.success) {
-<span class="cstat-no" title="statement not covered" >    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });</span>
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   }
 &nbsp;
   try {
@@ -244,7 +220,7 @@ export async function POST(request: NextRequest) {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-07-02T06:14:45.513Z
+                at 2026-07-10T07:31:17.496Z
             </div>
         <script src="../../../../../prettify.js"></script>
         <script>

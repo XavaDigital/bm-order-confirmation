@@ -35,6 +35,14 @@ function postRequest(orderId: string, body: unknown) {
   });
 }
 
+function postRequestRaw(orderId: string, rawBody: string) {
+  return new NextRequest(`http://localhost/api/admin/orders/${orderId}/garments`, {
+    method: 'POST',
+    body: rawBody,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 const UNKNOWN_ID = '00000000-0000-0000-0000-000000000000';
 
 describe('POST /api/admin/orders/[id]/garments', () => {
@@ -48,6 +56,16 @@ describe('POST /api/admin/orders/[id]/garments', () => {
 
     expect(res.status).toBe(400);
     expect(json.details).toBeDefined();
+  });
+
+  it('returns 400 for a request body that is not valid JSON', async () => {
+    const created = await createOrder(minimalOrderInput());
+
+    const res = await POST(postRequestRaw(created.orderId, 'not-json{{'), {
+      params: Promise.resolve({ id: created.orderId }),
+    });
+
+    expect(res.status).toBe(400);
   });
 
   it('returns 500 when the order does not exist (FK violation)', async () => {

@@ -25,14 +25,14 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/29</span>
+                <span class='fraction'>0/26</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/21</span>
+                <span class='fraction'>0/17</span>
             </div>
         
             
@@ -46,7 +46,7 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/26</span>
+                <span class='fraction'>0/24</span>
             </div>
         
             
@@ -192,26 +192,9 @@
 <a name='L127'></a><a href='#L127'>127</a>
 <a name='L128'></a><a href='#L128'>128</a>
 <a name='L129'></a><a href='#L129'>129</a>
-<a name='L130'></a><a href='#L130'>130</a>
-<a name='L131'></a><a href='#L131'>131</a>
-<a name='L132'></a><a href='#L132'>132</a>
-<a name='L133'></a><a href='#L133'>133</a>
-<a name='L134'></a><a href='#L134'>134</a>
-<a name='L135'></a><a href='#L135'>135</a>
-<a name='L136'></a><a href='#L136'>136</a>
-<a name='L137'></a><a href='#L137'>137</a>
-<a name='L138'></a><a href='#L138'>138</a>
-<a name='L139'></a><a href='#L139'>139</a>
-<a name='L140'></a><a href='#L140'>140</a>
-<a name='L141'></a><a href='#L141'>141</a>
-<a name='L142'></a><a href='#L142'>142</a>
-<a name='L143'></a><a href='#L143'>143</a>
-<a name='L144'></a><a href='#L144'>144</a>
-<a name='L145'></a><a href='#L145'>145</a>
-<a name='L146'></a><a href='#L146'>146</a>
-<a name='L147'></a><a href='#L147'>147</a>
-<a name='L148'></a><a href='#L148'>148</a>
-<a name='L149'></a><a href='#L149'>149</a></td><td class="line-coverage quiet"><span class="cline-any cline-no">&nbsp;</span>
+<a name='L130'></a><a href='#L130'>130</a></td><td class="line-coverage quiet"><span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -239,12 +222,6 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -255,19 +232,6 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -342,8 +306,6 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -363,9 +325,11 @@
 &nbsp;
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Form, Input, Button, Card, Typography, Alert, ConfigProvider } from 'antd';
+import { Form, Input, Button, Typography, Alert } from 'antd';
 import { LockOutlined } from '@ant-design/icons';
-import { darkTheme } from '@/lib/theme';
+import { APP_NAME } from '@/lib/config';
+import { AuthCard } from '@/components/auth/AuthCard';
+import { postJson } from '@/lib/api-fetch';
 &nbsp;
 const { Title, Text } = <span class="cstat-no" title="statement not covered" >Typography;</span>
 &nbsp;
@@ -386,13 +350,7 @@ export function <span class="fstat-no" title="function not covered" >AcceptInvit
 <span class="cstat-no" title="statement not covered" >    setLoading(true);</span>
 <span class="cstat-no" title="statement not covered" >    setError(null);</span>
 <span class="cstat-no" title="statement not covered" >    try {</span>
-      const res = <span class="cstat-no" title="statement not covered" >await fetch('/api/auth/accept-invite', {</span>
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ token, password: values.password }),
-      });
-      const data = <span class="cstat-no" title="statement not covered" >await res.json();</span>
-<span class="cstat-no" title="statement not covered" >      if (!res.ok) <span class="cstat-no" title="statement not covered" >throw new Error(data.error ?? 'Failed to set up account');</span></span>
+<span class="cstat-no" title="statement not covered" >      await postJson('/api/auth/accept-invite', { token, password: values.password }, 'Failed to set up account');</span>
 <span class="cstat-no" title="statement not covered" >      setDone(true);</span>
 <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >      setTimeout(() =&gt; <span class="cstat-no" title="statement not covered" >r</span>outer.push('/login?invited=1'), 2</span>000);</span>
     } catch (err) {
@@ -403,108 +361,93 @@ export function <span class="fstat-no" title="function not covered" >AcceptInvit
   }
 &nbsp;
 <span class="cstat-no" title="statement not covered" >  return (</span>
-    &lt;ConfigProvider theme={darkTheme}&gt;
-      &lt;div
-        style={{
-          minHeight: '100vh',
-          background: '#0d1117',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 24,
-        }}
-      &gt;
-        &lt;Card
-          style={{ width: '100%', maxWidth: 400, background: '#161b22', border: '1px solid rgba(255,255,255,0.08)' }}
+    &lt;AuthCard&gt;
+      &lt;div style={{ textAlign: 'center', marginBottom: 32 }}&gt;
+        &lt;div
+          style={{
+            fontSize: 22,
+            fontWeight: 900,
+            color: '#BF272D',
+            letterSpacing: 2,
+            textTransform: 'uppercase',
+            marginBottom: 8,
+          }}
         &gt;
-          &lt;div style={{ textAlign: 'center', marginBottom: 32 }}&gt;
-            &lt;div
-              style={{
-                fontSize: 22,
-                fontWeight: 900,
-                color: '#BF272D',
-                letterSpacing: 2,
-                textTransform: 'uppercase',
-                marginBottom: 8,
-              }}
-            &gt;
-              BEASTMODE
-            &lt;/div&gt;
-            &lt;Title level={4} style={{ margin: 0, color: '#fff' }}&gt;
-              Set Up Your Account
-            &lt;/Title&gt;
-            &lt;Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}&gt;
-              Choose a password to activate your account.
-            &lt;/Text&gt;
-          &lt;/div&gt;
+          {APP_NAME.toUpperCase()}
+        &lt;/div&gt;
+        &lt;Title level={4} style={{ margin: 0, color: '#fff' }}&gt;
+          Set Up Your Account
+        &lt;/Title&gt;
+        &lt;Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}&gt;
+          Choose a password to activate your account.
+        &lt;/Text&gt;
+      &lt;/div&gt;
 &nbsp;
-          {!token &amp;&amp; (
+      {!token &amp;&amp; (
+        &lt;Alert
+          type="error"
+          message="Invalid invite link"
+          description="This link is missing the required token. Please request a new invite."
+          showIcon
+        /&gt;
+      )}
+&nbsp;
+      {done &amp;&amp; (
+        &lt;Alert
+          type="success"
+          message="Account activated!"
+          description="Redirecting you to login…"
+          showIcon
+        /&gt;
+      )}
+&nbsp;
+      {!done &amp;&amp; token &amp;&amp; (
+        &lt;Form layout="vertical" onFinish={handleSubmit}&gt;
+          {error &amp;&amp; (
             &lt;Alert
               type="error"
-              message="Invalid invite link"
-              description="This link is missing the required token. Please request a new invite."
+              message={error}
               showIcon
+              style={{ marginBottom: 16 }}
+              closable
+<span class="fstat-no" title="function not covered" >              onClose={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etError(null)}</span>
             /&gt;
           )}
 &nbsp;
-          {done &amp;&amp; (
-            &lt;Alert
-              type="success"
-              message="Account activated!"
-              description="Redirecting you to login…"
-              showIcon
-            /&gt;
-          )}
+          &lt;Form.Item
+            name="password"
+            label={&lt;span style={{ color: 'rgba(255,255,255,0.8)' }}&gt;Password&lt;/span&gt;}
+            rules={[
+              { required: true, message: 'Password is required' },
+              { min: 8, message: 'Password must be at least 8 characters' },
+            ]}
+          &gt;
+            &lt;Input.Password prefix={&lt;LockOutlined /&gt;} placeholder="Min 8 characters" size="large" /&gt;
+          &lt;/Form.Item&gt;
 &nbsp;
-          {!done &amp;&amp; token &amp;&amp; (
-            &lt;Form layout="vertical" onFinish={handleSubmit}&gt;
-              {error &amp;&amp; (
-                &lt;Alert
-                  type="error"
-                  message={error}
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                  closable
-<span class="fstat-no" title="function not covered" >                  onClose={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etError(null)}</span>
-                /&gt;
-              )}
+          &lt;Form.Item
+            name="confirm"
+            label={&lt;span style={{ color: 'rgba(255,255,255,0.8)' }}&gt;Confirm Password&lt;/span&gt;}
+            dependencies={['password']}
+            rules={[
+              { required: true, message: 'Please confirm your password' <span class="fstat-no" title="function not covered" >},</span>
+              ({ getFieldValue }) =&gt; (<span class="cstat-no" title="statement not covered" >{</span>
+<span class="fstat-no" title="function not covered" >                validator(_</span>, value) {
+<span class="cstat-no" title="statement not covered" >                  if (!value || getFieldValue('password') === value) <span class="cstat-no" title="statement not covered" >return Promise.resolve();</span></span>
+<span class="cstat-no" title="statement not covered" >                  return Promise.reject(new Error('Passwords do not match'));</span>
+                },
+              }),
+            ]}
+          &gt;
+            &lt;Input.Password prefix={&lt;LockOutlined /&gt;} placeholder="Repeat password" size="large" /&gt;
+          &lt;/Form.Item&gt;
 &nbsp;
-              &lt;Form.Item
-                name="password"
-                label={&lt;span style={{ color: 'rgba(255,255,255,0.8)' }}&gt;Password&lt;/span&gt;}
-                rules={[
-                  { required: true, message: 'Password is required' },
-                  { min: 8, message: 'Password must be at least 8 characters' },
-                ]}
-              &gt;
-                &lt;Input.Password prefix={&lt;LockOutlined /&gt;} placeholder="Min 8 characters" size="large" /&gt;
-              &lt;/Form.Item&gt;
-&nbsp;
-              &lt;Form.Item
-                name="confirm"
-                label={&lt;span style={{ color: 'rgba(255,255,255,0.8)' }}&gt;Confirm Password&lt;/span&gt;}
-                dependencies={['password']}
-                rules={[
-                  { required: true, message: 'Please confirm your password' <span class="fstat-no" title="function not covered" >},</span>
-                  ({ getFieldValue }) =&gt; (<span class="cstat-no" title="statement not covered" >{</span>
-<span class="fstat-no" title="function not covered" >                    validator(_</span>, value) {
-<span class="cstat-no" title="statement not covered" >                      if (!value || getFieldValue('password') === value) <span class="cstat-no" title="statement not covered" >return Promise.resolve();</span></span>
-<span class="cstat-no" title="statement not covered" >                      return Promise.reject(new Error('Passwords do not match'));</span>
-                    },
-                  }),
-                ]}
-              &gt;
-                &lt;Input.Password prefix={&lt;LockOutlined /&gt;} placeholder="Repeat password" size="large" /&gt;
-              &lt;/Form.Item&gt;
-&nbsp;
-              &lt;Button type="primary" htmlType="submit" loading={loading} block size="large"&gt;
-                Activate Account
-              &lt;/Button&gt;
-            &lt;/Form&gt;
-          )}
-        &lt;/Card&gt;
-      &lt;/div&gt;
-    &lt;/ConfigProvider&gt;
+          &lt;Button type="primary" htmlType="submit" loading={loading} block size="large"&gt;
+            Activate Account
+          &lt;/Button&gt;
+        &lt;/Form&gt;
+      )}
+    &lt;/AuthCard&gt;
   );
 }
 &nbsp;</pre></td></tr></table></pre>
@@ -514,7 +457,7 @@ export function <span class="fstat-no" title="function not covered" >AcceptInvit
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-07-02T06:14:45.513Z
+                at 2026-07-10T07:31:17.496Z
             </div>
         <script src="../../../prettify.js"></script>
         <script>

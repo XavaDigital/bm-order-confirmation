@@ -10,9 +10,12 @@ vi.mock('@/db', async () => {
 
 import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
+import * as schema from '@/db/schema';
+import { eq } from 'drizzle-orm';
 import { createOrderSchema } from '@/server/orders/contract';
-import { createOrder } from '@/server/orders/service';
+import { createOrder, setOrderAccessCode } from '@/server/orders/service';
 import { REQUIRED_ACK_KEYS } from '@/server/orders/customer-service';
+import { buildAccessCodeCookie, ACCESS_CODE_COOKIE } from '@/lib/access-code';
 import { POST } from './route';
 
 afterEach(async () => {
@@ -31,10 +34,22 @@ function allAcks() {
   return REQUIRED_ACK_KEYS.map((key) => ({ key, text: `ack for ${key}` }));
 }
 
-function makeRequest(body: unknown, ip: string) {
+function makeRequest(body: unknown, ip: string, cookie?: string) {
   return new NextRequest('http://localhost/api/o/confirm', {
     method: 'POST',
     body: JSON.stringify(body),
+    headers: {
+      'content-type': 'application/json',
+      'x-forwarded-for': ip,
+      ...(cookie ? { cookie: `${ACCESS_CODE_COOKIE}=${cookie}` } : {}),
+    },
+  });
+}
+
+function makeRawRequest(rawBody: string, ip: string) {
+  return new NextRequest('http://localhost/api/o/confirm', {
+    method: 'POST',
+    body: rawBody,
     headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
   });
 }
@@ -96,6 +111,51 @@ describe('POST /api/o/confirm', () => {
     expect(json.success).toBe(true);
     expect(json.orderNumber).toMatch(/^OC-/);
     expect(json.confirmedAt).toBeTruthy();
+  });
+
+  it('returns 400 for a request body that is not valid JSON', async () => {
+    const res = await POST(makeRawRequest('not-json{{', uniqueIp()));
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 with code=missing_ack:<key> when a required acknowledgment key is missing', async () => {
+    const created = await createOrder(minimalOrderInput());
+    // Keep the array length valid per the Zod schema, but duplicate a key so a
+    // required one is actually absent — this triggers the service-level check.
+    const acks = allAcks();
+    acks[acks.length - 1] = { ...acks[0] };
+
+    const res = await POST(makeRequest({ token: created.token, acknowledgments: acks }, uniqueIp()));
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.code).toMatch(/^missing_ack:/);
+  });
+
+  it('returns 403 with code=code_required when the order has an access code and no valid cookie is present', async () => {
+    const created = await createOrder(minimalOrderInput());
+    const { code } = await setOrderAccessCode(created.orderId);
+    void code;
+
+    const res = await POST(makeRequest({ token: created.token, acknowledgments: allAcks() }, uniqueIp()));
+    const json = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(json.code).toBe('code_required');
+  });
+
+  it('succeeds when the access-code cookie is present and valid', async () => {
+    const created = await createOrder(minimalOrderInput());
+    await setOrderAccessCode(created.orderId);
+    const access = await db.query.orderAccess.findFirst({ where: eq(schema.orderAccess.orderId, created.orderId) });
+    const cookie = buildAccessCodeCookie({ id: access!.id, accessCodeHash: access!.accessCodeHash! });
+
+    const res = await POST(
+      makeRequest({ token: created.token, acknowledgments: allAcks() }, uniqueIp(), cookie.value),
+    );
+
+    expect(res.status).toBe(200);
   });
 
   it('returns 429 with a Retry-After header after 10 requests from the same IP', async () => {

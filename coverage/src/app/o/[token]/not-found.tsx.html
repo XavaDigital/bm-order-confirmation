@@ -23,9 +23,9 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/3</span>
+                <span class='fraction'>3/3</span>
             </div>
         
             
@@ -37,16 +37,16 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>1/1</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/3</span>
+                <span class='fraction'>3/3</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -107,29 +107,18 @@
 <a name='L42'></a><a href='#L42'>42</a>
 <a name='L43'></a><a href='#L43'>43</a>
 <a name='L44'></a><a href='#L44'>44</a>
-<a name='L45'></a><a href='#L45'>45</a>
-<a name='L46'></a><a href='#L46'>46</a>
-<a name='L47'></a><a href='#L47'>47</a>
-<a name='L48'></a><a href='#L48'>48</a>
-<a name='L49'></a><a href='#L49'>49</a>
-<a name='L50'></a><a href='#L50'>50</a>
-<a name='L51'></a><a href='#L51'>51</a>
-<a name='L52'></a><a href='#L52'>52</a>
-<a name='L53'></a><a href='#L53'>53</a>
-<a name='L54'></a><a href='#L54'>54</a>
-<a name='L55'></a><a href='#L55'>55</a>
-<a name='L56'></a><a href='#L56'>56</a>
-<a name='L57'></a><a href='#L57'>57</a>
-<a name='L58'></a><a href='#L58'>58</a></td><td class="line-coverage quiet"><span class="cline-any cline-no">&nbsp;</span>
+<a name='L45'></a><a href='#L45'>45</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -162,75 +151,47 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js"><span class="cstat-no" title="statement not covered" >'use client';</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">'use client';
 &nbsp;
 import { StopOutlined } from '@ant-design/icons';
 import { ConfigProvider, Typography } from 'antd';
 import { darkTheme, BEASTMODE, headingFont } from '@/lib/theme';
+import { SALES_REP_LABEL } from '@/lib/config';
+import { StatusPage } from '@/components/customer/StatusPage';
 &nbsp;
-const { Title, Text, Paragraph } = <span class="cstat-no" title="statement not covered" >Typography;</span>
+const { Title, Text, Paragraph } = Typography;
 &nbsp;
-export default function <span class="fstat-no" title="function not covered" >TokenNotFound() {</span>
-<span class="cstat-no" title="statement not covered" >  return (</span>
+export default function TokenNotFound() {
+  return (
     &lt;ConfigProvider theme={darkTheme}&gt;
-      &lt;div
-        style={{
-          minHeight: '100vh',
-          background: BEASTMODE.navy,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 24,
-        }}
-      &gt;
-        &lt;div style={{ textAlign: 'center', maxWidth: 480 }}&gt;
-          &lt;StopOutlined
-            style={{ fontSize: 64, color: BEASTMODE.accent, marginBottom: 24 }}
-          /&gt;
-          &lt;Title
-            style={{
-              color: '#fff',
-              fontSize: 42,
-              fontFamily: headingFont,
-              fontWeight: 400,
-              letterSpacing: 5,
-              textTransform: 'uppercase',
-              marginBottom: 12,
-            }}
-          &gt;
-            Link Not Found
-          &lt;/Title&gt;
-          &lt;Text
-            style={{
-              color: 'rgba(255,255,255,0.6)',
-              fontSize: 16,
-              display: 'block',
-              marginBottom: 16,
-            }}
-          &gt;
-            This link is no longer valid or has expired.
-          &lt;/Text&gt;
-          &lt;Paragraph style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, marginTop: 24 }}&gt;
-            Please contact your BeastMode sales representative to request a new link.
-          &lt;/Paragraph&gt;
-        &lt;/div&gt;
-      &lt;/div&gt;
+      &lt;StatusPage icon={&lt;StopOutlined style={{ fontSize: 64, color: BEASTMODE.accent, marginBottom: 24 }} /&gt;}&gt;
+        &lt;Title
+          style={{
+            color: '#fff',
+            fontSize: 42,
+            fontFamily: headingFont,
+            fontWeight: 400,
+            letterSpacing: 5,
+            textTransform: 'uppercase',
+            marginBottom: 12,
+          }}
+        &gt;
+          Link Not Found
+        &lt;/Title&gt;
+        &lt;Text
+          style={{
+            color: 'rgba(255,255,255,0.6)',
+            fontSize: 16,
+            display: 'block',
+            marginBottom: 16,
+          }}
+        &gt;
+          This link is no longer valid or has expired.
+        &lt;/Text&gt;
+        &lt;Paragraph style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, marginTop: 24 }}&gt;
+          Please contact your {SALES_REP_LABEL} to request a new link.
+        &lt;/Paragraph&gt;
+      &lt;/StatusPage&gt;
     &lt;/ConfigProvider&gt;
   );
 }
@@ -241,7 +202,7 @@ export default function <span class="fstat-no" title="function not covered" >Tok
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-07-02T06:14:45.513Z
+                at 2026-07-10T07:31:17.496Z
             </div>
         <script src="../../../../prettify.js"></script>
         <script>

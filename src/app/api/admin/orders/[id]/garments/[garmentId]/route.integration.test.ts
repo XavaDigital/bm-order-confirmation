@@ -51,6 +51,14 @@ function deleteRequest() {
   return new NextRequest('http://localhost/api/admin/orders/x/garments/y', { method: 'DELETE' });
 }
 
+function patchRequestRaw(rawBody: string) {
+  return new NextRequest('http://localhost/api/admin/orders/x/garments/y', {
+    method: 'PATCH',
+    body: rawBody,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 const UNKNOWN_ID = '00000000-0000-0000-0000-000000000000';
 
 describe('PATCH /api/admin/orders/[id]/garments/[garmentId]', () => {
@@ -74,6 +82,16 @@ describe('PATCH /api/admin/orders/[id]/garments/[garmentId]', () => {
     });
 
     expect(res.status).toBe(404);
+  });
+
+  it('returns 400 for a request body that is not valid JSON', async () => {
+    const { orderId, garmentId } = await seedOrderWithGarment();
+
+    const res = await PATCH(patchRequestRaw('not-json{{'), {
+      params: Promise.resolve({ id: orderId, garmentId }),
+    });
+
+    expect(res.status).toBe(400);
   });
 
   it('returns 200 { ok: true } and the DB reflects the patch', async () => {

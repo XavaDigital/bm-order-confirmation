@@ -13,8 +13,9 @@ import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
 import { createOrderSchema } from '@/server/orders/contract';
-import { createOrder, generateAccessToken } from '@/server/orders/service';
+import { createOrder, generateAccessToken, setOrderAccessCode } from '@/server/orders/service';
 import { confirmOrder, REQUIRED_ACK_KEYS } from '@/server/orders/customer-service';
+import { buildAccessCodeCookie, ACCESS_CODE_COOKIE } from '@/lib/access-code';
 import { POST } from './route';
 
 afterEach(async () => {
@@ -29,10 +30,22 @@ function minimalOrderInput(overrides: Partial<Parameters<typeof createOrderSchem
   });
 }
 
-function makeRequest(body: unknown, ip: string) {
+function makeRequest(body: unknown, ip: string, cookie?: string) {
   return new NextRequest('http://localhost/api/o/request-changes', {
     method: 'POST',
     body: JSON.stringify(body),
+    headers: {
+      'content-type': 'application/json',
+      'x-forwarded-for': ip,
+      ...(cookie ? { cookie: `${ACCESS_CODE_COOKIE}=${cookie}` } : {}),
+    },
+  });
+}
+
+function makeRawRequest(rawBody: string, ip: string) {
+  return new NextRequest('http://localhost/api/o/request-changes', {
+    method: 'POST',
+    body: rawBody,
     headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
   });
 }
@@ -52,6 +65,35 @@ describe('POST /api/o/request-changes', () => {
   it('returns 404 for an unknown token', async () => {
     const res = await POST(makeRequest({ token: 'totally-bogus', comment: 'please change it' }, uniqueIp()));
     expect(res.status).toBe(404);
+  });
+
+  it('returns 400 for a request body that is not valid JSON', async () => {
+    const res = await POST(makeRawRequest('not-json{{', uniqueIp()));
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 403 with code=code_required when the order has an access code and no valid cookie is present', async () => {
+    const created = await createOrder(minimalOrderInput());
+    await setOrderAccessCode(created.orderId);
+
+    const res = await POST(makeRequest({ token: created.token, comment: 'please change it' }, uniqueIp()));
+    const json = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(json.code).toBe('code_required');
+  });
+
+  it('succeeds when the access-code cookie is present and valid', async () => {
+    const created = await createOrder(minimalOrderInput());
+    await setOrderAccessCode(created.orderId);
+    const access = await db.query.orderAccess.findFirst({ where: eq(schema.orderAccess.orderId, created.orderId) });
+    const cookie = buildAccessCodeCookie({ id: access!.id, accessCodeHash: access!.accessCodeHash! });
+
+    const res = await POST(
+      makeRequest({ token: created.token, comment: 'please change it' }, uniqueIp(), cookie.value),
+    );
+
+    expect(res.status).toBe(200);
   });
 
   it('returns 200 with the order number and updates status to changes_requested', async () => {

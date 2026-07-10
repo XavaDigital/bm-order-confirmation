@@ -42,6 +42,14 @@ function postRequest(body: unknown) {
   });
 }
 
+function postRequestRaw(rawBody: string) {
+  return new NextRequest('http://localhost/api/admin/orders/x/garments/y/sizing', {
+    method: 'POST',
+    body: rawBody,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 describe('POST /api/admin/orders/[id]/garments/[garmentId]/sizing', () => {
   it('returns 400 with details for an invalid body', async () => {
     const { orderId, garmentId } = await seedOrderWithGarment();
@@ -53,6 +61,16 @@ describe('POST /api/admin/orders/[id]/garments/[garmentId]/sizing', () => {
 
     expect(res.status).toBe(400);
     expect(json.details).toBeDefined();
+  });
+
+  it('returns 400 for a request body that is not valid JSON', async () => {
+    const { orderId, garmentId } = await seedOrderWithGarment();
+
+    const res = await POST(postRequestRaw('not-json{{'), {
+      params: Promise.resolve({ id: orderId, garmentId }),
+    });
+
+    expect(res.status).toBe(400);
   });
 
   it('replaces existing sizing rows with the new set', async () => {

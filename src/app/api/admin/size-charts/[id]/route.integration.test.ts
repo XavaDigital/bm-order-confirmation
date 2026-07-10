@@ -45,6 +45,14 @@ function patchRequest(body: unknown) {
   });
 }
 
+function patchRequestRaw(rawBody: string) {
+  return new NextRequest('http://localhost/api/admin/size-charts/x', {
+    method: 'PATCH',
+    body: rawBody,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 function deleteRequest() {
   return new NextRequest('http://localhost/api/admin/size-charts/x', { method: 'DELETE' });
 }
@@ -64,6 +72,12 @@ describe('PATCH /api/admin/size-charts/[id]', () => {
   it('returns 404 for an unknown id', async () => {
     const res = await PATCH(patchRequest({ name: 'New Name' }), { params: Promise.resolve({ id: UNKNOWN_ID }) });
     expect(res.status).toBe(404);
+  });
+
+  it('returns 400 for a request body that is not valid JSON', async () => {
+    const chart = await seedChart();
+    const res = await PATCH(patchRequestRaw('not-json{{'), { params: Promise.resolve({ id: chart.id }) });
+    expect(res.status).toBe(400);
   });
 
   it('returns 200 with the updated chart and persists it', async () => {

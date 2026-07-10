@@ -363,7 +363,7 @@ function DisableModal({
       open={open}
       onCancel={onClose}
       footer={null}
-      destroyOnClose
+      destroyOnHidden
     >
       <Paragraph type="secondary">
         Enter your current password to confirm. You can re-enable 2FA at any time.

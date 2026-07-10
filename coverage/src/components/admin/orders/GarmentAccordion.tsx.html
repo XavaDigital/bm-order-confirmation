@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">90.27% </span>
+                <span class="strong">92.3% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>65/72</span>
+                <span class='fraction'>60/65</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">73.91% </span>
+                <span class="strong">75% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>34/46</span>
+                <span class='fraction'>30/40</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">93.75% </span>
+                <span class="strong">93.33% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>60/64</span>
+                <span class='fraction'>56/60</span>
             </div>
         
             
@@ -379,16 +379,8 @@
 <a name='L314'></a><a href='#L314'>314</a>
 <a name='L315'></a><a href='#L315'>315</a>
 <a name='L316'></a><a href='#L316'>316</a>
-<a name='L317'></a><a href='#L317'>317</a>
-<a name='L318'></a><a href='#L318'>318</a>
-<a name='L319'></a><a href='#L319'>319</a>
-<a name='L320'></a><a href='#L320'>320</a>
-<a name='L321'></a><a href='#L321'>321</a>
-<a name='L322'></a><a href='#L322'>322</a>
-<a name='L323'></a><a href='#L323'>323</a>
-<a name='L324'></a><a href='#L324'>324</a>
-<a name='L325'></a><a href='#L325'>325</a>
-<a name='L326'></a><a href='#L326'>326</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
+<a name='L317'></a><a href='#L317'>317</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -474,10 +466,6 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -499,10 +487,6 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -525,8 +509,6 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -737,6 +719,7 @@ import {
 import { SizingTable } from './SizingTable';
 import { MockupUploader, type MockupImage } from './MockupUploader';
 import { SizeChartLinker } from './SizeChartLinker';
+import { postJson, patchJson, deleteJson } from '@/lib/api-fetch';
 &nbsp;
 interface SizingRow {
   id?: string;
@@ -789,19 +772,15 @@ export function GarmentAccordion({ orderId, initialGarments }: Props) {
 &nbsp;
     setSavingId(garment.id);
     try {
-      const res = await fetch(
+      await patchJson(
         `/api/admin/orders/${orderId}/garments/${garment.id}`,
         {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: edits.name ?? <span class="branch-1 cbranch-no" title="branch not covered" >garment.name,</span>
-            fabrics: edits.fabrics ?? garment.fabrics,
-            notes: edits.notes !== undefined ? <span class="branch-0 cbranch-no" title="branch not covered" >edits.notes : g</span>arment.notes,
-          }),
+          name: edits.name ?? <span class="branch-1 cbranch-no" title="branch not covered" >garment.name,</span>
+          fabrics: edits.fabrics ?? garment.fabrics,
+          notes: edits.notes !== undefined ? <span class="branch-0 cbranch-no" title="branch not covered" >edits.notes : g</span>arment.notes,
         },
+        'Save failed',
       );
-      <span class="missing-if-branch" title="if path not taken" >I</span>if (!res.ok) <span class="cstat-no" title="statement not covered" >throw new Error('Save failed');</span>
 &nbsp;
       setGarments((prev) =&gt;
         prev.map((g) =&gt;
@@ -824,11 +803,7 @@ export function GarmentAccordion({ orderId, initialGarments }: Props) {
   async function deleteGarment(garmentId: string) {
     setDeletingId(garmentId);
     try {
-      const res = await fetch(
-        `/api/admin/orders/${orderId}/garments/${garmentId}`,
-        { method: 'DELETE' },
-      );
-      <span class="missing-if-branch" title="if path not taken" >I</span>if (!res.ok) <span class="cstat-no" title="statement not covered" >throw new Error('Delete failed');</span>
+      await deleteJson(`/api/admin/orders/${orderId}/garments/${garmentId}`, undefined, 'Delete failed');
       setGarments((prev) =&gt; prev.filter((g) =&gt; g.id !== garmentId));
       message.success('Garment removed');
     } catch {
@@ -845,13 +820,11 @@ export function GarmentAccordion({ orderId, initialGarments }: Props) {
     }
     setAddingLoading(true);
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/garments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: addingName.trim() }),
-      });
-      if (!res.ok) throw new Error('Failed to add garment');
-      const garment = await res.json();
+      const garment = await postJson&lt;Pick&lt;Garment, 'id' | 'name' | 'notes' | 'sortOrder'&gt; &amp; { fabrics?: string[] }&gt;(
+        `/api/admin/orders/${orderId}/garments`,
+        { name: addingName.trim() },
+        'Failed to add garment',
+      );
       setGarments((prev) =&gt; [...prev, { ...garment, fabrics: garment.fabrics ?? <span class="branch-1 cbranch-no" title="branch not covered" >[], s</span>izing: [], images: [], sizeChartIds: [] }]);
       setAddingName('');
       message.success('Garment added');
@@ -1045,7 +1018,7 @@ export function GarmentAccordion({ orderId, initialGarments }: Props) {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-07-02T06:14:45.513Z
+                at 2026-07-10T07:31:17.496Z
             </div>
         <script src="../../../../prettify.js"></script>
         <script>

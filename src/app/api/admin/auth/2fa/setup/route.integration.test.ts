@@ -70,6 +70,14 @@ function setupRequest(body: unknown) {
   });
 }
 
+function setupRequestRaw(rawBody: string) {
+  return new NextRequest('http://localhost/api/admin/auth/2fa/setup', {
+    method: 'POST',
+    body: rawBody,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 describe('POST /api/admin/auth/2fa/setup', () => {
   it('returns 401 when there is no session', async () => {
     const res = await POST(setupRequest({ password: 'correct-horse' }));
@@ -80,6 +88,13 @@ describe('POST /api/admin/auth/2fa/setup', () => {
     const staff = await seedStaff();
     await setSession(staff.id, staff.email);
     const res = await POST(setupRequest({}));
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for a request body that is not valid JSON', async () => {
+    const staff = await seedStaff();
+    await setSession(staff.id, staff.email);
+    const res = await POST(setupRequestRaw('not-json{{'));
     expect(res.status).toBe(400);
   });
 

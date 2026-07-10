@@ -58,6 +58,14 @@ function patchRequest(body: unknown) {
   });
 }
 
+function patchRequestRaw(rawBody: string) {
+  return new NextRequest('http://localhost/api/admin/orders/x', {
+    method: 'PATCH',
+    body: rawBody,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 const UNKNOWN_ID = '00000000-0000-0000-0000-000000000000';
 
 describe('PATCH /api/admin/orders/[id]', () => {
@@ -79,6 +87,13 @@ describe('PATCH /api/admin/orders/[id]', () => {
     });
 
     expect(res.status).toBe(404);
+  });
+
+  it('returns 400 for a request body that is not valid JSON', async () => {
+    const created = await createOrder(minimalOrderInput());
+    const res = await PATCH(patchRequestRaw('not-json{{'), { params: Promise.resolve({ id: created.orderId }) });
+
+    expect(res.status).toBe(400);
   });
 
   it('returns 200 { ok: true } and the DB reflects the patch', async () => {

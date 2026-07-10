@@ -273,7 +273,7 @@ export function SizeChartsView() {
         onOk={handleUpload}
         okText="Upload"
         confirmLoading={uploading}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label="Chart Name" rules={[{ required: true, message: 'Required' }]}>
@@ -337,7 +337,7 @@ export function SizeChartsView() {
         onOk={handleEdit}
         okText="Save"
         confirmLoading={editSaving}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label="Chart Name" rules={[{ required: true, message: 'Required' }]}>

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CustomerOrderView, type CustomerOrderViewProps } from './view';
 
@@ -56,6 +56,19 @@ function baseOrder(overrides: Partial<CustomerOrderViewProps['order']> = {}): Cu
 
 function renderView(order: CustomerOrderViewProps['order']) {
   return render(<CustomerOrderView token="raw-token" order={order} />);
+}
+
+// antd's Modal leave-transition (content zoom + mask fade) waits for real
+// transitionend events before unmounting, which jsdom never dispatches on its
+// own — sweep for the leaving nodes and fire it manually, retrying until the
+// dialog is actually gone since the "leave-active" class lands a tick late.
+async function waitForModalToClose() {
+  await vi.waitFor(() => {
+    document
+      .querySelectorAll('.ant-zoom-leave-active, .ant-fade-leave-active')
+      .forEach((el) => fireEvent.transitionEnd(el));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
 }
 
 async function checkAllAcknowledgments(user: ReturnType<typeof userEvent.setup>) {
@@ -212,5 +225,187 @@ describe('CustomerOrderView', () => {
     const dialog = await screen.findByRole('dialog');
 
     expect(within(dialog).getByRole('button', { name: /submit request/i })).toBeDisabled();
+  });
+
+  it('renders a tag per fabric on a garment', () => {
+    renderView(
+      baseOrder({
+        garments: [
+          {
+            id: 'garment-1',
+            name: 'Home Jersey',
+            fabrics: ['Polyester', 'Spandex'],
+            notes: null,
+            sizing: [],
+            images: [],
+            sizeCharts: [],
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText('Polyester')).toBeInTheDocument();
+    expect(screen.getByText('Spandex')).toBeInTheDocument();
+  });
+
+  it('a size-chart tag with a signed URL opens a PDF preview in an iframe with a download link', async () => {
+    const user = userEvent.setup();
+    renderView(
+      baseOrder({
+        garments: [
+          {
+            id: 'garment-1',
+            name: 'Home Jersey',
+            fabrics: [],
+            notes: null,
+            sizing: [],
+            images: [],
+            sizeCharts: [
+              {
+                name: 'Adult Chart',
+                storageKey: 'charts/adult.pdf',
+                url: 'https://signed.example.com/adult.pdf',
+                downloadUrl: 'https://signed.example.com/adult.pdf?dl=1',
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    await user.click(screen.getByText('Adult Chart'));
+
+    const dialog = await screen.findByRole('dialog');
+    const iframe = within(dialog).getByTitle('Adult Chart') as HTMLIFrameElement;
+    expect(iframe.tagName).toBe('IFRAME');
+    expect(iframe.src).toBe('https://signed.example.com/adult.pdf');
+    expect(within(dialog).getByRole('link', { name: /download/i })).toHaveAttribute(
+      'href',
+      'https://signed.example.com/adult.pdf?dl=1',
+    );
+  });
+
+  it('a size-chart tag for a non-PDF image opens a preview with no download link when none is available', async () => {
+    const user = userEvent.setup();
+    renderView(
+      baseOrder({
+        garments: [
+          {
+            id: 'garment-1',
+            name: 'Home Jersey',
+            fabrics: [],
+            notes: null,
+            sizing: [],
+            images: [],
+            sizeCharts: [
+              {
+                name: 'Kids Chart',
+                storageKey: 'charts/kids.png',
+                url: 'https://signed.example.com/kids.png',
+                downloadUrl: null,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    await user.click(screen.getByText('Kids Chart'));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByAltText('Kids Chart')).toBeInTheDocument();
+    expect(within(dialog).queryByRole('link', { name: /download/i })).not.toBeInTheDocument();
+  });
+
+  it('typing into Concerns and a customer-entered shipping address are included in the confirm payload', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ orderNumber: 'OC-1', confirmedAt: '2026-01-15T10:30:00Z' }),
+    } as Response);
+    renderView(baseOrder({ shippingMode: 'customer_entered' }));
+
+    await user.type(
+      screen.getByPlaceholderText(/any concerns or comments/i),
+      'Please double check the sizing',
+    );
+    await user.type(screen.getByPlaceholderText('123 Main Street'), '456 Side Street');
+    await user.type(screen.getByLabelText('City'), 'Wellington');
+    await checkAllAcknowledgments(user);
+    await user.click(screen.getByRole('button', { name: /confirm order/i }));
+    await user.click(await screen.findByRole('button', { name: /yes, confirm/i }));
+
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
+    expect(body.concerns).toBe('Please double check the sizing');
+    expect(body.shippingAddress).toMatchObject({ line1: '456 Side Street', city: 'Wellington' });
+  });
+
+  it('canceling the Request Changes modal closes it without submitting', async () => {
+    const user = userEvent.setup();
+    renderView(baseOrder());
+
+    await user.click(screen.getByRole('button', { name: /request changes/i }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /^cancel$/i }));
+    await waitForModalToClose();
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('closing the size-chart preview modal hides it', async () => {
+    const user = userEvent.setup();
+    renderView(
+      baseOrder({
+        garments: [
+          {
+            id: 'garment-1',
+            name: 'Home Jersey',
+            fabrics: [],
+            notes: null,
+            sizing: [],
+            images: [],
+            sizeCharts: [
+              {
+                name: 'Adult Chart',
+                storageKey: 'charts/adult.pdf',
+                url: 'https://signed.example.com/adult.pdf',
+                downloadUrl: null,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    await user.click(screen.getByText('Adult Chart'));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }));
+    await waitForModalToClose();
+  });
+
+  it('a size-chart tag with no signed URL is not clickable and opens no preview', async () => {
+    const user = userEvent.setup();
+    renderView(
+      baseOrder({
+        garments: [
+          {
+            id: 'garment-1',
+            name: 'Home Jersey',
+            fabrics: [],
+            notes: null,
+            sizing: [],
+            images: [],
+            sizeCharts: [
+              { name: 'Unavailable Chart', storageKey: null, url: null, downloadUrl: null },
+            ],
+          },
+        ],
+      }),
+    );
+
+    await user.click(screen.getByText('Unavailable Chart'));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });

@@ -74,10 +74,34 @@ function verifyRequest(code: string, ip = '10.1.0.1') {
   });
 }
 
+function verifyRequestRaw(rawBody: string, ip = '10.1.0.1') {
+  return new NextRequest('http://localhost/api/auth/2fa/verify', {
+    method: 'POST',
+    body: rawBody,
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+  });
+}
+
 describe('POST /api/auth/2fa/verify', () => {
   it('returns 401 when there is no pending MFA session', async () => {
     const res = await POST(verifyRequest('123456'));
     expect(res.status).toBe(401);
+  });
+
+  it('returns 400 for a request body that is not valid JSON', async () => {
+    const { staff } = await seedMfaStaff();
+    await setPendingSession(staff.id);
+    const res = await POST(verifyRequestRaw('not-json{{'));
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 401 "Invalid session" when the pending session references a non-existent user', async () => {
+    await setPendingSession('00000000-0000-0000-0000-000000000000');
+    const res = await POST(verifyRequest('123456', '10.1.0.6'));
+    const json = await res.json();
+
+    expect(res.status).toBe(401);
+    expect(json.error).toBe('Invalid session');
   });
 
   it('accepts a valid live TOTP code and clears mfaPending', async () => {

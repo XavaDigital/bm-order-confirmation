@@ -20,7 +20,9 @@
     "test:watch": "vitest",
     "test:unit": "vitest run --exclude \"**/*.integration.test.ts\"",
     "test:integration": "vitest run integration",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.2",
@@ -51,6 +53,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.3",
+    "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

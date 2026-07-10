@@ -36,6 +36,14 @@ function makeRequest(body: unknown, ip: string) {
   });
 }
 
+function makeRawRequest(rawBody: string, ip: string) {
+  return new NextRequest('http://localhost/api/o/verify-code', {
+    method: 'POST',
+    body: rawBody,
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+  });
+}
+
 let ipCounter = 0;
 function uniqueIp() {
   ipCounter++;
@@ -52,6 +60,22 @@ describe('POST /api/o/verify-code', () => {
   it('returns 400 for an invalid body', async () => {
     const res = await POST(makeRequest({ token: '', code: '' }, uniqueIp()));
     expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for a request body that is not valid JSON', async () => {
+    const res = await POST(makeRawRequest('not-json{{', uniqueIp()));
+    expect(res.status).toBe(400);
+  });
+
+  it('rate-limits per IP even across different (bogus) tokens', async () => {
+    const ip = uniqueIp();
+    for (let i = 0; i < 10; i++) {
+      await POST(makeRequest({ token: `bogus-token-${i}`, code: '123456' }, ip));
+    }
+    const res = await POST(makeRequest({ token: 'bogus-token-last', code: '123456' }, ip));
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBeTruthy();
   });
 
   it('returns 404 for an unknown token', async () => {

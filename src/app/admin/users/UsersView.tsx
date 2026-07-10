@@ -245,7 +245,7 @@ export function UsersView({ currentUserId }: UsersViewProps) {
         onOk={() => form.submit()}
         okText="Send Invite"
         confirmLoading={inviting}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" onFinish={handleInvite} style={{ marginTop: 16 }}>
           <Form.Item name="name" label="Full Name" rules={[{ required: true, message: 'Name is required' }]}>
