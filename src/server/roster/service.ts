@@ -84,6 +84,12 @@ export async function addRosterMember(orderId: string, data: AddRosterMemberInpu
   return member;
 }
 
+export async function getRosterMember(orderId: string, memberId: string) {
+  const member = await db.query.rosterMembers.findFirst({ where: eq(rosterMembers.id, memberId) });
+  if (!member || member.orderId !== orderId) throw new NotFoundError('Team member');
+  return member;
+}
+
 export async function updateRosterMember(memberId: string, patch: UpdateRosterMemberInput) {
   const existing = await db.query.rosterMembers.findFirst({ where: eq(rosterMembers.id, memberId) });
   if (!existing) throw new NotFoundError('Roster member');

@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { Button, Space, Typography, Alert, Popconfirm, App, Divider, Tooltip, Switch, Progress } from 'antd';
-import { LinkOutlined, CopyOutlined, ReloadOutlined, StopOutlined, LockOutlined } from '@ant-design/icons';
+import { LinkOutlined, CopyOutlined, ReloadOutlined, StopOutlined, LockOutlined, MailOutlined } from '@ant-design/icons';
 
 const { Text, Paragraph } = Typography;
 
 interface Props {
   orderId: string;
+  customerEmail: string;
   hasActiveToken: boolean;
   locked: boolean;
   stats: { total: number; submitted: number };
@@ -15,12 +16,12 @@ interface Props {
   onLockChange?: (locked: boolean) => void;
 }
 
-export function RosterLinkPanel({ orderId, hasActiveToken, locked, stats, onLockChange }: Props) {
+export function RosterLinkPanel({ orderId, customerEmail, hasActiveToken, locked, stats, onLockChange }: Props) {
   const { message } = App.useApp();
   const [activeUrl, setActiveUrl] = useState<string | null>(null);
   const [hasToken, setHasToken] = useState(hasActiveToken);
   const [isLocked, setIsLocked] = useState(locked);
-  const [loading, setLoading] = useState<'generate' | 'revoke' | 'lock' | null>(null);
+  const [loading, setLoading] = useState<'generate' | 'revoke' | 'email' | 'lock' | null>(null);
 
   const percent = stats.total > 0 ? Math.round((stats.submitted / stats.total) * 100) : 0;
 
@@ -35,6 +36,26 @@ export function RosterLinkPanel({ orderId, hasActiveToken, locked, stats, onLock
       message.success('Roster link generated');
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Failed to generate roster link');
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function emailLink() {
+    setLoading('email');
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/roster/send-link`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 503) {
+        message.error('Email delivery is not configured on this server.');
+        return;
+      }
+      if (!res.ok) throw new Error(data.error ?? 'Failed to send email');
+      setActiveUrl(data.url);
+      setHasToken(true);
+      message.success(`Roster link emailed to ${customerEmail}`);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to send email');
     } finally {
       setLoading(null);
     }
@@ -152,6 +173,17 @@ export function RosterLinkPanel({ orderId, hasActiveToken, locked, stats, onLock
             onClick={generate}
           >
             {hasToken ? 'Regenerate link' : 'Generate link'}
+          </Button>
+        </Tooltip>
+
+        <Tooltip title={`Generates a fresh link and emails it to ${customerEmail}`}>
+          <Button
+            icon={<MailOutlined />}
+            loading={loading === 'email'}
+            disabled={loading !== null && loading !== 'email'}
+            onClick={emailLink}
+          >
+            Email roster link
           </Button>
         </Tooltip>
 

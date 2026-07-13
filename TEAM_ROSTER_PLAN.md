@@ -230,10 +230,10 @@ Apply `checkRateLimit()` (`src/lib/rate-limit.ts`) to the member-add and sizes-s
 
 ### 5.4 Acceptance criteria
 
-- [ ] Opening a revoked or expired roster link shows the same not-found/expired treatment the order confirmation page already uses for its token.
-- [ ] A member can select sizes against the linked size charts and save; reopening the link and resubmitting updates their existing rows rather than creating duplicates.
-- [ ] The roster API response never includes order value, invoice URL, shipping address, or general/internal notes.
-- [ ] Submitting after the roster is locked returns a clear "ask your rep" error, not a silent no-op.
+- [x] Opening a revoked or expired roster link shows the same not-found/expired treatment the order confirmation page already uses for its token.
+- [x] A member can select sizes against the linked size charts and save; reopening the link and resubmitting updates their existing rows rather than creating duplicates. Verified live: submitted a size, reloaded, form showed "Update my sizes" with the persisted value.
+- [x] The roster API response never includes order value, invoice URL, shipping address, or general/internal notes. Verified live: landing page body has no NZD/invoice/shipping text.
+- [x] Submitting after the roster is locked returns a clear "ask your rep" error, not a silent no-op.
 
 ---
 
@@ -251,9 +251,9 @@ Add a lightweight check on `/o/[token]`: if a roster exists for the order and ha
 
 ### 6.3 Acceptance criteria
 
-- [ ] Roster-submitted sizing rows render identically to staff-entered rows on the manager's confirmation page, tagged by source.
-- [ ] `confirmations.confirmed_snapshot` (the immutable audit record) captures roster-submitted rows exactly like staff-entered ones — no change needed to `confirmOrder()` since it already snapshots whatever is in `garment_sizing` at confirm time, but verify with a test.
-- [ ] Pending-members banner shows accurate counts and never blocks confirmation.
+- [x] Roster-submitted sizing rows render identically to staff-entered rows on the manager's confirmation page, tagged by source ("via team roster" tag). Verified live.
+- [x] `confirmations.confirmed_snapshot` (the immutable audit record) captures roster-submitted rows exactly like staff-entered ones — covered by `customer-service.integration.test.ts` ("includes roster-submitted sizing rows in the immutable confirmation snapshot").
+- [x] Pending-members banner shows accurate counts and never blocks confirmation. Verified live on the manager's `/o/[token]` page.
 
 ---
 
@@ -275,8 +275,10 @@ Add, following the existing `SendXParams` interface + function pattern (e.g. `se
 
 ### 7.3 Acceptance criteria
 
-- [ ] Roster link email and per-member reminder email both send via the existing SMTP config with no new env vars.
-- [ ] Members without an email on file simply don't get a "Remind" action (no crash, no silent failure).
+- [x] Roster link email and per-member reminder email both send via the existing SMTP config with no new env vars. Verified live — both buttons trigger real sends via the existing SMTP transport.
+- [x] Members without an email on file simply don't get a "Remind" action (no crash, no silent failure). The button only renders when `!submittedAt && email` is true; server route also 400s defensively if called for a member with no email.
+
+**Deviation from the original plan:** "Remind" regenerates the shared roster link (same tradeoff as "Regenerate link"/"Email roster link" elsewhere on this tab) rather than resending the exact previously-issued URL. The raw token is deliberately never persisted after creation (hashed-only storage, per Phase 1), so there is no stored raw value to resend without either keeping a secret around longer than intended or requiring the admin's browser to still hold it from the same session. Given v1's shared-link trust model already accepts "regenerating invalidates the old link," extending that same tradeoff to reminders was simpler and more consistent than threading client-held URL state through the panel.
 
 ---
 

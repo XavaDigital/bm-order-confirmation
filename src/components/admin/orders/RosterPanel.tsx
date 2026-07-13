@@ -11,6 +11,7 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   UploadOutlined,
+  MailOutlined,
 } from '@ant-design/icons';
 import type { ColumnType } from 'antd/es/table';
 import { RosterLinkPanel } from './RosterLinkPanel';
@@ -33,6 +34,7 @@ interface RosterData {
 
 interface Props {
   orderId: string;
+  customerEmail: string;
 }
 
 interface Draft {
@@ -43,7 +45,7 @@ interface Draft {
 
 const EMPTY_DRAFT: Draft = { name: '', playerNumber: '', email: '' };
 
-export function RosterPanel({ orderId }: Props) {
+export function RosterPanel({ orderId, customerEmail }: Props) {
   const { message } = App.useApp();
   const [data, setData] = useState<RosterData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,6 +56,7 @@ export function RosterPanel({ orderId }: Props) {
   const [editDraft, setEditDraft] = useState<Draft>(EMPTY_DRAFT);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [remindingId, setRemindingId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
   function loadRoster() {
@@ -180,6 +183,27 @@ export function RosterPanel({ orderId }: Props) {
     }
   }
 
+  async function remindMember(member: RosterMember) {
+    setRemindingId(member.id);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/roster/members/${member.id}/remind`, {
+        method: 'POST',
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.status === 503) {
+        message.error('Email delivery is not configured on this server.');
+        return;
+      }
+      if (!res.ok) throw new Error(json.error ?? 'Failed to send reminder');
+      message.success(`Reminder sent to ${member.email}`);
+      loadRoster(); // roster link was regenerated — refresh so the panel reflects it
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to send reminder');
+    } finally {
+      setRemindingId(null);
+    }
+  }
+
   if (loading) return <Spin style={{ display: 'block', marginTop: 32 }} />;
   if (error || !data) return <Alert type="error" message={error ?? 'Failed to load team roster'} />;
 
@@ -245,7 +269,7 @@ export function RosterPanel({ orderId }: Props) {
     {
       title: '',
       key: 'actions',
-      width: 90,
+      width: 120,
       render(_: unknown, record: RosterMember) {
         if (editingId === record.id) {
           return (
@@ -263,6 +287,17 @@ export function RosterPanel({ orderId }: Props) {
         }
         return (
           <Space size={4}>
+            {!record.submittedAt && record.email && (
+              <Button
+                type="text"
+                size="small"
+                icon={<MailOutlined />}
+                title="Send a reminder email"
+                loading={remindingId === record.id}
+                disabled={editingId !== null}
+                onClick={() => remindMember(record)}
+              />
+            )}
             <Button
               type="text"
               size="small"
@@ -296,6 +331,7 @@ export function RosterPanel({ orderId }: Props) {
     <Space direction="vertical" style={{ width: '100%' }} size={24}>
       <RosterLinkPanel
         orderId={orderId}
+        customerEmail={customerEmail}
         hasActiveToken={data.currentAccess !== null}
         locked={data.locked}
         stats={data.stats}

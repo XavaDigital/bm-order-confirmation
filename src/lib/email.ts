@@ -466,3 +466,105 @@ export async function sendCustomerReceiptEmail(params: SendCustomerReceiptParams
     text: buildReceiptText(params),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Team roster — shared link to the manager, and per-member nudges
+// (TEAM_ROSTER_PLAN.md Phase 7)
+// ---------------------------------------------------------------------------
+
+export interface SendRosterLinkParams {
+  to: string;
+  toName: string;
+  orderNumber: string;
+  clubName: string | null;
+  url: string;
+}
+
+function rosterSubtitle(clubName: string | null): string {
+  return clubName ? ` for ${clubName}` : '';
+}
+
+export async function sendRosterLinkEmail(params: SendRosterLinkParams): Promise<void> {
+  if (!env.SMTP_HOST) throw new Error('SMTP is not configured (SMTP_HOST missing)');
+
+  const from = env.MAIL_FROM ?? EMAIL_FROM_DEFAULT;
+  const transport = createTransport();
+  const subtitle = rosterSubtitle(params.clubName);
+
+  await transport.sendMail({
+    from,
+    to: `${params.toName} <${params.to}>`,
+    subject: `Team roster link for ${APP_NAME} order ${params.orderNumber}`,
+    html: wrapEmailLayout({
+      title: 'Team Roster',
+      headerLabel: 'Team Roster',
+      bodyHtml: `<p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
+              <p style="color:rgba(255,255,255,0.65);font-size:15px;line-height:1.6;margin:0 0 24px;">
+                Share the link below with your team${subtitle} so each person can pick their name and
+                enter their own size for order <strong style="color:#ffffff;">${params.orderNumber}</strong>.
+              </p>
+              ${emailButton(params.url, 'Open Team Roster')}
+              ${emailCopyLinkLine(params.url)}
+              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;">
+              <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.5;margin:0;">
+                Anyone with this link can add or edit a roster entry, so only share it with your team.
+                If you have any questions, contact your ${SALES_REP_LABEL}.
+              </p>`,
+    }),
+    text: [
+      `Hi ${params.toName},`,
+      '',
+      `Share this link with your team${subtitle} so each person can pick their name and enter their own size for order ${params.orderNumber}:`,
+      params.url,
+      '',
+      `Anyone with this link can add or edit a roster entry, so only share it with your team.`,
+      `If you have any questions, contact your ${SALES_REP_LABEL}.`,
+    ].join('\n'),
+  });
+}
+
+export interface SendRosterReminderParams {
+  to: string;
+  toName: string;
+  orderNumber: string;
+  clubName: string | null;
+  url: string;
+}
+
+export async function sendRosterReminderEmail(params: SendRosterReminderParams): Promise<void> {
+  if (!env.SMTP_HOST) throw new Error('SMTP is not configured (SMTP_HOST missing)');
+
+  const from = env.MAIL_FROM ?? EMAIL_FROM_DEFAULT;
+  const transport = createTransport();
+  const subtitle = rosterSubtitle(params.clubName);
+
+  await transport.sendMail({
+    from,
+    to: `${params.toName} <${params.to}>`,
+    subject: `Reminder: enter your size for ${APP_NAME} order ${params.orderNumber}`,
+    html: wrapEmailLayout({
+      title: 'Size Reminder',
+      headerLabel: 'Reminder',
+      bodyHtml: `<p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
+              <p style="color:rgba(255,255,255,0.65);font-size:15px;line-height:1.6;margin:0 0 24px;">
+                You haven't entered your size yet for order <strong style="color:#ffffff;">${params.orderNumber}</strong>${subtitle}.
+                Click below to pick your name and submit your size — it only takes a minute.
+              </p>
+              ${emailButton(params.url, 'Enter My Size')}
+              ${emailCopyLinkLine(params.url)}
+              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;">
+              <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.5;margin:0;">
+                If you have any questions, contact your team manager or your ${SALES_REP_LABEL}.
+              </p>`,
+    }),
+    text: [
+      `Hi ${params.toName},`,
+      '',
+      `You haven't entered your size yet for order ${params.orderNumber}${subtitle}.`,
+      `Open this link to pick your name and submit your size:`,
+      params.url,
+      '',
+      `If you have any questions, contact your team manager or your ${SALES_REP_LABEL}.`,
+    ].join('\n'),
+  });
+}

@@ -54,6 +54,8 @@ function eventIcon(type: string) {
     case 'roster.locked':   return <LockOutlined style={{ color: '#faad14' }} />;
     case 'roster.unlocked': return <UnlockOutlined style={{ color: '#1677ff' }} />;
     case 'roster.import_completed': return <UploadOutlined style={{ color: '#1677ff' }} />;
+    case 'roster.link_emailed':    return <MailOutlined style={{ color: '#52c41a' }} />;
+    case 'roster.reminder_sent':   return <MailOutlined style={{ color: '#52c41a' }} />;
     default: return null;
   }
 }
@@ -78,6 +80,8 @@ function eventLabel(type: string): string {
     'roster.locked':   'Roster locked',
     'roster.unlocked': 'Roster unlocked',
     'roster.import_completed': 'Roster imported from file',
+    'roster.link_emailed': 'Roster link emailed',
+    'roster.reminder_sent': 'Reminder sent',
   };
   return labels[type] ?? type;
 }
@@ -101,6 +105,8 @@ function eventColor(type: string): string {
     case 'roster.locked':          return 'orange';
     case 'roster.unlocked':        return 'blue';
     case 'roster.import_completed': return 'blue';
+    case 'roster.link_emailed':    return 'green';
+    case 'roster.reminder_sent':   return 'green';
     default:                       return 'gray';
   }
 }
@@ -136,7 +142,9 @@ function EventDetail({ event }: { event: AuditEvent }) {
     parts.push(`from ${p.sourceOrderNumber}`);
   }
   if (
-    (event.eventType === 'roster.member_added' || event.eventType === 'roster.member_removed') &&
+    (event.eventType === 'roster.member_added' ||
+      event.eventType === 'roster.member_removed' ||
+      event.eventType === 'roster.reminder_sent') &&
     typeof p.name === 'string'
   ) {
     parts.push(`— ${p.name}`);

@@ -37,7 +37,9 @@ export type DomainEventType =
   | 'roster.token_revoked'
   | 'roster.locked'
   | 'roster.unlocked'
-  | 'roster.import_completed';
+  | 'roster.import_completed'
+  | 'roster.link_emailed'
+  | 'roster.reminder_sent';
 
 export async function emitDomainEvent(
   tx: Transaction,

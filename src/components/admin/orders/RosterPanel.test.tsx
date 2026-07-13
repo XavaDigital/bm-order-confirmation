@@ -11,7 +11,7 @@ function mockFetchOnce(body: unknown, ok = true) {
 function renderPanel() {
   return render(
     <AntdApp>
-      <RosterPanel orderId="order-1" />
+      <RosterPanel orderId="order-1" customerEmail="manager@example.com" />
     </AntdApp>,
   );
 }
@@ -146,5 +146,46 @@ describe('RosterPanel', () => {
 
     expect(fetch).toHaveBeenLastCalledWith('/api/admin/orders/order-1/roster/members/m1', { method: 'DELETE' });
     expect(await screen.findByText(/no team members yet/i)).toBeInTheDocument();
+  });
+
+  it('shows a Remind action only for pending members with an email on file', async () => {
+    mockFetchOnce({
+      members: [
+        { id: 'm1', name: 'Alex', playerNumber: '7', email: 'alex@example.com', submittedAt: null },
+        { id: 'm2', name: 'Sam', playerNumber: null, email: null, submittedAt: null },
+        { id: 'm3', name: 'Jo', playerNumber: null, email: 'jo@example.com', submittedAt: '2026-07-01T00:00:00Z' },
+      ],
+      currentAccess: null,
+      stats: { total: 3, submitted: 1 },
+      locked: false,
+    });
+    renderPanel();
+    await screen.findByText('Alex');
+
+    expect(screen.getAllByTitle('Send a reminder email')).toHaveLength(1);
+  });
+
+  it('sending a reminder POSTs to the remind endpoint and shows a success message', async () => {
+    const user = userEvent.setup();
+    mockFetchOnce({
+      members: [{ id: 'm1', name: 'Alex', playerNumber: '7', email: 'alex@example.com', submittedAt: null }],
+      currentAccess: null,
+      stats: { total: 1, submitted: 0 },
+      locked: false,
+    });
+    renderPanel();
+    await screen.findByText('Alex');
+
+    mockFetchOnce({ ok: true, url: 'http://localhost/o/roster/new-token' }, true);
+    mockFetchOnce({
+      members: [{ id: 'm1', name: 'Alex', playerNumber: '7', email: 'alex@example.com', submittedAt: null }],
+      currentAccess: { id: 'a1', createdAt: '2026-07-01T00:00:00Z', revokedAt: null },
+      stats: { total: 1, submitted: 0 },
+      locked: false,
+    });
+    await user.click(screen.getByTitle('Send a reminder email'));
+
+    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/roster/members/m1/remind', { method: 'POST' });
+    expect(await screen.findByText(/reminder sent to alex@example\.com/i)).toBeInTheDocument();
   });
 });

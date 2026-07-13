@@ -354,7 +354,7 @@ export function OrderDetailView({ order }: Props) {
     {
       key: 'roster',
       label: 'Team Roster',
-      children: <RosterPanel orderId={order.id} />,
+      children: <RosterPanel orderId={order.id} customerEmail={order.customerEmail} />,
     },
     {
       key: 'audit',

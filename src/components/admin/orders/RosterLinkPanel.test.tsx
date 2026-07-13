@@ -9,6 +9,7 @@ function renderPanel(props: Partial<React.ComponentProps<typeof RosterLinkPanel>
     <AntdApp>
       <RosterLinkPanel
         orderId="order-1"
+        customerEmail="manager@example.com"
         hasActiveToken={false}
         locked={false}
         stats={{ total: 0, submitted: 0 }}
@@ -123,5 +124,34 @@ describe('RosterLinkPanel', () => {
     renderPanel({ locked: true });
 
     expect(screen.getByRole('switch')).toBeChecked();
+  });
+
+  it('emailing the roster link POSTs to the send-link endpoint and shows the returned url', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ url: 'http://localhost/o/roster/raw-token' }),
+    } as Response);
+    renderPanel({ hasActiveToken: false });
+
+    await user.click(screen.getByRole('button', { name: /email roster link/i }));
+
+    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/roster/send-link', { method: 'POST' });
+    expect(await screen.findByText(/roster link emailed to manager@example\.com/i)).toBeInTheDocument();
+    expect(await screen.findByText('http://localhost/o/roster/raw-token')).toBeInTheDocument();
+  });
+
+  it('shows a clear error when emailing the roster link fails because email is not configured', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: 'Email delivery is not configured on this server.' }),
+    } as Response);
+    renderPanel({ hasActiveToken: false });
+
+    await user.click(screen.getByRole('button', { name: /email roster link/i }));
+
+    expect(await screen.findByText(/email delivery is not configured/i)).toBeInTheDocument();
   });
 });
