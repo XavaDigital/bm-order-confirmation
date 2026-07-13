@@ -1,6 +1,6 @@
 'use client';
 
-import { Table, Typography } from 'antd';
+import { Space, Table, Tag, Typography } from 'antd';
 import type { ColumnType } from 'antd/es/table';
 
 export interface SizingRow {
@@ -8,6 +8,7 @@ export interface SizingRow {
   playerName: string | null;
   playerNumber: string | null;
   notes: string | null;
+  viaTeamRoster?: boolean;
 }
 
 const columns: ColumnType<SizingRow & { _key: string }>[] = [
@@ -20,7 +21,16 @@ const columns: ColumnType<SizingRow & { _key: string }>[] = [
   {
     title: 'Player Name',
     dataIndex: 'playerName',
-    render: (v: string | null) => v ?? <Typography.Text type="secondary">—</Typography.Text>,
+    render: (_: string | null, record: SizingRow) => (
+      <Space size={8} wrap>
+        {record.playerName ?? <Typography.Text type="secondary">—</Typography.Text>}
+        {record.viaTeamRoster ? (
+          <Tag color="processing" style={{ marginInlineEnd: 0 }}>
+            via team roster
+          </Tag>
+        ) : null}
+      </Space>
+    ),
   },
   {
     title: '#',

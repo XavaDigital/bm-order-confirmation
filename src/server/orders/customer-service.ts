@@ -11,6 +11,7 @@ import {
   acknowledgments,
   confirmations,
   conversionEvents,
+  rosterMembers,
 } from '@/db/schema';
 import { hashToken } from '@/lib/tokens';
 import { accessCodeMatches, isAccessCodeCookieValid } from '@/lib/access-code';
@@ -43,11 +44,31 @@ export async function getOrderForCustomer(rawToken: string) {
           sizeChartLinks: { with: { sizeChart: true } },
         },
       },
+      rosterMembers: {
+        columns: {
+          id: true,
+          submittedAt: true,
+        },
+      },
     },
   });
 
   if (!order) return null;
-  return { order, access };
+
+  const rosterTotal = order.rosterMembers.length;
+  const rosterSubmitted = order.rosterMembers.filter((member) => member.submittedAt !== null).length;
+
+  return {
+    order: {
+      ...order,
+      rosterSummary: {
+        total: rosterTotal,
+        submitted: rosterSubmitted,
+        pending: Math.max(rosterTotal - rosterSubmitted, 0),
+      },
+    },
+    access,
+  };
 }
 
 // ---------------------------------------------------------------------------

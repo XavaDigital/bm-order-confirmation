@@ -74,6 +74,11 @@ export interface CustomerOrderViewProps {
     generalNotes: string | null;
     shippingMode: 'prefilled' | 'customer_entered' | 'later';
     shippingAddress: unknown;
+    rosterSummary?: {
+      total: number;
+      submitted: number;
+      pending: number;
+    };
     garments: GarmentData[];
   };
 }
@@ -210,6 +215,7 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
   const [changesRequested, setChangesRequested] = useState<{ orderNumber: string } | null>(null);
   const [changesModalOpen, setChangesModalOpen] = useState(false);
   const [chartPreview, setChartPreview] = useState<SizeChartLink | null>(null);
+  const pendingRosterMembers = order.rosterSummary?.pending ?? 0;
 
   // Already confirmed on the server
   if (order.status === 'confirmed') {
@@ -551,6 +557,20 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
 
           {/* ── Actions ── */}
           <Divider style={{ borderColor: 'rgba(255,255,255,0.1)' }} />
+
+          {pendingRosterMembers > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              message={`${pendingRosterMembers} team member${pendingRosterMembers === 1 ? '' : 's'} ${pendingRosterMembers === 1 ? 'has' : 'have'} not submitted a size yet.`}
+              description="You can still confirm this order now if you want to proceed before every team member replies."
+              style={{
+                marginBottom: 20,
+                background: 'rgba(250,173,20,0.08)',
+                border: '1px solid rgba(250,173,20,0.3)',
+              }}
+            />
+          )}
 
           {checkedAcks.size < ACKNOWLEDGMENTS.length && (
             <Alert

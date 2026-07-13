@@ -1,7 +1,6 @@
 /**
  * Team roster contract — Zod schemas for staff-side roster management
- * (TEAM_ROSTER_PLAN.md Phase 2). The customer-facing submission schema is
- * added alongside src/server/roster/customer-service.ts in a later phase.
+ * (TEAM_ROSTER_PLAN.md Phases 2 and 5).
  */
 import { z } from 'zod';
 
@@ -19,6 +18,32 @@ export const updateRosterMemberSchema = z.object({
 
 export type AddRosterMemberInput = z.infer<typeof addRosterMemberSchema>;
 export type UpdateRosterMemberInput = z.infer<typeof updateRosterMemberSchema>;
+
+export const submitMemberSizesSchema = z.object({
+  sizes: z
+    .array(
+      z.object({
+        garmentId: z.string().min(1),
+        size: z.string().trim().min(1).max(64),
+      }),
+    )
+    .min(1),
+}).superRefine((value, ctx) => {
+  const seen = new Set<string>();
+  for (const [i, row] of value.sizes.entries()) {
+    if (seen.has(row.garmentId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['sizes', i, 'garmentId'],
+        message: 'Duplicate garment submitted',
+      });
+      continue;
+    }
+    seen.add(row.garmentId);
+  }
+});
+
+export type SubmitMemberSizesInput = z.infer<typeof submitMemberSizesSchema>;
 
 // Column indices into a parsed CSV/XLSX sheet (see src/server/roster/import.ts) — the
 // staff-confirmed mapping of "which column is which field" for a bulk import.

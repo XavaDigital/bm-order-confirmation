@@ -14,7 +14,13 @@ describe('SizingTableReadOnly', () => {
     render(
       <SizingTableReadOnly
         rows={[
-          { size: 'M', playerName: 'Jane Coach', playerNumber: '7', notes: 'Extra long' },
+          {
+            size: 'M',
+            playerName: 'Jane Coach',
+            playerNumber: '7',
+            notes: 'Extra long',
+            viaTeamRoster: true,
+          },
           { size: 'L', playerName: null, playerNumber: null, notes: null },
         ]}
       />,
@@ -24,6 +30,7 @@ describe('SizingTableReadOnly', () => {
     expect(screen.getByText('Jane Coach')).toBeInTheDocument();
     expect(screen.getByText('7')).toBeInTheDocument();
     expect(screen.getByText('Extra long')).toBeInTheDocument();
+    expect(screen.getByText('via team roster')).toBeInTheDocument();
     // Second row's null fields fall back to an em dash placeholder.
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(3);
   });

@@ -39,6 +39,7 @@ function baseOrder(overrides: Partial<CustomerOrderViewProps['order']> = {}): Cu
     generalNotes: null,
     shippingMode: 'later',
     shippingAddress: null,
+    rosterSummary: { total: 0, submitted: 0, pending: 0 },
     garments: [
       {
         id: 'garment-1',
@@ -98,6 +99,43 @@ describe('CustomerOrderView', () => {
     expect(screen.getByText(/home jersey/i)).toBeInTheDocument();
     expect(screen.getByText(/please tick all 7 acknowledgments/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /confirm order/i })).toBeDisabled();
+  });
+
+  it('shows a non-blocking banner when roster members are still pending', () => {
+    renderView(baseOrder({ rosterSummary: { total: 4, submitted: 1, pending: 3 } }));
+
+    expect(screen.getByText("3 team members have not submitted a size yet.")).toBeInTheDocument();
+    expect(
+      screen.getByText(/you can still confirm this order now/i),
+    ).toBeInTheDocument();
+  });
+
+  it('shows a source tag on sizing rows submitted through the team roster', () => {
+    renderView(
+      baseOrder({
+        garments: [
+          {
+            id: 'garment-1',
+            name: 'Home Jersey',
+            fabrics: [],
+            notes: null,
+            sizing: [
+              {
+                size: 'M',
+                playerName: 'Alex Player',
+                playerNumber: '7',
+                notes: null,
+                viaTeamRoster: true,
+              },
+            ],
+            images: [],
+            sizeCharts: [],
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText('via team roster')).toBeInTheDocument();
   });
 
   it('shows a print-accuracy disclaimer under mock-up images but not when a garment has none', () => {

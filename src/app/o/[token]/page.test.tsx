@@ -54,13 +54,14 @@ function baseOrder(overrides: Record<string, unknown> = {}) {
     generalNotes: null,
     shippingMode: 'later' as const,
     shippingAddress: null,
+    rosterSummary: { total: 0, submitted: 0, pending: 0 },
     garments: [
       {
         id: 'garment-1',
         name: 'Home Jersey',
         fabrics: ['Polyester'],
         notes: null,
-        sizing: [{ size: 'M', playerName: null, playerNumber: null, notes: null }],
+        sizing: [{ size: 'M', playerName: null, playerNumber: null, notes: null, rosterMemberId: null }],
         images: [{ id: 'img-1', storageKey: 'orders/1/mockup.png', caption: null, sortOrder: 0 }],
         sizeChartLinks: [
           { sizeChart: { name: 'Adult Sizing', storageKey: 'charts/adult.pdf' } },
@@ -160,6 +161,7 @@ describe('CustomerOrderPage', () => {
     const garment = props.order.garments[0];
     expect(garment.images).toEqual([{ id: 'img-1', caption: null, url: 'https://signed.example.com/asset' }]);
     expect(garment.sizeCharts).toHaveLength(1); // the null sizeChart link was filtered out
+    expect(garment.sizing[0].viaTeamRoster).toBe(false);
     expect(garment.sizeCharts[0]).toEqual({
       name: 'Adult Sizing',
       storageKey: 'charts/adult.pdf',
@@ -170,6 +172,22 @@ describe('CustomerOrderPage', () => {
     expect(getSignedUrl).toHaveBeenCalledWith('charts/adult.pdf', 3600, {
       contentDisposition: 'attachment; filename="adult.pdf"',
     });
+  });
+
+  it('passes roster progress through to the customer view', async () => {
+    vi.mocked(getOrderForCustomer).mockResolvedValueOnce(
+      mockOrderResult(
+        baseOrder({
+          rosterSummary: { total: 5, submitted: 3, pending: 2 },
+        }),
+        baseAccess(),
+      ),
+    );
+
+    await renderPage();
+
+    const props = JSON.parse(screen.getByTestId('order-view').textContent!);
+    expect(props.order.rosterSummary).toEqual({ total: 5, submitted: 3, pending: 2 });
   });
 
   it('logs but does not throw when the fire-and-forget view-tracking call fails', async () => {

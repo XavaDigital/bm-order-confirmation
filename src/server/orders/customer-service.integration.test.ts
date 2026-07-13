@@ -33,6 +33,7 @@ import {
 } from './customer-service';
 import { buildAccessCodeCookie } from '@/lib/access-code';
 import { uploadFile } from '@/lib/storage';
+import { addRosterMember } from '@/server/roster/service';
 
 afterEach(async () => {
   await resetTestDb(db);
@@ -88,6 +89,38 @@ describe('getOrderForCustomer', () => {
     expect(result).not.toBeNull();
     expect(result!.order.garments[0].sizing).toHaveLength(1);
     expect(result!.order.garments[0].sizeChartLinks[0].sizeChart.name).toBe('Womens Chart');
+  });
+
+  it('includes roster progress counts and keeps roster-submitted sizing rows in the read model', async () => {
+    const created = await createOrder(
+      minimalInput({
+        garments: [{ name: 'Jersey' }],
+      }),
+    );
+    const order = await db.query.orders.findFirst({
+      where: eq(schema.orders.id, created.orderId),
+      with: { garments: true },
+    });
+    const submittedMember = await addRosterMember(created.orderId, { name: 'Alex', playerNumber: '7' });
+    await addRosterMember(created.orderId, { name: 'Sam', playerNumber: '9' });
+    await db
+      .update(schema.rosterMembers)
+      .set({ submittedAt: new Date() })
+      .where(eq(schema.rosterMembers.id, submittedMember.id));
+    await db.insert(schema.garmentSizing).values({
+      garmentId: order!.garments[0].id,
+      rosterMemberId: submittedMember.id,
+      size: 'M',
+      playerName: 'Alex',
+      playerNumber: '7',
+      sortOrder: 0,
+    });
+
+    const result = await getOrderForCustomer(created.token);
+
+    expect(result).not.toBeNull();
+    expect(result!.order.rosterSummary).toEqual({ total: 2, submitted: 1, pending: 1 });
+    expect(result!.order.garments[0].sizing[0].rosterMemberId).toBe(submittedMember.id);
   });
 });
 
@@ -356,6 +389,57 @@ describe('confirmOrder', () => {
       where: eq(schema.orderAccess.orderId, created.orderId),
     });
     expect(access!.lastViewedAt).not.toBeNull();
+  });
+
+  it('includes roster-submitted sizing rows in the immutable confirmation snapshot', async () => {
+    const created = await createOrder(
+      minimalInput({
+        garments: [{ name: 'Home Jersey' }],
+      }),
+    );
+    const order = await db.query.orders.findFirst({
+      where: eq(schema.orders.id, created.orderId),
+      with: { garments: true },
+    });
+    const rosterMember = await addRosterMember(created.orderId, { name: 'Alex Player', playerNumber: '7' });
+    await db
+      .update(schema.rosterMembers)
+      .set({ submittedAt: new Date() })
+      .where(eq(schema.rosterMembers.id, rosterMember.id));
+    await db.insert(schema.garmentSizing).values({
+      garmentId: order!.garments[0].id,
+      rosterMemberId: rosterMember.id,
+      size: 'M',
+      playerName: 'Alex Player',
+      playerNumber: '7',
+      notes: null,
+      sortOrder: 0,
+    });
+
+    await confirmOrder({
+      rawToken: created.token,
+      acks: allAcks(),
+      signatureType: 'none',
+      ipAddress: '203.0.113.5',
+      userAgent: 'vitest',
+    });
+
+    const confirmationRows = await db
+      .select()
+      .from(schema.confirmations)
+      .where(eq(schema.confirmations.orderId, created.orderId));
+    const snapshot = confirmationRows[0].confirmedSnapshot as {
+      garments: { sizing: { size: string | null; player_name: string | null; player_number: string | null }[] }[];
+    };
+
+    expect(snapshot.garments[0].sizing).toEqual([
+      {
+        size: 'M',
+        player_name: 'Alex Player',
+        player_number: '7',
+        notes: null,
+      },
+    ]);
   });
 
   it('never leaks staff-only internalNotes into the customer-facing confirmation snapshot', async () => {

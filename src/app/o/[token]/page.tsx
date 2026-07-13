@@ -66,6 +66,7 @@ export default async function CustomerOrderPage({ params }: Props) {
         playerName: s.playerName ?? null,
         playerNumber: s.playerNumber ?? null,
         notes: s.notes ?? null,
+        viaTeamRoster: s.rosterMemberId !== null && s.rosterMemberId !== undefined,
       })),
       images: await signImageUrls(g.images),
       sizeCharts: await Promise.all(
@@ -112,6 +113,7 @@ export default async function CustomerOrderPage({ params }: Props) {
     generalNotes: order.generalNotes ?? null,
     shippingMode: order.shippingMode,
     shippingAddress: order.shippingAddress ?? null,
+    rosterSummary: order.rosterSummary,
     garments,
   };
 
