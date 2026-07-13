@@ -108,6 +108,11 @@ export const orders = confirmation.table(
     status: orderStatus('status').notNull().default('draft'),
     createdBy: uuid('created_by').references(() => staffUsers.id),
 
+    // Set while a team roster (see roster_members/roster_access) is locked for
+    // review/finalization. Deliberately not folded into `status` — outbox
+    // consumers key off status, and roster progress is orthogonal to it.
+    rosterLockedAt: timestamp('roster_locked_at', { withTimezone: true }),
+
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
@@ -142,6 +147,48 @@ export const orderAccess = confirmation.table(
   (t) => [index('order_access_order_idx').on(t.orderId)],
 );
 
+// --- team roster members ----------------------------------------------------
+// A team member entered manually or via CSV/XLSX import. Sizing they submit is
+// still stored as ordinary garment_sizing rows (roster_member_id set on those
+// rows), so it coexists with staff-entered sizing with no schema conflict.
+export const rosterMembers = confirmation.table(
+  'roster_members',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    playerNumber: text('player_number'),
+    email: text('email'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }), // null = pending
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('roster_members_order_idx').on(t.orderId)],
+);
+
+// --- team roster shared-link access -----------------------------------------
+// Deliberately a SEPARATE table from order_access: generateAccessToken()
+// revokes all prior active order_access rows when the manager regenerates
+// their confirmation link, and that must never revoke the team's in-progress
+// roster link (or vice versa).
+export const rosterAccess = confirmation.table(
+  'roster_access',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    lastViewedAt: timestamp('last_viewed_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('roster_access_order_idx').on(t.orderId)],
+);
+
 // --- garments (line items) -------------------------------------------------
 export const garments = confirmation.table(
   'garments',
@@ -173,6 +220,11 @@ export const garmentSizing = confirmation.table(
     playerNumber: text('player_number'),
     notes: text('notes'),
     sortOrder: integer('sort_order').notNull().default(0),
+    // Set when this row was submitted by a team member via the roster flow
+    // rather than typed by staff. Null for all pre-existing/staff-entered rows.
+    rosterMemberId: uuid('roster_member_id').references(() => rosterMembers.id, {
+      onDelete: 'cascade',
+    }),
   },
   (t) => [index('garment_sizing_garment_idx').on(t.garmentId)],
 );
@@ -291,6 +343,8 @@ export const domainEvents = confirmation.table(
 export const ordersRelations = relations(orders, ({ many }) => ({
   garments: many(garments),
   access: many(orderAccess),
+  rosterMembers: many(rosterMembers),
+  rosterAccess: many(rosterAccess),
 }));
 
 export const garmentsRelations = relations(garments, ({ one, many }) => ({
@@ -302,6 +356,19 @@ export const garmentsRelations = relations(garments, ({ one, many }) => ({
 
 export const garmentSizingRelations = relations(garmentSizing, ({ one }) => ({
   garment: one(garments, { fields: [garmentSizing.garmentId], references: [garments.id] }),
+  rosterMember: one(rosterMembers, {
+    fields: [garmentSizing.rosterMemberId],
+    references: [rosterMembers.id],
+  }),
+}));
+
+export const rosterMembersRelations = relations(rosterMembers, ({ one, many }) => ({
+  order: one(orders, { fields: [rosterMembers.orderId], references: [orders.id] }),
+  sizing: many(garmentSizing),
+}));
+
+export const rosterAccessRelations = relations(rosterAccess, ({ one }) => ({
+  order: one(orders, { fields: [rosterAccess.orderId], references: [orders.id] }),
 }));
 
 export const mockupImagesRelations = relations(mockupImages, ({ one }) => ({

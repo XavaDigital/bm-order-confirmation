@@ -43,6 +43,13 @@
       "when": 1783576522372,
       "tag": "0005_magical_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783911601998,
+      "tag": "0006_thankful_kingpin",
+      "breakpoints": true
     }
   ]
 }

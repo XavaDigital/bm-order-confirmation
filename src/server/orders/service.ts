@@ -54,7 +54,7 @@ function generateOrderNumber(): string {
 }
 
 /** Null when `LINK_EXPIRY_DAYS` is unset — links never expire. */
-function computeAccessExpiry(): Date | null {
+export function computeAccessExpiry(): Date | null {
   return env.LINK_EXPIRY_DAYS ? new Date(Date.now() + env.LINK_EXPIRY_DAYS * 86_400_000) : null;
 }
 
@@ -790,6 +790,56 @@ export async function clearOrderAccessCode(
     await emitDomainEvent(tx, {
       aggregateId: orderId,
       eventType: 'access_code.disabled',
+      payload: { actorEmail: meta?.actorEmail ?? null },
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Admin writes — team roster lock
+// ---------------------------------------------------------------------------
+// Lives here (not src/server/roster/service.ts) because it writes the `orders`
+// row directly, and this module is the only place order rows are mutated.
+
+/** Freeze the team roster so members can no longer submit/change their sizes. */
+export async function lockRoster(
+  orderId: string,
+  meta?: { actorEmail?: string },
+): Promise<void> {
+  const existing = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
+  if (!existing) throw new NotFoundError('Order');
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(orders)
+      .set({ rosterLockedAt: new Date(), updatedAt: new Date() })
+      .where(eq(orders.id, orderId));
+
+    await emitDomainEvent(tx, {
+      aggregateId: orderId,
+      eventType: 'roster.locked',
+      payload: { actorEmail: meta?.actorEmail ?? null },
+    });
+  });
+}
+
+/** Reopen the team roster for further member submissions. */
+export async function unlockRoster(
+  orderId: string,
+  meta?: { actorEmail?: string },
+): Promise<void> {
+  const existing = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
+  if (!existing) throw new NotFoundError('Order');
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(orders)
+      .set({ rosterLockedAt: null, updatedAt: new Date() })
+      .where(eq(orders.id, orderId));
+
+    await emitDomainEvent(tx, {
+      aggregateId: orderId,
+      eventType: 'roster.unlocked',
       payload: { actorEmail: meta?.actorEmail ?? null },
     });
   });

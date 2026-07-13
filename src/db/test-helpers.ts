@@ -34,6 +34,8 @@ const CONFIRMATION_TABLES = [
   'size_charts',
   'mockup_images',
   'garment_sizing',
+  'roster_members',
+  'roster_access',
   'garments',
   'order_access',
   'orders',

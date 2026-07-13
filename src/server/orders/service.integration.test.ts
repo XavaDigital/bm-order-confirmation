@@ -41,6 +41,8 @@ import {
   getStaleOrders,
   setOrderAccessCode,
   clearOrderAccessCode,
+  lockRoster,
+  unlockRoster,
   NotFoundError,
   ConflictError,
 } from './service';
@@ -783,6 +785,48 @@ describe('cancelOrder', () => {
 
     const order = await getOrderById(created.orderId);
     expect(order!.status).toBe('cancelled');
+  });
+});
+
+describe('lockRoster / unlockRoster', () => {
+  it('throws NotFoundError for an unknown id', async () => {
+    await expect(lockRoster('00000000-0000-0000-0000-000000000000')).rejects.toThrow(NotFoundError);
+    await expect(unlockRoster('00000000-0000-0000-0000-000000000000')).rejects.toThrow(NotFoundError);
+  });
+
+  it('sets rosterLockedAt and emits roster.locked', async () => {
+    const created = await createOrder(minimalInput());
+
+    await lockRoster(created.orderId, { actorEmail: 'staff@x.com' });
+
+    const order = await getOrderById(created.orderId);
+    expect(order!.rosterLockedAt).not.toBeNull();
+
+    const events = await db
+      .select()
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+    const lockEvent = events.find((e) => e.eventType === 'roster.locked');
+    expect(lockEvent).toBeDefined();
+    expect(lockEvent!.payload).toMatchObject({ actorEmail: 'staff@x.com' });
+  });
+
+  it('clears rosterLockedAt and emits roster.unlocked', async () => {
+    const created = await createOrder(minimalInput());
+    await lockRoster(created.orderId);
+
+    await unlockRoster(created.orderId, { actorEmail: 'staff@x.com' });
+
+    const order = await getOrderById(created.orderId);
+    expect(order!.rosterLockedAt).toBeNull();
+
+    const events = await db
+      .select()
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+    const unlockEvent = events.find((e) => e.eventType === 'roster.unlocked');
+    expect(unlockEvent).toBeDefined();
+    expect(unlockEvent!.payload).toMatchObject({ actorEmail: 'staff@x.com' });
   });
 });
 

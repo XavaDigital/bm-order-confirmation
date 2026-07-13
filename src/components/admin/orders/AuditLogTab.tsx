@@ -13,6 +13,11 @@ import {
   CopyOutlined,
   CloseCircleOutlined,
   KeyOutlined,
+  UserAddOutlined,
+  UserDeleteOutlined,
+  LockOutlined,
+  UnlockOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 
 const { Text } = Typography;
@@ -42,6 +47,13 @@ function eventIcon(type: string) {
     case 'order.cancelled': return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
     case 'access_code.enabled':  return <KeyOutlined style={{ color: '#1677ff' }} />;
     case 'access_code.disabled': return <KeyOutlined style={{ color: '#ff4d4f' }} />;
+    case 'roster.member_added':   return <UserAddOutlined style={{ color: '#1677ff' }} />;
+    case 'roster.member_removed': return <UserDeleteOutlined style={{ color: '#ff4d4f' }} />;
+    case 'roster.token_generated': return <LinkOutlined style={{ color: '#1677ff' }} />;
+    case 'roster.token_revoked':   return <StopOutlined style={{ color: '#ff4d4f' }} />;
+    case 'roster.locked':   return <LockOutlined style={{ color: '#faad14' }} />;
+    case 'roster.unlocked': return <UnlockOutlined style={{ color: '#1677ff' }} />;
+    case 'roster.import_completed': return <UploadOutlined style={{ color: '#1677ff' }} />;
     default: return null;
   }
 }
@@ -59,6 +71,13 @@ function eventLabel(type: string): string {
     'order.cancelled': 'Order cancelled',
     'access_code.enabled':  'Access code enabled',
     'access_code.disabled': 'Access code removed',
+    'roster.member_added':   'Team member added',
+    'roster.member_removed': 'Team member removed',
+    'roster.token_generated': 'Roster link generated',
+    'roster.token_revoked':   'Roster link revoked',
+    'roster.locked':   'Roster locked',
+    'roster.unlocked': 'Roster unlocked',
+    'roster.import_completed': 'Roster imported from file',
   };
   return labels[type] ?? type;
 }
@@ -75,6 +94,13 @@ function eventColor(type: string): string {
     case 'order.cancelled':        return 'red';
     case 'access_code.enabled':    return 'blue';
     case 'access_code.disabled':   return 'red';
+    case 'roster.member_added':    return 'blue';
+    case 'roster.member_removed':  return 'red';
+    case 'roster.token_generated': return 'blue';
+    case 'roster.token_revoked':   return 'red';
+    case 'roster.locked':          return 'orange';
+    case 'roster.unlocked':        return 'blue';
+    case 'roster.import_completed': return 'blue';
     default:                       return 'gray';
   }
 }
@@ -108,6 +134,16 @@ function EventDetail({ event }: { event: AuditEvent }) {
   }
   if (p.sourceOrderNumber && typeof p.sourceOrderNumber === 'string') {
     parts.push(`from ${p.sourceOrderNumber}`);
+  }
+  if (
+    (event.eventType === 'roster.member_added' || event.eventType === 'roster.member_removed') &&
+    typeof p.name === 'string'
+  ) {
+    parts.push(`— ${p.name}`);
+  }
+  if (event.eventType === 'roster.import_completed' && typeof p.imported === 'number') {
+    const skipped = (Number(p.skippedBlank) || 0) + (Number(p.skippedDuplicate) || 0);
+    parts.push(`— ${p.imported} added${skipped > 0 ? `, ${skipped} skipped` : ''}`);
   }
 
   return parts.length > 0 ? (

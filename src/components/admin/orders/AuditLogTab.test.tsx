@@ -83,6 +83,30 @@ describe('AuditLogTab', () => {
     expect(await screen.findByText('Please make the jersey bigger')).toBeInTheDocument();
   });
 
+  it('renders labels for team roster events, including the member name', async () => {
+    mockFetchOnce([
+      {
+        id: 'evt-1',
+        eventType: 'roster.member_added',
+        payload: { name: 'Alex' },
+        status: 'delivered',
+        createdAt: '2026-06-26T10:30:00Z',
+      },
+      {
+        id: 'evt-2',
+        eventType: 'roster.locked',
+        payload: {},
+        status: 'delivered',
+        createdAt: '2026-06-26T11:00:00Z',
+      },
+    ]);
+    render(<AuditLogTab orderId="order-1" />);
+
+    expect(await screen.findByText('Team member added')).toBeInTheDocument();
+    expect(screen.getByText(/— Alex/)).toBeInTheDocument();
+    expect(screen.getByText('Roster locked')).toBeInTheDocument();
+  });
+
   it('renders actor email, recipient, resend marker, fields, and source order number from the payload', async () => {
     mockFetchOnce([
       {

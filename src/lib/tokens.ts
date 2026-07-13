@@ -32,3 +32,8 @@ export function tokensMatch(rawToken: string, storedHash: string): boolean {
 export function buildConfirmationUrl(rawToken: string): string {
   return `${env.APP_BASE_URL.replace(/\/$/, '')}/o/${rawToken}`;
 }
+
+/** Build the full shareable team-roster URL for a raw roster token. */
+export function buildRosterUrl(rawToken: string): string {
+  return `${env.APP_BASE_URL.replace(/\/$/, '')}/o/roster/${rawToken}`;
+}

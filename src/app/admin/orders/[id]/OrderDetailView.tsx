@@ -33,6 +33,7 @@ import { GarmentAccordion } from '@/components/admin/orders/GarmentAccordion';
 import { ShareLinkPanel } from '@/components/admin/orders/ShareLinkPanel';
 import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
 import { AuditLogTab } from '@/components/admin/orders/AuditLogTab';
+import { RosterPanel } from '@/components/admin/orders/RosterPanel';
 import type { MockupImage } from '@/components/admin/orders/MockupUploader';
 
 interface SizingRow {
@@ -349,6 +350,11 @@ export function OrderDetailView({ order }: Props) {
           }}
         />
       ),
+    },
+    {
+      key: 'roster',
+      label: 'Team Roster',
+      children: <RosterPanel orderId={order.id} />,
     },
     {
       key: 'audit',

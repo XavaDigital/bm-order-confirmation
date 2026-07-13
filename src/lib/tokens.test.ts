@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { generateToken, hashToken, tokensMatch, buildConfirmationUrl } from './tokens';
+import { generateToken, hashToken, tokensMatch, buildConfirmationUrl, buildRosterUrl } from './tokens';
 
 vi.mock('./env', () => ({
   env: { APP_BASE_URL: 'http://localhost:3000/', TOKEN_PEPPER: 'test-pepper' },
@@ -53,5 +53,11 @@ describe('buildConfirmationUrl', () => {
   it('strips a trailing slash from APP_BASE_URL before appending the path', () => {
     // mocked env has a trailing slash on APP_BASE_URL
     expect(buildConfirmationUrl('abc123')).toBe('http://localhost:3000/o/abc123');
+  });
+});
+
+describe('buildRosterUrl', () => {
+  it('strips a trailing slash from APP_BASE_URL before appending the roster path', () => {
+    expect(buildRosterUrl('abc123')).toBe('http://localhost:3000/o/roster/abc123');
   });
 });

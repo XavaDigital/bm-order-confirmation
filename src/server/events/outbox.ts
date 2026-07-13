@@ -30,7 +30,14 @@ export type DomainEventType =
   | 'order.updated'
   | 'order.duplicated'
   | 'access_code.enabled'
-  | 'access_code.disabled';
+  | 'access_code.disabled'
+  | 'roster.member_added'
+  | 'roster.member_removed'
+  | 'roster.token_generated'
+  | 'roster.token_revoked'
+  | 'roster.locked'
+  | 'roster.unlocked'
+  | 'roster.import_completed';
 
 export async function emitDomainEvent(
   tx: Transaction,
