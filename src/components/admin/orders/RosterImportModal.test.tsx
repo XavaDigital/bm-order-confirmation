@@ -108,6 +108,79 @@ describe('RosterImportModal', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('shows ambiguous duplicates for confirmation, then re-commits with the chosen resolution', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          headers: ['Name', 'Number', 'Email'],
+          previewRows: [['Alex', '23', '']],
+          totalRows: 1,
+          guessedMapping: { nameColumn: 0, playerNumberColumn: 1, emailColumn: 2 },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          needsConfirmation: true,
+          ambiguousDuplicates: [
+            { name: 'Alex', existingNumber: '7', existingEmail: null, newNumber: '23', newEmail: null },
+          ],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ imported: 1, skippedBlank: 0, skippedDuplicate: 0, skippedAmbiguous: 0, members: [] }),
+      } as Response);
+    const { onImported } = renderModal();
+
+    const file = new File(['Name,Number,Email\nAlex,23,\n'], 'roster.csv', { type: 'text/csv' });
+    await user.upload(fileInput(), file);
+    await screen.findByText(/1 row detected/i);
+
+    await user.click(screen.getByRole('button', { name: /^import 1 row$/i }));
+
+    expect(await screen.findByText(/match an existing entry, but details differ/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /import as separate people/i }));
+
+    const secondCommitCall = vi.mocked(fetch).mock.calls[2];
+    const body = secondCommitCall[1]?.body as FormData;
+    expect(body.get('duplicateResolution')).toBe('importAll');
+
+    expect(await screen.findByText(/imported 1 member/i)).toBeInTheDocument();
+    expect(onImported).toHaveBeenCalled();
+  });
+
+  it('flags exact duplicate rows visible in the preview before import is clicked', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        headers: ['Name', 'Number', 'Email'],
+        previewRows: [
+          ['Lamelo Ball', '1', ''],
+          ['Lamelo Ball', '1', ''],
+        ],
+        totalRows: 2,
+        guessedMapping: { nameColumn: 0, playerNumberColumn: 1, emailColumn: 2 },
+      }),
+    } as Response);
+    renderModal();
+
+    const file = new File(
+      ['Name,Number,Email\nLamelo Ball,1,\nLamelo Ball,1,\n'],
+      'roster.csv',
+      { type: 'text/csv' },
+    );
+    await user.upload(fileInput(), file);
+    await screen.findByText(/2 rows detected/i);
+
+    expect(await screen.findByText(/look like the same person entered twice/i)).toBeInTheDocument();
+    expect(screen.getByText('Duplicate')).toBeInTheDocument();
+  });
+
   it('disables Import until a Name column is chosen', async () => {
     const user = userEvent.setup();
     vi.mocked(fetch).mockResolvedValueOnce({

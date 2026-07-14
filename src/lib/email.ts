@@ -523,6 +523,52 @@ export async function sendRosterLinkEmail(params: SendRosterLinkParams): Promise
   });
 }
 
+export interface SendRosterMemberLinkParams {
+  to: string;
+  toName: string;
+  orderNumber: string;
+  clubName: string | null;
+  url: string;
+}
+
+/** Bulk "email everyone their individual link" (TEAM_ROSTER_PLAN.md Phase 9) — a
+ * personal, single-purpose link for one team member (not the shared roster link). */
+export async function sendRosterMemberLinkEmail(params: SendRosterMemberLinkParams): Promise<void> {
+  if (!env.SMTP_HOST) throw new Error('SMTP is not configured (SMTP_HOST missing)');
+
+  const from = env.MAIL_FROM ?? EMAIL_FROM_DEFAULT;
+  const transport = createTransport();
+  const subtitle = rosterSubtitle(params.clubName);
+
+  await transport.sendMail({
+    from,
+    to: `${params.toName} <${params.to}>`,
+    subject: `Enter your size for ${APP_NAME} order ${params.orderNumber}`,
+    html: wrapEmailLayout({
+      title: 'Enter Your Size',
+      headerLabel: 'Team Roster',
+      bodyHtml: `<p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
+              <p style="color:rgba(255,255,255,0.65);font-size:15px;line-height:1.6;margin:0 0 24px;">
+                Use the link below to enter your size for order <strong style="color:#ffffff;">${params.orderNumber}</strong>${subtitle}. This link is just for you.
+              </p>
+              ${emailButton(params.url, 'Enter My Size')}
+              ${emailCopyLinkLine(params.url)}
+              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;">
+              <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.5;margin:0;">
+                If you have any questions, contact your team manager or your ${SALES_REP_LABEL}.
+              </p>`,
+    }),
+    text: [
+      `Hi ${params.toName},`,
+      '',
+      `Use this link to enter your size for order ${params.orderNumber}${subtitle}. This link is just for you:`,
+      params.url,
+      '',
+      `If you have any questions, contact your team manager or your ${SALES_REP_LABEL}.`,
+    ].join('\n'),
+  });
+}
+
 export interface SendRosterReminderParams {
   to: string;
   toName: string;

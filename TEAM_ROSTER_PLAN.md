@@ -292,17 +292,19 @@ Add, following the existing `SendXParams` interface + function pattern (e.g. `se
 - Integration (`*.integration.test.ts`, PGlite): full roster lifecycle — create order → generate roster link → add members via import → submit sizes via token → lock → confirm order → snapshot correctness.
 - Route tests for every new `/api/admin/orders/[id]/roster/**` and `/api/o/roster/[rosterToken]/**` endpoint, same shape as existing `/api/o/confirm` tests (auth/token gating, rate-limit behavior, validation errors).
 
+**Status: done.** Unit coverage for `contract.ts`/`import.ts` edge cases (empty name, oversized import, malformed/blank/ragged rows, corrupt buffer) already existed in `import.test.ts` and route-level 400 tests. Added `src/server/roster/lifecycle.integration.test.ts` — a single PGlite integration test chaining create order → import members → generate roster link → self-add → submit sizes for all members → lock → reject post-lock write → confirm order → assert the immutable snapshot contains all roster-submitted rows. Every route listed above already had a dedicated `*.route.integration.test.ts` (auth/token gating + validation errors); rate-limit tests were the one gap, filled in 8.2.
+
 ### 8.2 Security pass
 
-- [ ] Confirm the roster GET response never leaks order value/invoice/shipping/notes (Phase 5.4 already lists this — re-verify with a dedicated test, not just manual check).
-- [ ] Confirm a revoked/expired roster token cannot read or write anything.
-- [ ] Confirm rate limits are active on both new customer-facing POST routes.
-- [ ] Run `npm run typecheck && npm run lint && npm test` clean.
+- [x] Confirm the roster GET response never leaks order value/invoice/shipping/notes (Phase 5.4 already lists this — re-verify with a dedicated test, not just manual check). Dedicated assertions in `customer-service.integration.test.ts` (`getRosterForMember`) and `route.integration.test.ts` (`GET /api/o/roster/[rosterToken]`) check `orderValueAmount`/`invoiceUrl`/`shippingAddress`/`generalNotes`/`internalNotes` are absent from the response.
+- [x] Confirm a revoked/expired roster token cannot read or write anything. Read path already covered (`getRosterForMember` returns null for revoked/expired). Added dedicated write-path tests: `addSelf` and `submitMemberSizes` each reject a revoked token with `invalid_token` (`customer-service.integration.test.ts`).
+- [x] Confirm rate limits are active on both new customer-facing POST routes. Added `returns 429 with a Retry-After header after 10 requests` tests to both `members/route.integration.test.ts` and `members/[memberId]/sizes/route.integration.test.ts`, mirroring the existing `/api/o/confirm` rate-limit test.
+- [x] Run `npm run typecheck && npm run lint && npm test` clean. Verified: typecheck clean, lint has only pre-existing unrelated warnings (no errors), full suite 105 files / 870 tests passing (up from 104/865 after adding the lifecycle + security tests above).
 
 ### 8.3 Docs
 
-- [ ] Update `CLAUDE.md`'s route table to add `/o/roster/[token]`, `/api/o/roster/**` under the Customer confirmation surface row (same auth model: token-gated, no session).
-- [ ] Note the new `src/server/roster/` seam alongside the existing `src/server/orders/` seam.
+- [x] Update `CLAUDE.md`'s route table to add `/o/roster/[token]`, `/api/o/roster/**` under the Customer confirmation surface row (same auth model: token-gated, no session).
+- [x] Note the new `src/server/roster/` seam alongside the existing `src/server/orders/` seam.
 
 ---
 
@@ -316,6 +318,17 @@ Not required to ship v1. Upgrade path once the shared-link model is in productio
 - Bulk "email everyone their individual link" action, using each member's `email` if present.
 - Reminder emails become genuinely targeted ("you specifically haven't submitted") instead of a generic nudge.
 - `roster_access` (shared link) can remain as a fallback for members without an email on file, or be retired — decide based on real usage.
+
+**Status: implemented.**
+
+- [x] `roster_member_access` table added (`src/db/schema.ts`), additive migration `drizzle/0007_burly_fallen_one.sql` generated and applied — no drops/renames.
+- [x] `generateMemberToken(memberId, meta?)` added to `src/server/roster/service.ts`. **Deviation from the original plan:** tokens are minted on-demand (when staff copy a member's link, or when the bulk/targeted-reminder actions run) rather than eagerly at member-creation time. A creation-time mint would write a token row whose one-time raw value is never captured or used by anything — same "never store a raw token that can't be retrieved" principle already established in Phase 7's reminder tradeoff. Regenerating revokes only that member's previous token (verified: another member's token and the shared `roster_access` link are untouched). Emits a dedicated `roster.member_link_generated` event (kept distinct from the shared-link's `roster.token_generated` so the audit log doesn't conflate the two).
+- [x] `/o/roster/member/[memberToken]` ships as a real page (`src/app/o/roster/member/[memberToken]/{page,view,not-found}.tsx`) with matching API routes (`src/app/api/o/roster/member/[memberToken]/route.ts` GET, `.../sizes/route.ts` POST, rate-limited like the shared-link equivalent). No "pick your name" step — the token resolves directly to one `roster_member_id`. Verified live: the rendered page shows only the one member's name and the order's garments, no manager-only fields, no other members.
+- [x] Bulk "email everyone their individual link" — `POST /api/admin/orders/[id]/roster/email-links` mints a fresh token per member with an email on file and sends `sendRosterMemberLinkEmail` (new function in `src/lib/email.ts`), returning `{sent, skippedNoEmail, total}`. "Email everyone their link" button added to `RosterPanel.tsx`'s header row. Verified live: emailed 1 member, skipped 0, audit log shows `roster.member_link_emailed` with the member's name.
+- [x] Reminders are now genuinely targeted: `.../members/[memberId]/remind/route.ts` now calls `generateMemberToken(memberId)` instead of regenerating the shared roster link, resolving the tradeoff documented in Phase 7 (the old behavior invalidated the whole team's shared link just to nudge one person). Verified live: the reminder response URL is `/o/roster/member/...`, not `/o/roster/...`.
+- [x] **Decision on the last bullet: `roster_access` (shared link) is kept, not retired.** It's still required for self-add (people not yet on the pre-loaded list have no member token to begin with) and as a fallback for members without an email on file. No existing shared-link code path was changed.
+- [x] A "Copy this member's individual link" action was added to each `RosterPanel.tsx` row (not explicitly listed in the original bullets, but a natural companion to the bulk-email action for staff who want to hand a link to one person directly, e.g. via text message).
+- [x] Tests: unit/integration coverage added mirroring existing conventions — `generateMemberToken` (service.integration.test.ts), `getRosterForMemberByMemberToken` / `submitMemberSizesByMemberToken` (customer-service.integration.test.ts), route tests for the new GET/POST customer routes (including the 429 rate-limit case) and the new admin `link`/`email-links` routes, plus `RosterPanel.test.tsx` coverage for the two new UI actions. Full suite: `npm run typecheck && npm run lint && npm test` all clean (109 files / 898 tests). Verified live end-to-end via a real dev server run against the actual Supabase DB (order → member → mint link → render page → submit/resubmit sizes → bulk email → audit log), then the test order was deleted.
 
 ---
 

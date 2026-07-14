@@ -56,6 +56,8 @@ function eventIcon(type: string) {
     case 'roster.import_completed': return <UploadOutlined style={{ color: '#1677ff' }} />;
     case 'roster.link_emailed':    return <MailOutlined style={{ color: '#52c41a' }} />;
     case 'roster.reminder_sent':   return <MailOutlined style={{ color: '#52c41a' }} />;
+    case 'roster.member_link_generated': return <LinkOutlined style={{ color: '#1677ff' }} />;
+    case 'roster.member_link_emailed':   return <MailOutlined style={{ color: '#52c41a' }} />;
     default: return null;
   }
 }
@@ -82,6 +84,8 @@ function eventLabel(type: string): string {
     'roster.import_completed': 'Roster imported from file',
     'roster.link_emailed': 'Roster link emailed',
     'roster.reminder_sent': 'Reminder sent',
+    'roster.member_link_generated': 'Individual link generated',
+    'roster.member_link_emailed': 'Individual link emailed',
   };
   return labels[type] ?? type;
 }
@@ -107,6 +111,8 @@ function eventColor(type: string): string {
     case 'roster.import_completed': return 'blue';
     case 'roster.link_emailed':    return 'green';
     case 'roster.reminder_sent':   return 'green';
+    case 'roster.member_link_generated': return 'blue';
+    case 'roster.member_link_emailed':   return 'green';
     default:                       return 'gray';
   }
 }
@@ -144,7 +150,9 @@ function EventDetail({ event }: { event: AuditEvent }) {
   if (
     (event.eventType === 'roster.member_added' ||
       event.eventType === 'roster.member_removed' ||
-      event.eventType === 'roster.reminder_sent') &&
+      event.eventType === 'roster.reminder_sent' ||
+      event.eventType === 'roster.member_link_generated' ||
+      event.eventType === 'roster.member_link_emailed') &&
     typeof p.name === 'string'
   ) {
     parts.push(`— ${p.name}`);

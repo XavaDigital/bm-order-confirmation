@@ -9,6 +9,7 @@ import {
   garmentSizing,
   orders,
   rosterAccess,
+  rosterMemberAccess,
   rosterMembers,
 } from '@/db/schema';
 import { hashToken } from '@/lib/tokens';
@@ -210,8 +211,128 @@ export async function submitMemberSizes(
   });
   if (!member) throw new Error('member_not_found');
 
+  return writeMemberSizes(order.id, member, input);
+}
+
+// ---------------------------------------------------------------------------
+// v2 — per-member individual link (TEAM_ROSTER_PLAN.md Phase 9). The token
+// resolves directly to one roster_member_id, so there's no "pick your name"
+// step and no memberId route param — the token itself scopes everything.
+// ---------------------------------------------------------------------------
+
+async function getActiveMemberAccess(rawToken: string) {
+  const access = await db.query.rosterMemberAccess.findFirst({
+    where: and(eq(rosterMemberAccess.tokenHash, hashToken(rawToken)), isNull(rosterMemberAccess.revokedAt)),
+  });
+
+  if (!access) return null;
+  if (access.expiresAt && access.expiresAt.getTime() < Date.now()) return null;
+  return access;
+}
+
+export async function getRosterForMemberByMemberToken(rawToken: string) {
+  const access = await getActiveMemberAccess(rawToken);
+  if (!access) return null;
+
+  await db
+    .update(rosterMemberAccess)
+    .set({ lastViewedAt: new Date() })
+    .where(eq(rosterMemberAccess.id, access.id));
+
+  const member = await db.query.rosterMembers.findFirst({
+    where: eq(rosterMembers.id, access.rosterMemberId),
+    columns: {
+      id: true,
+      orderId: true,
+      name: true,
+      playerNumber: true,
+      submittedAt: true,
+    },
+    with: {
+      sizing: {
+        orderBy: [asc(garmentSizing.sortOrder)],
+        columns: { garmentId: true, size: true },
+      },
+    },
+  });
+  if (!member) return null;
+
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, member.orderId),
+    columns: {
+      id: true,
+      orderNumber: true,
+      clubName: true,
+      rosterLockedAt: true,
+    },
+    with: {
+      garments: {
+        orderBy: [asc(garments.sortOrder)],
+        columns: { id: true, name: true, notes: true },
+        with: {
+          sizeChartLinks: {
+            with: {
+              sizeChart: { columns: { name: true, storageKey: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!order) return null;
+
+  return {
+    order: {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      clubName: order.clubName ?? null,
+      locked: order.rosterLockedAt !== null,
+      garments: order.garments.map((garment) => ({
+        id: garment.id,
+        name: garment.name,
+        notes: garment.notes ?? null,
+        sizeCharts: garment.sizeChartLinks
+          .filter((link) => link.sizeChart)
+          .map((link) => ({
+            name: link.sizeChart!.name,
+            storageKey: link.sizeChart!.storageKey ?? null,
+          })),
+      })),
+    },
+    member: toPublicMember(member),
+  };
+}
+
+export async function submitMemberSizesByMemberToken(
+  rawToken: string,
+  input: SubmitMemberSizesInput,
+): Promise<PublicMember> {
+  const access = await getActiveMemberAccess(rawToken);
+  if (!access) invalidToken();
+
+  const member = await db.query.rosterMembers.findFirst({
+    where: eq(rosterMembers.id, access.rosterMemberId),
+    columns: { id: true, orderId: true, name: true, playerNumber: true },
+  });
+  if (!member) invalidToken();
+
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, member.orderId),
+    columns: { id: true, rosterLockedAt: true },
+  });
+  if (!order) invalidToken();
+  if (order.rosterLockedAt) rosterLocked();
+
+  return writeMemberSizes(order.id, member, input);
+}
+
+async function writeMemberSizes(
+  orderId: string,
+  member: { id: string; name: string; playerNumber: string | null },
+  input: SubmitMemberSizesInput,
+): Promise<PublicMember> {
   const orderGarments = await db.query.garments.findMany({
-    where: eq(garments.orderId, order.id),
+    where: eq(garments.orderId, orderId),
     columns: { id: true },
     orderBy: [asc(garments.sortOrder)],
   });

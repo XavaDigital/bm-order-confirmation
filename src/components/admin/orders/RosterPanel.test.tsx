@@ -176,16 +176,52 @@ describe('RosterPanel', () => {
     renderPanel();
     await screen.findByText('Alex');
 
-    mockFetchOnce({ ok: true, url: 'http://localhost/o/roster/new-token' }, true);
-    mockFetchOnce({
-      members: [{ id: 'm1', name: 'Alex', playerNumber: '7', email: 'alex@example.com', submittedAt: null }],
-      currentAccess: { id: 'a1', createdAt: '2026-07-01T00:00:00Z', revokedAt: null },
-      stats: { total: 1, submitted: 0 },
-      locked: false,
-    });
+    mockFetchOnce({ ok: true, url: 'http://localhost/o/roster/member/new-token' }, true);
     await user.click(screen.getByTitle('Send a reminder email'));
 
     expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/roster/members/m1/remind', { method: 'POST' });
     expect(await screen.findByText(/reminder sent to alex@example\.com/i)).toBeInTheDocument();
+  });
+
+  it('copying a member\'s individual link mints it and copies the url to the clipboard', async () => {
+    const user = userEvent.setup();
+    mockFetchOnce({
+      members: [{ id: 'm1', name: 'Alex', playerNumber: '7', email: null, submittedAt: null }],
+      currentAccess: null,
+      stats: { total: 1, submitted: 0 },
+      locked: false,
+    });
+    renderPanel();
+    await screen.findByText('Alex');
+
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    mockFetchOnce({ token: 'raw-token', url: 'http://localhost/o/roster/member/raw-token' }, true);
+    await user.click(screen.getByTitle('Copy this member\'s individual link'));
+
+    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/roster/members/m1/link', { method: 'POST' });
+    expect(writeText).toHaveBeenCalledWith('http://localhost/o/roster/member/raw-token');
+    expect(await screen.findByText(/alex's individual link copied to clipboard/i)).toBeInTheDocument();
+  });
+
+  it('emailing everyone their individual link POSTs to the bulk endpoint and reports counts', async () => {
+    const user = userEvent.setup();
+    mockFetchOnce({
+      members: [
+        { id: 'm1', name: 'Alex', playerNumber: '7', email: 'alex@example.com', submittedAt: null },
+        { id: 'm2', name: 'Sam', playerNumber: null, email: null, submittedAt: null },
+      ],
+      currentAccess: null,
+      stats: { total: 2, submitted: 0 },
+      locked: false,
+    });
+    renderPanel();
+    await screen.findByText('Alex');
+
+    mockFetchOnce({ sent: 1, skippedNoEmail: 1, total: 2 }, true);
+    await user.click(screen.getByRole('button', { name: /email everyone their link/i }));
+
+    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/roster/email-links', { method: 'POST' });
+    expect(await screen.findByText(/individual links emailed to 1 of 2 members \(1 had no email on file\)/i)).toBeInTheDocument();
   });
 });

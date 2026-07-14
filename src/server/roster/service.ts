@@ -12,8 +12,8 @@
  */
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { orders, rosterMembers, rosterAccess } from '@/db/schema';
-import { generateToken, hashToken, buildRosterUrl } from '@/lib/tokens';
+import { orders, rosterMembers, rosterAccess, rosterMemberAccess } from '@/db/schema';
+import { generateToken, hashToken, buildRosterUrl, buildMemberRosterUrl } from '@/lib/tokens';
 import { computeAccessExpiry, NotFoundError } from '@/server/orders/service';
 import { emitDomainEvent, recordAuditEvent } from '@/server/events/outbox';
 import type { AddRosterMemberInput, UpdateRosterMemberInput, RosterImportMapping } from './contract';
@@ -119,41 +119,76 @@ export async function removeRosterMember(memberId: string) {
 // Admin writes — bulk import (CSV/XLSX, see src/server/roster/import.ts)
 // ---------------------------------------------------------------------------
 
+export type DuplicateResolution = 'importAll' | 'skipAmbiguous';
+
+export interface AmbiguousDuplicate {
+  name: string;
+  existingNumber: string | null;
+  existingEmail: string | null;
+  newNumber: string | null;
+  newEmail: string | null;
+}
+
 export interface ImportRosterResult {
   imported: number;
   skippedBlank: number;
   skippedDuplicate: number;
+  skippedAmbiguous: number;
   members: (typeof rosterMembers.$inferSelect)[];
+  /** True when ambiguous same-name rows were found and no resolution was given yet — nothing was inserted. */
+  needsConfirmation?: boolean;
+  ambiguousDuplicates?: AmbiguousDuplicate[];
+}
+
+interface SeenEntry {
+  playerNumber: string | null;
+  email: string | null;
+}
+
+/** Same non-blank number or same non-blank email (case-insensitive) counts as a confirmed match. */
+function fieldsMatch(a: SeenEntry, b: SeenEntry): boolean {
+  const numberMatch = !!a.playerNumber && !!b.playerNumber && a.playerNumber.toLowerCase() === b.playerNumber.toLowerCase();
+  const emailMatch = !!a.email && !!b.email && a.email.toLowerCase() === b.email.toLowerCase();
+  return numberMatch || emailMatch;
 }
 
 /**
- * Bulk-insert roster members from parsed sheet rows. Dedupes case-insensitively
- * against both existing members and other rows in the same file, and skips rows
- * with no name in the mapped column — never fails the whole import over one bad row.
+ * Bulk-insert roster members from parsed sheet rows. Skips rows with no name in
+ * the mapped column — never fails the whole import over one bad row.
+ *
+ * Dedupe is name-based (case-insensitive) but a same-name row is only treated as
+ * a confirmed duplicate (auto-skipped) when its number or email also matches —
+ * two real teammates can share a name. When a same-name row's other details
+ * differ (or there's nothing else to compare), it's "ambiguous": if `resolution`
+ * isn't given yet, nothing is inserted and the ambiguous rows are returned for
+ * the caller to show staff and ask; the caller re-calls with `resolution` set to
+ * finish the import.
  */
 export async function importRosterMembers(
   orderId: string,
   rows: string[][],
   mapping: RosterImportMapping,
+  resolution?: DuplicateResolution,
 ): Promise<ImportRosterResult> {
   const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
   if (!order) throw new NotFoundError('Order');
 
   const existing = await db.query.rosterMembers.findMany({
     where: eq(rosterMembers.orderId, orderId),
-    columns: { name: true },
+    columns: { name: true, playerNumber: true, email: true },
   });
-  const seenNames = new Set(existing.map((m) => m.name.trim().toLowerCase()));
 
-  const [{ maxSort }] = await db
-    .select({ maxSort: sql<number>`coalesce(max(${rosterMembers.sortOrder}), -1)` })
-    .from(rosterMembers)
-    .where(eq(rosterMembers.orderId, orderId));
+  const seen = new Map<string, SeenEntry[]>();
+  for (const m of existing) {
+    const key = m.name.trim().toLowerCase();
+    seen.set(key, [...(seen.get(key) ?? []), { playerNumber: m.playerNumber, email: m.email }]);
+  }
 
-  let sortOrder = Number(maxSort) + 1;
   let skippedBlank = 0;
   let skippedDuplicate = 0;
-  const toInsert: (typeof rosterMembers.$inferInsert)[] = [];
+  let skippedAmbiguous = 0;
+  const ambiguous: AmbiguousDuplicate[] = [];
+  const accepted: { name: string; entry: SeenEntry }[] = [];
 
   for (const row of rows) {
     const name = (row[mapping.nameColumn] ?? '').trim();
@@ -162,34 +197,81 @@ export async function importRosterMembers(
       continue;
     }
 
+    const rawNumber = mapping.playerNumberColumn !== null ? (row[mapping.playerNumberColumn] ?? '').trim() : '';
+    const rawEmail = mapping.emailColumn !== null ? (row[mapping.emailColumn] ?? '').trim() : '';
+    const entry: SeenEntry = {
+      playerNumber: rawNumber || null,
+      email: EMAIL_LIKE.test(rawEmail) ? rawEmail : null,
+    };
+
     const key = name.toLowerCase();
-    if (seenNames.has(key)) {
+    const priorMatches = seen.get(key) ?? [];
+    const confirmedDuplicate = priorMatches.some((p) => fieldsMatch(p, entry));
+
+    if (confirmedDuplicate) {
       skippedDuplicate++;
       continue;
     }
-    seenNames.add(key);
 
-    const rawNumber = mapping.playerNumberColumn !== null ? (row[mapping.playerNumberColumn] ?? '').trim() : '';
-    const rawEmail = mapping.emailColumn !== null ? (row[mapping.emailColumn] ?? '').trim() : '';
+    if (priorMatches.length > 0) {
+      // Same name, but nothing else confirms it's the same person.
+      if (resolution === 'importAll') {
+        accepted.push({ name, entry });
+        seen.set(key, [...priorMatches, entry]);
+      } else if (resolution === 'skipAmbiguous') {
+        skippedAmbiguous++;
+      } else {
+        ambiguous.push({
+          name,
+          existingNumber: priorMatches[0].playerNumber,
+          existingEmail: priorMatches[0].email,
+          newNumber: entry.playerNumber,
+          newEmail: entry.email,
+        });
+      }
+      continue;
+    }
 
-    toInsert.push({
-      orderId,
-      name,
-      playerNumber: rawNumber || null,
-      email: EMAIL_LIKE.test(rawEmail) ? rawEmail : null,
-      sortOrder: sortOrder++,
-    });
+    accepted.push({ name, entry });
+    seen.set(key, [entry]);
   }
+
+  // Ambiguity found and not yet resolved — insert nothing, ask the caller to confirm first.
+  if (ambiguous.length > 0 && !resolution) {
+    return {
+      imported: 0,
+      skippedBlank: 0,
+      skippedDuplicate: 0,
+      skippedAmbiguous: 0,
+      members: [],
+      needsConfirmation: true,
+      ambiguousDuplicates: ambiguous,
+    };
+  }
+
+  const [{ maxSort }] = await db
+    .select({ maxSort: sql<number>`coalesce(max(${rosterMembers.sortOrder}), -1)` })
+    .from(rosterMembers)
+    .where(eq(rosterMembers.orderId, orderId));
+
+  let sortOrder = Number(maxSort) + 1;
+  const toInsert: (typeof rosterMembers.$inferInsert)[] = accepted.map(({ name, entry }) => ({
+    orderId,
+    name,
+    playerNumber: entry.playerNumber,
+    email: entry.email,
+    sortOrder: sortOrder++,
+  }));
 
   const members = toInsert.length > 0 ? await db.insert(rosterMembers).values(toInsert).returning() : [];
 
   await recordAuditEvent({
     aggregateId: orderId,
     eventType: 'roster.import_completed',
-    payload: { imported: members.length, skippedBlank, skippedDuplicate },
+    payload: { imported: members.length, skippedBlank, skippedDuplicate, skippedAmbiguous },
   });
 
-  return { imported: members.length, skippedBlank, skippedDuplicate, members };
+  return { imported: members.length, skippedBlank, skippedDuplicate, skippedAmbiguous, members };
 }
 
 // ---------------------------------------------------------------------------
@@ -244,4 +326,48 @@ export async function revokeRosterToken(
       payload: { actorEmail: meta?.actorEmail ?? null },
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Admin writes — per-member individual link (v2, TEAM_ROSTER_PLAN.md Phase 9)
+//
+// Unlike the shared roster link, a member token isn't minted speculatively at
+// member-creation time — the raw value is only ever usable once, right after
+// minting, so it's generated on demand: when staff copy one member's link, or
+// when the bulk "email everyone their individual link" action sends it. This
+// keeps roster_member_access free of tokens whose one-time raw value was
+// never captured or used.
+// ---------------------------------------------------------------------------
+
+export async function generateMemberToken(
+  memberId: string,
+  meta?: { actorEmail?: string },
+): Promise<{ token: string; url: string }> {
+  const member = await db.query.rosterMembers.findFirst({ where: eq(rosterMembers.id, memberId) });
+  if (!member) throw new NotFoundError('Team member');
+
+  const rawToken = generateToken();
+
+  await db.transaction(async (tx) => {
+    // Revoke any existing active link for this member only — never touches
+    // the shared roster_access link or other members' tokens.
+    await tx
+      .update(rosterMemberAccess)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(rosterMemberAccess.rosterMemberId, memberId), isNull(rosterMemberAccess.revokedAt)));
+
+    await tx.insert(rosterMemberAccess).values({
+      rosterMemberId: memberId,
+      tokenHash: hashToken(rawToken),
+      expiresAt: computeAccessExpiry(),
+    });
+
+    await emitDomainEvent(tx, {
+      aggregateId: member.orderId,
+      eventType: 'roster.member_link_generated',
+      payload: { memberId, name: member.name, actorEmail: meta?.actorEmail ?? null },
+    });
+  });
+
+  return { token: rawToken, url: buildMemberRosterUrl(rawToken) };
 }

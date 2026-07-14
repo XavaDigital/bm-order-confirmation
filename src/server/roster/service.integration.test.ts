@@ -23,6 +23,7 @@ import {
   generateRosterToken,
   revokeRosterToken,
   importRosterMembers,
+  generateMemberToken,
 } from './service';
 import type { RosterImportMapping } from './contract';
 
@@ -255,6 +256,65 @@ describe('generateRosterToken / revokeRosterToken', () => {
   });
 });
 
+describe('generateMemberToken', () => {
+  it('throws NotFoundError for an unknown member', async () => {
+    await expect(generateMemberToken('00000000-0000-0000-0000-000000000000')).rejects.toThrow(
+      NotFoundError,
+    );
+  });
+
+  it('issues a token whose hash matches, and emits roster.member_link_generated', async () => {
+    const created = await createOrder(minimalInput());
+    const member = await addRosterMember(created.orderId, { name: 'Alex' });
+
+    const { token, url } = await generateMemberToken(member.id, { actorEmail: 'staff@x.com' });
+
+    const access = await db.query.rosterMemberAccess.findFirst({
+      where: and(
+        eq(schema.rosterMemberAccess.rosterMemberId, member.id),
+        isNull(schema.rosterMemberAccess.revokedAt),
+      ),
+    });
+    expect(access).toBeDefined();
+    expect(tokensMatch(token, access!.tokenHash)).toBe(true);
+    expect(url).toContain('/o/roster/member/');
+
+    const events = await db
+      .select()
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+    const genEvent = events.find((e) => e.eventType === 'roster.member_link_generated');
+    expect(genEvent).toBeDefined();
+    expect(genEvent!.payload).toMatchObject({ memberId: member.id, name: 'Alex', actorEmail: 'staff@x.com' });
+  });
+
+  it('regenerating revokes only this member\'s previous token, not another member\'s or the shared roster link', async () => {
+    const created = await createOrder(minimalInput());
+    const alex = await addRosterMember(created.orderId, { name: 'Alex' });
+    const sam = await addRosterMember(created.orderId, { name: 'Sam' });
+    await generateRosterToken(created.orderId);
+    await generateMemberToken(alex.id);
+    await generateMemberToken(sam.id);
+
+    await generateMemberToken(alex.id);
+
+    const activeAlexAccess = await db.query.rosterMemberAccess.findMany({
+      where: and(eq(schema.rosterMemberAccess.rosterMemberId, alex.id), isNull(schema.rosterMemberAccess.revokedAt)),
+    });
+    expect(activeAlexAccess).toHaveLength(1);
+
+    const activeSamAccess = await db.query.rosterMemberAccess.findMany({
+      where: and(eq(schema.rosterMemberAccess.rosterMemberId, sam.id), isNull(schema.rosterMemberAccess.revokedAt)),
+    });
+    expect(activeSamAccess).toHaveLength(1);
+
+    const activeRosterAccess = await db.query.rosterAccess.findMany({
+      where: and(eq(schema.rosterAccess.orderId, created.orderId), isNull(schema.rosterAccess.revokedAt)),
+    });
+    expect(activeRosterAccess).toHaveLength(1);
+  });
+});
+
 describe('importRosterMembers', () => {
   const mapping: RosterImportMapping = { nameColumn: 0, playerNumberColumn: 1, emailColumn: 2 };
 
@@ -302,23 +362,83 @@ describe('importRosterMembers', () => {
     expect(result.skippedBlank).toBe(2);
   });
 
-  it('dedupes case-insensitively against existing members and within the same file', async () => {
+  it('treats a same-name row as a confirmed duplicate when its number also matches', async () => {
     const created = await createOrder(minimalInput());
-    await addRosterMember(created.orderId, { name: 'Alex' });
+    await addRosterMember(created.orderId, { name: 'Alex', playerNumber: '7' });
+
+    const result = await importRosterMembers(created.orderId, [['alex', '7', '']], mapping);
+
+    expect(result.needsConfirmation).toBeUndefined();
+    expect(result.imported).toBe(0);
+    expect(result.skippedDuplicate).toBe(1);
+  });
+
+  it('treats a same-name row as a confirmed duplicate when its email also matches', async () => {
+    const created = await createOrder(minimalInput());
+    await addRosterMember(created.orderId, { name: 'Alex', email: 'alex@example.com' });
+
+    const result = await importRosterMembers(created.orderId, [['alex', '', 'ALEX@example.com']], mapping);
+
+    expect(result.imported).toBe(0);
+    expect(result.skippedDuplicate).toBe(1);
+  });
+
+  it('flags a same-name row with differing details as ambiguous and inserts nothing until resolved', async () => {
+    const created = await createOrder(minimalInput());
+    await addRosterMember(created.orderId, { name: 'Alex', playerNumber: '7' });
 
     const result = await importRosterMembers(
       created.orderId,
       [
-        ['alex', '7', ''], // dupes the existing member (case-insensitive)
-        ['Sam', '9', ''],
-        ['SAM', '10', ''], // dupes an earlier row in this same batch
+        ['Alex', '23', ''], // same name, different number — could be a different person
+        ['Sam', '9', ''], // unambiguous, but held back too since nothing commits until resolved
       ],
       mapping,
     );
 
+    expect(result.needsConfirmation).toBe(true);
+    expect(result.imported).toBe(0);
+    expect(result.members).toEqual([]);
+    expect(result.ambiguousDuplicates).toEqual([
+      { name: 'Alex', existingNumber: '7', existingEmail: null, newNumber: '23', newEmail: null },
+    ]);
+  });
+
+  it('flags within-file same-name rows with differing numbers as ambiguous', async () => {
+    const created = await createOrder(minimalInput());
+
+    const result = await importRosterMembers(
+      created.orderId,
+      [
+        ['Sam', '9', ''],
+        ['SAM', '10', ''], // same name as the row above, different number
+      ],
+      mapping,
+    );
+
+    expect(result.needsConfirmation).toBe(true);
+    expect(result.ambiguousDuplicates).toHaveLength(1);
+  });
+
+  it('resolution "importAll" inserts ambiguous rows as separate members', async () => {
+    const created = await createOrder(minimalInput());
+    await addRosterMember(created.orderId, { name: 'Alex', playerNumber: '7' });
+
+    const result = await importRosterMembers(created.orderId, [['Alex', '23', '']], mapping, 'importAll');
+
+    expect(result.needsConfirmation).toBeUndefined();
     expect(result.imported).toBe(1);
-    expect(result.skippedDuplicate).toBe(2);
-    expect(result.members[0].name).toBe('Sam');
+    expect(result.members[0].playerNumber).toBe('23');
+  });
+
+  it('resolution "skipAmbiguous" skips ambiguous rows without inserting them', async () => {
+    const created = await createOrder(minimalInput());
+    await addRosterMember(created.orderId, { name: 'Alex', playerNumber: '7' });
+
+    const result = await importRosterMembers(created.orderId, [['Alex', '23', '']], mapping, 'skipAmbiguous');
+
+    expect(result.imported).toBe(0);
+    expect(result.skippedAmbiguous).toBe(1);
   });
 
   it('continues sortOrder after existing members', async () => {

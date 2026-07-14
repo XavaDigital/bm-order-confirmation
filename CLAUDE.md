@@ -36,13 +36,14 @@ Vitest suite covers orders service, customer confirmation flow, size charts, use
 | Surface | Route prefix | Auth |
 |---|---|---|
 | Admin / Sales portal | `/admin/**`, `/api/admin/**` | iron-session cookie (`bm-session`) |
-| Customer confirmation | `/o/[token]`, `/api/o/**` | magic-link token in URL |
+| Customer confirmation | `/o/[token]`, `/api/o/**`, `/o/roster/[rosterToken]`, `/o/roster/member/[memberToken]`, `/api/o/roster/**` | magic-link token in URL (shared roster link uses `roster_access`; v2 per-member links use `roster_member_access` — same no-session model) |
 
 ### Key architectural seams
 
 - **`src/server/orders/service.ts`** — the ONLY place orders are created or mutated. Both the admin UI and the future external platform call this. Never write order rows elsewhere.
 - **`src/app/api/orders/route.ts`** — the public integration endpoint (`POST /api/orders`) protected by `x-api-key`. This is the future platform's hook-in point (see PROJECT_BRIEF.md §15).
 - **`src/server/events/outbox.ts`** — every order state change must emit a `domain_events` row in the same transaction. Google Ads conversion is a consumer of `order.confirmed`.
+- **`src/server/roster/`** — team roster feature (see `TEAM_ROSTER_PLAN.md`), mirroring the `src/server/orders/` split: `service.ts` for staff-authenticated roster management, `customer-service.ts` for the token-gated shared roster link, `contract.ts` for Zod shapes, `import.ts` for CSV/XLSX parsing. Roster members are self-service size submissions against `garment_sizing` (tagged via nullable `roster_member_id`) and never touch the public `POST /api/orders` contract.
 
 ### Auth flow
 

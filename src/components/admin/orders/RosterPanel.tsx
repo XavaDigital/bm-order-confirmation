@@ -12,6 +12,7 @@ import {
   ClockCircleOutlined,
   UploadOutlined,
   MailOutlined,
+  LinkOutlined,
 } from '@ant-design/icons';
 import type { ColumnType } from 'antd/es/table';
 import { RosterLinkPanel } from './RosterLinkPanel';
@@ -57,6 +58,8 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [remindingId, setRemindingId] = useState<string | null>(null);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
+  const [emailingAll, setEmailingAll] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
   function loadRoster() {
@@ -196,11 +199,50 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
       }
       if (!res.ok) throw new Error(json.error ?? 'Failed to send reminder');
       message.success(`Reminder sent to ${member.email}`);
-      loadRoster(); // roster link was regenerated — refresh so the panel reflects it
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Failed to send reminder');
     } finally {
       setRemindingId(null);
+    }
+  }
+
+  async function copyMemberLink(member: RosterMember) {
+    setCopyingId(member.id);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/roster/members/${member.id}/link`, {
+        method: 'POST',
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? 'Failed to generate link');
+      await navigator.clipboard.writeText(json.url);
+      message.success(`${member.name}'s individual link copied to clipboard`);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to copy link');
+    } finally {
+      setCopyingId(null);
+    }
+  }
+
+  async function emailAllLinks() {
+    setEmailingAll(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/roster/email-links`, { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (res.status === 503) {
+        message.error('Email delivery is not configured on this server.');
+        return;
+      }
+      if (!res.ok) throw new Error(json.error ?? 'Failed to email individual links');
+      message.success(
+        json.sent > 0
+          ? `Individual links emailed to ${json.sent} of ${json.total} members` +
+              (json.skippedNoEmail > 0 ? ` (${json.skippedNoEmail} had no email on file)` : '')
+          : 'No members have an email on file yet',
+      );
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to email individual links');
+    } finally {
+      setEmailingAll(false);
     }
   }
 
@@ -301,6 +343,15 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
             <Button
               type="text"
               size="small"
+              icon={<LinkOutlined />}
+              title="Copy this member's individual link"
+              loading={copyingId === record.id}
+              disabled={editingId !== null}
+              onClick={() => copyMemberLink(record)}
+            />
+            <Button
+              type="text"
+              size="small"
               icon={<EditOutlined />}
               disabled={editingId !== null}
               onClick={() => startEdit(record)}
@@ -340,9 +391,20 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <Typography.Text strong>Team members</Typography.Text>
-          <Button size="small" icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>
-            Import CSV/XLSX
-          </Button>
+          <Space>
+            <Button
+              size="small"
+              icon={<MailOutlined />}
+              loading={emailingAll}
+              disabled={data.members.length === 0}
+              onClick={emailAllLinks}
+            >
+              Email everyone their link
+            </Button>
+            <Button size="small" icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>
+              Import CSV/XLSX
+            </Button>
+          </Space>
         </div>
         <Table
           dataSource={data.members}

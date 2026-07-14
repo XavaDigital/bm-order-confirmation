@@ -189,6 +189,27 @@ export const rosterAccess = confirmation.table(
   (t) => [index('roster_access_order_idx').on(t.orderId)],
 );
 
+// --- team roster per-member individual link access (v2, TEAM_ROSTER_PLAN.md Phase 9) --
+// Same shape as roster_access but scoped to a single roster_member_id instead of
+// order_id, so each team member can have their own single-purpose link
+// alongside the still-live shared roster_access link (kept as a fallback for
+// self-add and members without an email on file).
+export const rosterMemberAccess = confirmation.table(
+  'roster_member_access',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    rosterMemberId: uuid('roster_member_id')
+      .notNull()
+      .references(() => rosterMembers.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    lastViewedAt: timestamp('last_viewed_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('roster_member_access_member_idx').on(t.rosterMemberId)],
+);
+
 // --- garments (line items) -------------------------------------------------
 export const garments = confirmation.table(
   'garments',
@@ -365,10 +386,18 @@ export const garmentSizingRelations = relations(garmentSizing, ({ one }) => ({
 export const rosterMembersRelations = relations(rosterMembers, ({ one, many }) => ({
   order: one(orders, { fields: [rosterMembers.orderId], references: [orders.id] }),
   sizing: many(garmentSizing),
+  memberAccess: many(rosterMemberAccess),
 }));
 
 export const rosterAccessRelations = relations(rosterAccess, ({ one }) => ({
   order: one(orders, { fields: [rosterAccess.orderId], references: [orders.id] }),
+}));
+
+export const rosterMemberAccessRelations = relations(rosterMemberAccess, ({ one }) => ({
+  member: one(rosterMembers, {
+    fields: [rosterMemberAccess.rosterMemberId],
+    references: [rosterMembers.id],
+  }),
 }));
 
 export const mockupImagesRelations = relations(mockupImages, ({ one }) => ({

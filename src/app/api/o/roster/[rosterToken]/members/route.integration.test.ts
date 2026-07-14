@@ -95,4 +95,22 @@ describe('POST /api/o/roster/[rosterToken]/members', () => {
 
     expect(res.status).toBe(409);
   });
+
+  it('returns 429 with a Retry-After header after 10 requests from the same IP', async () => {
+    const ip = '198.51.100.99';
+
+    for (let i = 0; i < 10; i++) {
+      const res = await POST(postRequest('unknown-token', { name: 'Alex' }, ip), {
+        params: Promise.resolve({ rosterToken: 'unknown-token' }),
+      });
+      expect(res.status).toBe(404);
+    }
+
+    const eleventh = await POST(postRequest('unknown-token', { name: 'Alex' }, ip), {
+      params: Promise.resolve({ rosterToken: 'unknown-token' }),
+    });
+
+    expect(eleventh.status).toBe(429);
+    expect(eleventh.headers.get('Retry-After')).toBeTruthy();
+  });
 });

@@ -39,7 +39,9 @@ export type DomainEventType =
   | 'roster.unlocked'
   | 'roster.import_completed'
   | 'roster.link_emailed'
-  | 'roster.reminder_sent';
+  | 'roster.reminder_sent'
+  | 'roster.member_link_generated'
+  | 'roster.member_link_emailed';
 
 export async function emitDomainEvent(
   tx: Transaction,

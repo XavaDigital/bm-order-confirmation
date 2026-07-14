@@ -106,7 +106,7 @@ describe('POST /api/admin/orders/[id]/roster/members/[memberId]/remind', () => {
     expect(sendRosterReminderEmail).not.toHaveBeenCalled();
   });
 
-  it('generates a roster link, emails the member, and returns the url', async () => {
+  it('generates this member\'s individual link (not the shared roster link), emails it, and returns the url', async () => {
     const created = await createOrder(minimalOrderInput());
     const member = await addRosterMember(created.orderId, { name: 'Alex', email: 'alex@example.com' });
 
@@ -115,6 +115,7 @@ describe('POST /api/admin/orders/[id]/roster/members/[memberId]/remind', () => {
 
     expect(res.status).toBe(200);
     expect(json).toEqual({ ok: true, url: expect.any(String) });
+    expect(json.url).toContain('/o/roster/member/');
     expect(sendRosterReminderEmail).toHaveBeenCalledTimes(1);
     expect(sendRosterReminderEmail.mock.calls[0][0]).toMatchObject({
       to: 'alex@example.com',

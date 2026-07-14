@@ -37,3 +37,8 @@ export function buildConfirmationUrl(rawToken: string): string {
 export function buildRosterUrl(rawToken: string): string {
   return `${env.APP_BASE_URL.replace(/\/$/, '')}/o/roster/${rawToken}`;
 }
+
+/** Build the full shareable single-member roster URL for a raw member token. */
+export function buildMemberRosterUrl(rawToken: string): string {
+  return `${env.APP_BASE_URL.replace(/\/$/, '')}/o/roster/member/${rawToken}`;
+}

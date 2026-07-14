@@ -54,3 +54,8 @@ export const rosterImportMappingSchema = z.object({
 });
 
 export type RosterImportMapping = z.infer<typeof rosterImportMappingSchema>;
+
+// How to resolve same-name rows whose other details don't confirm a match (see
+// src/server/roster/service.ts `importRosterMembers`) — omitted on the first
+// commit attempt; the caller re-sends it once staff have confirmed.
+export const duplicateResolutionSchema = z.enum(['importAll', 'skipAmbiguous']).optional();

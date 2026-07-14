@@ -50,6 +50,13 @@
       "when": 1783911601998,
       "tag": "0006_thankful_kingpin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784012294412,
+      "tag": "0007_burly_fallen_one",
+      "breakpoints": true
     }
   ]
 }
