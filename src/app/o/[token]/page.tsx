@@ -113,6 +113,7 @@ export default async function CustomerOrderPage({ params }: Props) {
     generalNotes: order.generalNotes ?? null,
     shippingMode: order.shippingMode,
     shippingAddress: order.shippingAddress ?? null,
+    colorSampleRequested: order.colorSampleRequestedAt !== null,
     rosterSummary: order.rosterSummary,
     garments,
   };

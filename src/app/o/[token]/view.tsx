@@ -15,7 +15,9 @@ import {
   message,
 } from 'antd';
 import {
+  BgColorsOutlined,
   CheckCircleFilled,
+  CheckCircleOutlined,
   ExclamationCircleFilled,
   FilePdfOutlined,
   FileImageOutlined,
@@ -36,6 +38,7 @@ import { ShippingAddressField } from '@/components/customer/ShippingAddressField
 import { SignaturePad, type SignatureData } from '@/components/customer/SignaturePad';
 import { ConfirmButton } from '@/components/customer/ConfirmButton';
 import { RequestChangesModal } from '@/components/customer/RequestChangesModal';
+import { RequestColorSampleModal } from '@/components/customer/RequestColorSampleModal';
 import { StatusPage } from '@/components/customer/StatusPage';
 
 const { Title, Text, Paragraph } = Typography;
@@ -74,6 +77,7 @@ export interface CustomerOrderViewProps {
     generalNotes: string | null;
     shippingMode: 'prefilled' | 'customer_entered' | 'later';
     shippingAddress: unknown;
+    colorSampleRequested: boolean;
     rosterSummary?: {
       total: number;
       submitted: number;
@@ -215,6 +219,9 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
   const [changesRequested, setChangesRequested] = useState<{ orderNumber: string } | null>(null);
   const [changesModalOpen, setChangesModalOpen] = useState(false);
   const [chartPreview, setChartPreview] = useState<SizeChartLink | null>(null);
+  const [sampleRequested, setSampleRequested] = useState(order.colorSampleRequested);
+  const [sampleModalOpen, setSampleModalOpen] = useState(false);
+  const [sampleSubmitting, setSampleSubmitting] = useState(false);
   const pendingRosterMembers = order.rosterSummary?.pending ?? 0;
 
   // Already confirmed on the server
@@ -301,6 +308,27 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
     setChangesModalOpen(false);
     setChangesRequested({ orderNumber: order.orderNumber });
     setChangesRequested({ orderNumber: data.orderNumber });
+  }
+
+  async function handleRequestColorSample() {
+    setSampleSubmitting(true);
+    try {
+      const res = await fetch('/api/o/request-color-sample', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to submit request');
+      setSampleRequested(true);
+      setSampleModalOpen(false);
+      message.success('Colour sample requested — our team will be in touch before production.');
+    } catch (err: unknown) {
+      console.error('[request-color-sample]', err);
+      message.error(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+    } finally {
+      setSampleSubmitting(false);
+    }
   }
 
   const cardStyle = {
@@ -544,6 +572,31 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
               Please read and tick each item to confirm your order.
             </Text>
             <AcknowledgmentPanel checked={checkedAcks} onChange={setCheckedAcks} />
+
+            {/* Informational only — not a checkbox, sets nothing. The actual
+                request is the separate "Request Colour Sample" action below,
+                so it can't be triggered just by ticking through this list. */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 10,
+                padding: '12px 16px',
+                marginTop: 16,
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 6,
+              }}
+            >
+              <BgColorsOutlined style={{ color: 'rgba(255,255,255,0.4)', marginTop: 2, flexShrink: 0 }} />
+              <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12.5, lineHeight: 1.6 }}>
+                If you are highly concerned about exact colour matching, please note that you must
+                request a colour book or physical sample for matching before production —
+                screen colours (RGB) can differ from printed fabric. Use the{' '}
+                <strong style={{ color: 'rgba(255,255,255,0.7)' }}>Request Colour Sample</strong>{' '}
+                action below if you&apos;d like to do this.
+              </Text>
+            </div>
           </Card>
 
           {/* ── Signature ── */}
@@ -600,6 +653,39 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
               loading={submitting}
             />
             <button
+              onClick={() => setSampleModalOpen(true)}
+              disabled={submitting || sampleRequested}
+              style={{
+                height: 52,
+                minWidth: 180,
+                fontSize: 14,
+                fontWeight: 600,
+                letterSpacing: 0.5,
+                textTransform: 'uppercase',
+                background: 'transparent',
+                border: `1px solid ${sampleRequested ? 'rgba(82,196,26,0.5)' : 'rgba(22,119,255,0.5)'}`,
+                borderRadius: 6,
+                color: sampleRequested ? '#52c41a' : '#1677ff',
+                cursor: submitting || sampleRequested ? 'not-allowed' : 'pointer',
+                opacity: submitting ? 0.5 : 1,
+                transition: 'all 0.15s',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                justifyContent: 'center',
+              }}
+            >
+              {sampleRequested ? (
+                <>
+                  <CheckCircleOutlined /> Sample Requested
+                </>
+              ) : (
+                <>
+                  <BgColorsOutlined /> Request Colour Sample
+                </>
+              )}
+            </button>
+            <button
               onClick={() => setChangesModalOpen(true)}
               disabled={submitting}
               style={{
@@ -626,6 +712,13 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
             open={changesModalOpen}
             onCancel={() => setChangesModalOpen(false)}
             onSubmit={handleRequestChanges}
+          />
+
+          <RequestColorSampleModal
+            open={sampleModalOpen}
+            submitting={sampleSubmitting}
+            onCancel={() => setSampleModalOpen(false)}
+            onConfirm={handleRequestColorSample}
           />
         </main>
       </div>

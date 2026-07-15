@@ -113,6 +113,11 @@ export const orders = confirmation.table(
     // consumers key off status, and roster progress is orthogonal to it.
     rosterLockedAt: timestamp('roster_locked_at', { withTimezone: true }),
 
+    // Set when the customer, at confirmation time, asked for a colour book /
+    // physical sample for colour matching before production (BRIEF §5 ack 2,
+    // §11). Production must hold until this is resolved with the customer.
+    colorSampleRequestedAt: timestamp('color_sample_requested_at', { withTimezone: true }),
+
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     confirmedAt: timestamp('confirmed_at', { withTimezone: true }),

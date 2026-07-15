@@ -57,6 +57,13 @@
       "when": 1784012294412,
       "tag": "0007_burly_fallen_one",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784106497540,
+      "tag": "0008_tranquil_barracuda",
+      "breakpoints": true
     }
   ]
 }

@@ -18,6 +18,7 @@ import {
 } from 'antd';
 import {
   ArrowLeftOutlined,
+  BgColorsOutlined,
   DeleteOutlined,
   SaveOutlined,
   FilePdfOutlined,
@@ -75,6 +76,7 @@ export interface AdminOrderData {
   createdAt: string;
   updatedAt: string;
   confirmedAt: string | null;
+  colorSampleRequestedAt: string | null;
   changesRequestedComment: string | null;
   changesRequestedCount: number;
   garments: GarmentData[];
@@ -264,6 +266,15 @@ export function OrderDetailView({ order }: Props) {
                   ? `Confirmed on ${new Date(order.confirmedAt).toLocaleString('en-NZ')}`
                   : undefined
               }
+            />
+          )}
+          {order.colorSampleRequestedAt && (
+            <Alert
+              type="warning"
+              showIcon
+              icon={<BgColorsOutlined />}
+              message="Customer requested a colour book / physical sample — hold production."
+              description={`Requested on ${new Date(order.colorSampleRequestedAt).toLocaleString('en-NZ')}. Arrange colour matching with the customer before releasing this order to production.`}
             />
           )}
           {currentStatus === 'changes_requested' && (

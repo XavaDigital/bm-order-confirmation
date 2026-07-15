@@ -39,6 +39,7 @@ function baseOrder(overrides: Partial<CustomerOrderViewProps['order']> = {}): Cu
     generalNotes: null,
     shippingMode: 'later',
     shippingAddress: null,
+    colorSampleRequested: false,
     rosterSummary: { total: 0, submitted: 0, pending: 0 },
     garments: [
       {
@@ -196,6 +197,7 @@ describe('CustomerOrderView', () => {
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
     expect(body.token).toBe('raw-token');
     expect(body.acknowledgments).toHaveLength(7);
+    expect(body.colorSampleRequested).toBeUndefined();
 
     expect(await screen.findByText('Confirmed')).toBeInTheDocument();
     expect(screen.getByText('OC-1')).toBeInTheDocument();
@@ -263,6 +265,61 @@ describe('CustomerOrderView', () => {
     const dialog = await screen.findByRole('dialog');
 
     expect(within(dialog).getByRole('button', { name: /submit request/i })).toBeDisabled();
+  });
+
+  it('shows an informational note about colour matching that is not a checkbox and does not block confirming', () => {
+    renderView(baseOrder());
+
+    expect(
+      screen.getByText(/must request a colour book or physical sample for matching/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /colour/i })).not.toBeInTheDocument();
+  });
+
+  it('requesting a colour sample opens a confirm modal, posts to the dedicated endpoint, and disables the action', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ok: true, orderNumber: 'OC-1' }),
+    } as Response);
+    renderView(baseOrder());
+
+    await user.click(screen.getByRole('button', { name: /request colour sample/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/production will be held/i)).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: /yes, request sample/i }));
+
+    expect(fetch).toHaveBeenCalledWith('/api/o/request-color-sample', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'raw-token' }),
+    });
+
+    expect(await screen.findByRole('button', { name: /sample requested/i })).toBeDisabled();
+  });
+
+  it('shows the action as already requested on load when the order prop says so', () => {
+    renderView(baseOrder({ colorSampleRequested: true }));
+
+    expect(screen.getByRole('button', { name: /sample requested/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /^request colour sample$/i })).not.toBeInTheDocument();
+  });
+
+  it('shows an error message and leaves the action available when the colour-sample request fails', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: 'Something broke' }),
+    } as Response);
+    renderView(baseOrder());
+
+    await user.click(screen.getByRole('button', { name: /request colour sample/i }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /yes, request sample/i }));
+
+    await vi.waitFor(() => expect(messageError).toHaveBeenCalledWith('Something broke'));
+    expect(screen.getByRole('button', { name: /request colour sample/i })).toBeEnabled();
   });
 
   it('renders a tag per fabric on a garment', () => {

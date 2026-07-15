@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
 import {
-  loginAsSeedAdmin,
   createDraftOrder,
   generateCustomerLink,
   checkAllAcknowledgments,
@@ -14,8 +13,8 @@ test.describe('Golden path', () => {
   }) => {
     const suffix = uniqueSuffix();
 
-    // 1. Staff creates a draft order with one garment and generates a link.
-    await loginAsSeedAdmin(page);
+    // 1. Staff (already logged in via storageState — see playwright.config.ts)
+    // creates a draft order with one garment and generates a link.
     await createDraftOrder(page, {
       customerName: `E2E Golden ${suffix}`,
       customerEmail: `e2e-golden-${suffix}@example.com`,

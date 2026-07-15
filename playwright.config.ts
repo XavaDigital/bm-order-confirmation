@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { STORAGE_STATE_PATH } from './e2e/helpers';
 
 /**
  * e2e specs run against a production build + your actual dev database
@@ -45,6 +46,10 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    // Most specs start already logged in as the seed admin (saved by
+    // globalSetup) instead of spending a real login attempt each — see the
+    // comment on STORAGE_STATE_PATH in e2e/helpers.ts. auth.spec.ts opts out.
+    storageState: STORAGE_STATE_PATH,
   },
   projects: [
     {

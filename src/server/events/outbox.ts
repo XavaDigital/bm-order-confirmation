@@ -22,6 +22,7 @@ import { domainEvents } from '@/db/schema';
 export type DomainEventType =
   | 'order.viewed'
   | 'order.confirmed'
+  | 'order.color_sample_requested'
   | 'order.changes_requested'
   | 'order.cancelled'
   | 'token.generated'

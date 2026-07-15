@@ -28,6 +28,7 @@ import {
   sendInviteEmail,
   sendMagicLink,
   sendStaffChangeRequestEmail,
+  sendStaffColorSampleRequestEmail,
   sendStaffConfirmationEmail,
   sendCustomerReceiptEmail,
 } from './email';
@@ -224,6 +225,60 @@ describe('sendStaffChangeRequestEmail', () => {
   });
 });
 
+describe('sendStaffColorSampleRequestEmail', () => {
+  it('throws when SMTP is not configured', async () => {
+    await expect(
+      sendStaffColorSampleRequestEmail({
+        to: 'staff@b.com',
+        toName: 'Staff',
+        customerName: 'Cust',
+        orderNumber: 'OC-1',
+        adminOrderUrl: 'http://x',
+      }),
+    ).rejects.toThrow('SMTP is not configured');
+  });
+
+  it('includes cc when provided and omits it otherwise', async () => {
+    configureSmtp();
+    await sendStaffColorSampleRequestEmail({
+      to: 'staff@b.com',
+      toName: 'Staff',
+      customerName: 'Cust',
+      orderNumber: 'OC-1',
+      adminOrderUrl: 'http://x',
+      cc: 'team@b.com',
+    });
+    expect(sendMail.mock.calls[0][0].cc).toBe('team@b.com');
+
+    sendMail.mockClear();
+    await sendStaffColorSampleRequestEmail({
+      to: 'staff@b.com',
+      toName: 'Staff',
+      customerName: 'Cust',
+      orderNumber: 'OC-1',
+      adminOrderUrl: 'http://x',
+    });
+    expect(sendMail.mock.calls[0][0].cc).toBeUndefined();
+  });
+
+  it('flags hold-production and links to the order', async () => {
+    configureSmtp();
+    await sendStaffColorSampleRequestEmail({
+      to: 'staff@b.com',
+      toName: 'Staff',
+      customerName: 'Cust',
+      orderNumber: 'OC-9',
+      adminOrderUrl: 'http://admin/orders/9',
+    });
+    const call = sendMail.mock.calls[0][0];
+    expect(call.subject).toContain('Cust requested a colour sample for order OC-9');
+    expect(call.subject).toContain('hold production');
+    expect(call.text).toContain('hold production');
+    expect(call.html).toContain('Hold production');
+    expect(call.html).toContain('http://admin/orders/9');
+  });
+});
+
 describe('sendStaffConfirmationEmail', () => {
   it('throws when SMTP is not configured', async () => {
     await expect(
@@ -252,6 +307,27 @@ describe('sendStaffConfirmationEmail', () => {
     expect(call.subject).toContain('Cust confirmed order OC-4');
     expect(call.text).toContain('http://admin/orders/4');
     expect(call.html).toContain('http://admin/orders/4');
+    expect(call.subject).not.toContain('colour sample requested');
+    expect(call.text).not.toContain('HOLD PRODUCTION');
+    expect(call.html).not.toContain('hold production');
+  });
+
+  it('flags the colour sample request prominently when requested', async () => {
+    configureSmtp();
+    await sendStaffConfirmationEmail({
+      to: 'staff@b.com',
+      toName: 'Staff',
+      customerName: 'Cust',
+      orderNumber: 'OC-4',
+      confirmedAt: new Date('2026-01-15T10:30:00Z'),
+      adminOrderUrl: 'http://admin/orders/4',
+      colorSampleRequested: true,
+    });
+    const call = sendMail.mock.calls[0][0];
+    expect(call.subject).toContain('colour sample requested');
+    expect(call.text).toContain('HOLD PRODUCTION');
+    expect(call.html).toContain('hold production');
+    expect(call.html).toContain('colour book / physical sample');
   });
 });
 

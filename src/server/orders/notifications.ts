@@ -5,6 +5,7 @@ import { env } from '@/lib/env';
 import {
   sendStaffConfirmationEmail,
   sendStaffChangeRequestEmail,
+  sendStaffColorSampleRequestEmail,
   sendCustomerReceiptEmail,
   isEmailConfigured,
 } from '@/lib/email';
@@ -44,6 +45,35 @@ export async function notifyStaffOfChangeRequest(
   });
 }
 
+export async function notifyStaffOfColorSampleRequest(
+  orderId: string,
+  orderNumber: string,
+): Promise<void> {
+  if (!isEmailConfigured()) return;
+
+  const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
+  if (!order?.createdBy) return;
+
+  const [staff] = await db
+    .select({ id: staffUsers.id, email: staffUsers.email, name: staffUsers.name })
+    .from(staffUsers)
+    .where(eq(staffUsers.id, order.createdBy))
+    .limit(1);
+
+  if (!staff) return;
+
+  const adminOrderUrl = `${env.APP_BASE_URL}/admin/orders/${orderId}`;
+
+  await sendStaffColorSampleRequestEmail({
+    to: staff.email,
+    toName: staff.name,
+    customerName: order.customerName,
+    orderNumber,
+    adminOrderUrl,
+    cc: staffCc(),
+  });
+}
+
 export async function notifyStaffOfConfirmation(
   orderId: string,
   orderNumber: string,
@@ -71,6 +101,7 @@ export async function notifyStaffOfConfirmation(
     orderNumber,
     confirmedAt,
     adminOrderUrl,
+    colorSampleRequested: order.colorSampleRequestedAt !== null,
     cc: staffCc(),
   });
 }

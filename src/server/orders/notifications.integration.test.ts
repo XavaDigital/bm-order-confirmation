@@ -7,9 +7,10 @@ vi.mock('@/db', async () => {
   return { db, schema };
 });
 
-const { sendStaffConfirmationEmail, sendStaffChangeRequestEmail, sendCustomerReceiptEmail, isEmailConfigured } = vi.hoisted(() => ({
+const { sendStaffConfirmationEmail, sendStaffChangeRequestEmail, sendStaffColorSampleRequestEmail, sendCustomerReceiptEmail, isEmailConfigured } = vi.hoisted(() => ({
   sendStaffConfirmationEmail: vi.fn().mockResolvedValue(undefined),
   sendStaffChangeRequestEmail: vi.fn().mockResolvedValue(undefined),
+  sendStaffColorSampleRequestEmail: vi.fn().mockResolvedValue(undefined),
   sendCustomerReceiptEmail: vi.fn().mockResolvedValue(undefined),
   isEmailConfigured: vi.fn().mockReturnValue(true),
 }));
@@ -17,6 +18,7 @@ const { sendStaffConfirmationEmail, sendStaffChangeRequestEmail, sendCustomerRec
 vi.mock('@/lib/email', () => ({
   sendStaffConfirmationEmail,
   sendStaffChangeRequestEmail,
+  sendStaffColorSampleRequestEmail,
   sendCustomerReceiptEmail,
   isEmailConfigured,
 }));
@@ -32,12 +34,18 @@ import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
 import { env } from '@/lib/env';
-import { notifyStaffOfChangeRequest, notifyStaffOfConfirmation, notifyCustomerOfConfirmation } from './notifications';
+import {
+  notifyStaffOfChangeRequest,
+  notifyStaffOfColorSampleRequest,
+  notifyStaffOfConfirmation,
+  notifyCustomerOfConfirmation,
+} from './notifications';
 
 afterEach(async () => {
   await resetTestDb(db);
   sendStaffConfirmationEmail.mockClear();
   sendStaffChangeRequestEmail.mockClear();
+  sendStaffColorSampleRequestEmail.mockClear();
   sendCustomerReceiptEmail.mockClear();
   isEmailConfigured.mockReturnValue(true);
   env.STAFF_NOTIFICATIONS_CC = undefined;
@@ -120,6 +128,53 @@ describe('notifyStaffOfChangeRequest', () => {
   });
 });
 
+describe('notifyStaffOfColorSampleRequest', () => {
+  it('does nothing when email is not configured', async () => {
+    isEmailConfigured.mockReturnValue(false);
+    const staff = await seedStaff();
+    const order = await seedOrder({ createdBy: staff.id });
+
+    await notifyStaffOfColorSampleRequest(order.id, order.orderNumber);
+
+    expect(sendStaffColorSampleRequestEmail).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when the order has no createdBy', async () => {
+    const order = await seedOrder();
+
+    await notifyStaffOfColorSampleRequest(order.id, order.orderNumber);
+
+    expect(sendStaffColorSampleRequestEmail).not.toHaveBeenCalled();
+  });
+
+  it('emails the order-creating staff member with the admin url', async () => {
+    const staff = await seedStaff();
+    const order = await seedOrder({ createdBy: staff.id });
+
+    await notifyStaffOfColorSampleRequest(order.id, order.orderNumber);
+
+    expect(sendStaffColorSampleRequestEmail).toHaveBeenCalledTimes(1);
+    expect(sendStaffColorSampleRequestEmail).toHaveBeenCalledWith({
+      to: staff.email,
+      toName: staff.name,
+      customerName: 'Jane Coach',
+      orderNumber: order.orderNumber,
+      adminOrderUrl: `http://localhost:3000/admin/orders/${order.id}`,
+      cc: undefined,
+    });
+  });
+
+  it('passes STAFF_NOTIFICATIONS_CC through when set', async () => {
+    env.STAFF_NOTIFICATIONS_CC = 'team@example.com';
+    const staff = await seedStaff();
+    const order = await seedOrder({ createdBy: staff.id });
+
+    await notifyStaffOfColorSampleRequest(order.id, order.orderNumber);
+
+    expect(sendStaffColorSampleRequestEmail.mock.calls[0][0]).toMatchObject({ cc: 'team@example.com' });
+  });
+});
+
 describe('notifyStaffOfConfirmation', () => {
   it('does nothing when email is not configured', async () => {
     isEmailConfigured.mockReturnValue(false);
@@ -153,8 +208,23 @@ describe('notifyStaffOfConfirmation', () => {
       orderNumber: order.orderNumber,
       confirmedAt,
       adminOrderUrl: `http://localhost:3000/admin/orders/${order.id}`,
+      colorSampleRequested: false,
       cc: undefined,
     });
+  });
+
+  it('passes colorSampleRequested when the order has a colour sample request on record', async () => {
+    const staff = await seedStaff();
+    const order = await seedOrder({
+      createdBy: staff.id,
+      colorSampleRequestedAt: new Date('2026-01-15T10:30:00Z'),
+    });
+
+    await notifyStaffOfConfirmation(order.id, order.orderNumber, new Date('2026-01-15T10:30:00Z'));
+
+    expect(sendStaffConfirmationEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ colorSampleRequested: true }),
+    );
   });
 });
 

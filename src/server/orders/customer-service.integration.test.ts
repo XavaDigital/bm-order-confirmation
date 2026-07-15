@@ -25,6 +25,7 @@ import {
   getOrderForCustomer,
   recordOrderViewed,
   requestOrderChanges,
+  requestColorSample,
   confirmOrder,
   verifyOrderAccessCode,
   REQUIRED_ACK_KEYS,
@@ -252,6 +253,20 @@ describe('per-order access code', () => {
     const result = await requestOrderChanges({ rawToken: created.token, comment: 'no code here' });
     expect(result.orderId).toBe(created.orderId);
   });
+
+  it('requestColorSample throws code_required without a valid cookie and succeeds with one', async () => {
+    const seeded = await seedCodedOrder();
+
+    await expect(
+      requestColorSample({ rawToken: seeded.token }),
+    ).rejects.toThrow('code_required');
+
+    const result = await requestColorSample({
+      rawToken: seeded.token,
+      codeCookie: seeded.cookieValue,
+    });
+    expect(result.orderId).toBe(seeded.orderId);
+  });
 });
 
 describe('requestOrderChanges', () => {
@@ -324,6 +339,57 @@ describe('requestOrderChanges', () => {
   });
 });
 
+describe('requestColorSample', () => {
+  it('sets colorSampleRequestedAt and emits a single order.color_sample_requested event', async () => {
+    const created = await createOrder(minimalInput());
+    const result = await requestColorSample({ rawToken: created.token });
+    expect(result.orderId).toBe(created.orderId);
+    expect(result.alreadyRequested).toBe(false);
+
+    const order = await db.query.orders.findFirst({ where: eq(schema.orders.id, created.orderId) });
+    expect(order!.colorSampleRequestedAt).not.toBeNull();
+    // Confirming it does NOT transition order status — orthogonal to the
+    // status machine, unlike requestOrderChanges.
+    expect(order!.status).not.toBe('changes_requested');
+
+    const events = await db
+      .select()
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+    const matching = events.filter((e) => e.eventType === 'order.color_sample_requested');
+    expect(matching).toHaveLength(1);
+    expect((matching[0].payload as { orderNumber: string }).orderNumber).toBe(created.orderNumber);
+  });
+
+  it('is idempotent: a second call does not re-set the timestamp or emit a second event', async () => {
+    const created = await createOrder(minimalInput());
+    await requestColorSample({ rawToken: created.token });
+    const firstOrder = await db.query.orders.findFirst({ where: eq(schema.orders.id, created.orderId) });
+
+    const second = await requestColorSample({ rawToken: created.token });
+    expect(second.alreadyRequested).toBe(true);
+
+    const secondOrder = await db.query.orders.findFirst({ where: eq(schema.orders.id, created.orderId) });
+    expect(secondOrder!.colorSampleRequestedAt!.getTime()).toBe(firstOrder!.colorSampleRequestedAt!.getTime());
+
+    const events = await db
+      .select()
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+    expect(events.filter((e) => e.eventType === 'order.color_sample_requested')).toHaveLength(1);
+  });
+
+  it('throws invalid_token for an unknown token', async () => {
+    await expect(requestColorSample({ rawToken: 'bogus' })).rejects.toThrow('invalid_token');
+  });
+
+  it('throws already_confirmed if the order is already confirmed', async () => {
+    const created = await createOrder(minimalInput());
+    await confirmOrder({ rawToken: created.token, acks: allAcks(), signatureType: 'none' });
+    await expect(requestColorSample({ rawToken: created.token })).rejects.toThrow('already_confirmed');
+  });
+});
+
 describe('confirmOrder', () => {
   it('full happy path: writes acks, confirmation snapshot, conversion event, domain event, and marks confirmed', async () => {
     const chart = await seedSizeChart('Adult Unisex');
@@ -389,6 +455,63 @@ describe('confirmOrder', () => {
       where: eq(schema.orderAccess.orderId, created.orderId),
     });
     expect(access!.lastViewedAt).not.toBeNull();
+  });
+
+  it('confirm snapshot/event reflect a colour sample already requested via requestColorSample beforehand', async () => {
+    const created = await createOrder(minimalInput());
+    await requestColorSample({ rawToken: created.token });
+
+    await confirmOrder({
+      rawToken: created.token,
+      acks: allAcks(),
+      signatureType: 'none',
+      ipAddress: '203.0.113.5',
+      userAgent: 'vitest',
+    });
+
+    const confirmationRows = await db
+      .select()
+      .from(schema.confirmations)
+      .where(eq(schema.confirmations.orderId, created.orderId));
+    const snapshot = confirmationRows[0].confirmedSnapshot as { color_sample_requested: boolean };
+    expect(snapshot.color_sample_requested).toBe(true);
+
+    const events = await db
+      .select()
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+    // Exactly one — emitted by requestColorSample(), not duplicated at confirm time.
+    expect(events.filter((e) => e.eventType === 'order.color_sample_requested')).toHaveLength(1);
+    const confirmedEvent = events.find((e) => e.eventType === 'order.confirmed');
+    expect((confirmedEvent!.payload as { colorSampleRequested: boolean }).colorSampleRequested).toBe(true);
+  });
+
+  it('confirm without a prior colour sample request leaves the snapshot flag false and emits no sample event', async () => {
+    const created = await createOrder(minimalInput());
+
+    await confirmOrder({
+      rawToken: created.token,
+      acks: allAcks(),
+      signatureType: 'none',
+      ipAddress: '203.0.113.5',
+      userAgent: 'vitest',
+    });
+
+    const order = await db.query.orders.findFirst({ where: eq(schema.orders.id, created.orderId) });
+    expect(order!.colorSampleRequestedAt).toBeNull();
+
+    const confirmationRows = await db
+      .select()
+      .from(schema.confirmations)
+      .where(eq(schema.confirmations.orderId, created.orderId));
+    const snapshot = confirmationRows[0].confirmedSnapshot as { color_sample_requested: boolean };
+    expect(snapshot.color_sample_requested).toBe(false);
+
+    const events = await db
+      .select()
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+    expect(events.filter((e) => e.eventType === 'order.color_sample_requested')).toHaveLength(0);
   });
 
   it('includes roster-submitted sizing rows in the immutable confirmation snapshot', async () => {

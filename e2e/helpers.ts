@@ -10,6 +10,17 @@ export const SEED_ADMIN = {
 /** Prefix every piece of e2e-created data with this so it's identifiable in the dev DB. */
 export const E2E_TAG = 'e2e';
 
+/**
+ * Where globalSetup saves the seed admin's logged-in cookie so most specs can
+ * start already authenticated instead of calling loginAsSeedAdmin() themselves.
+ * The login rate limiter (10 attempts/15min/IP, src/lib/rate-limit.ts) is real
+ * and un-mocked here — with 5+ spec files each doing their own fresh login,
+ * the suite was landing right at that ceiling. auth.spec.ts still needs (and
+ * gets) real fresh logins since it tests the login flow itself; see its
+ * `test.use({ storageState: ... })` override.
+ */
+export const STORAGE_STATE_PATH = './e2e/.auth/admin-storage-state.json';
+
 export function uniqueSuffix() {
   return `${Date.now()}-${Math.floor(Math.random() * 10_000)}`;
 }
@@ -59,6 +70,24 @@ export async function generateCustomerLink(page: Page) {
   // Accessible name includes the icon's own label (e.g. "reload Regenerate link"), so match loosely.
   await page.getByRole('button', { name: /generate link/i }).click();
   const urlText = await page.getByText(new RegExp(`^${origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/o/`)).textContent();
+  expect(urlText).toBeTruthy();
+  return urlText!.trim();
+}
+
+/**
+ * From an order detail page, opens the Team Roster tab and generates a fresh
+ * shared roster link. Mirrors `generateCustomerLink` above but for the
+ * `/o/roster/[rosterToken]` shared link rather than the `/o/[token]` one.
+ */
+export async function generateRosterLink(page: Page) {
+  const origin = new URL(page.url()).origin;
+  await page.getByRole('tab', { name: 'Team Roster' }).click();
+  // Accessible name includes the icon's own label, and reads "Regenerate link"
+  // after the first link exists — match either, same as generateCustomerLink.
+  await page.getByRole('button', { name: /generate link/i }).click();
+  const urlText = await page
+    .getByText(new RegExp(`^${origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/o/roster/`))
+    .textContent();
   expect(urlText).toBeTruthy();
   return urlText!.trim();
 }

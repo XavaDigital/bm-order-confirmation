@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { loginAsSeedAdmin, createDraftOrder, generateCustomerLink, uniqueSuffix } from './helpers';
+import { createDraftOrder, generateCustomerLink, uniqueSuffix } from './helpers';
 
 test.describe('Access-code protected link', () => {
   test('a wrong code is rejected and the correct code reveals the order', async ({ page, context }) => {
     const suffix = uniqueSuffix();
 
-    // 1. Staff creates an order, generates a link, and requires an access code.
-    await loginAsSeedAdmin(page);
+    // 1. Staff (already logged in via storageState) creates an order,
+    // generates a link, and requires an access code.
     await createDraftOrder(page, {
       customerName: `E2E Access Code ${suffix}`,
       customerEmail: `e2e-access-${suffix}@example.com`,

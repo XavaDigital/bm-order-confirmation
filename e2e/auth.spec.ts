@@ -2,6 +2,11 @@ import { test, expect } from '@playwright/test';
 import { generateSync } from 'otplib';
 import { loginAsSeedAdmin, logout, SEED_ADMIN, uniqueSuffix } from './helpers';
 
+// This file tests the login flow itself, so it opts out of the shared
+// pre-authenticated storageState (playwright.config.ts) and starts every
+// test logged out — same behavior as before that state existed.
+test.use({ storageState: { cookies: [], origins: [] } });
+
 test.describe('Auth', () => {
   test('logging in with the wrong password shows an error and stays on the login page', async ({ page }) => {
     await page.goto('/login');

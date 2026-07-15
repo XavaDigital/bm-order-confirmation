@@ -1,0 +1,1 @@
+ALTER TABLE "confirmation"."orders" ADD COLUMN "color_sample_requested_at" timestamp with time zone;

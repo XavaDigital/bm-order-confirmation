@@ -5,15 +5,15 @@
 import { z } from 'zod';
 
 export const addRosterMemberSchema = z.object({
-  name: z.string().min(1),
-  playerNumber: z.string().optional(),
-  email: z.string().email().optional(),
+  name: z.string().trim().min(1, 'Name is required').max(200),
+  playerNumber: z.string().trim().max(20).optional(),
+  email: z.string().trim().max(254).email().optional(),
 });
 
 export const updateRosterMemberSchema = z.object({
-  name: z.string().min(1).optional(),
-  playerNumber: z.string().nullable().optional(),
-  email: z.string().email().nullable().optional(),
+  name: z.string().trim().min(1, 'Name is required').max(200).optional(),
+  playerNumber: z.string().trim().max(20).nullable().optional(),
+  email: z.string().trim().max(254).email().nullable().optional(),
 });
 
 export type AddRosterMemberInput = z.infer<typeof addRosterMemberSchema>;
@@ -24,10 +24,16 @@ export const submitMemberSizesSchema = z.object({
     .array(
       z.object({
         garmentId: z.string().min(1),
-        size: z.string().trim().min(1).max(64),
+        size: z
+          .string()
+          .trim()
+          .min(1)
+          .max(64)
+          .regex(/[a-zA-Z0-9]/, 'Size must include at least one letter or number'),
       }),
     )
-    .min(1),
+    .min(1)
+    .max(200),
 }).superRefine((value, ctx) => {
   const seen = new Set<string>();
   for (const [i, row] of value.sizes.entries()) {

@@ -226,6 +226,69 @@ export async function requestOrderChanges(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Colour book / physical sample request (BRIEF §5 ack 2, §11) — a standalone
+// action, deliberately independent of confirmOrder(). It's an escalation path
+// for customers who are highly concerned about colour matching, not something
+// that should be reachable by ticking through the acknowledgment list.
+// ---------------------------------------------------------------------------
+
+export async function requestColorSample(params: {
+  rawToken: string;
+  /** Signed verification cookie value — required when the link has an access code. */
+  codeCookie?: string | null;
+}): Promise<{ orderNumber: string; orderId: string; alreadyRequested: boolean }> {
+  const access = await db.query.orderAccess.findFirst({
+    where: and(
+      eq(orderAccess.tokenHash, hashToken(params.rawToken)),
+      isNull(orderAccess.revokedAt),
+    ),
+  });
+
+  if (!access) throw new Error('invalid_token');
+  if (access.expiresAt && access.expiresAt.getTime() < Date.now()) {
+    throw new Error('invalid_token');
+  }
+  assertAccessCodeSatisfied(access, params.codeCookie);
+
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, access.orderId),
+  });
+
+  if (!order) throw new Error('invalid_token');
+  if (order.status === 'confirmed') throw new Error('already_confirmed');
+
+  // Idempotent: a double-click or retried request should not re-notify staff.
+  if (order.colorSampleRequestedAt) {
+    return { orderNumber: order.orderNumber, orderId: order.id, alreadyRequested: true };
+  }
+
+  await db.transaction(async (tx) => {
+    // WHERE guard mirrors confirmOrder/requestOrderChanges: prevents a race
+    // against a concurrent confirm (order already gone to 'confirmed') or a
+    // concurrent duplicate request from emitting a second event.
+    const updated = await tx
+      .update(orders)
+      .set({ colorSampleRequestedAt: new Date(), updatedAt: new Date() })
+      .where(and(
+        eq(orders.id, order.id),
+        ne(orders.status, 'confirmed'),
+        isNull(orders.colorSampleRequestedAt),
+      ))
+      .returning({ id: orders.id });
+
+    if (updated.length === 0) return;
+
+    await emitDomainEvent(tx, {
+      aggregateId: order.id,
+      eventType: 'order.color_sample_requested',
+      payload: { orderId: order.id, orderNumber: order.orderNumber, customerEmail: order.customerEmail },
+    });
+  });
+
+  return { orderNumber: order.orderNumber, orderId: order.id, alreadyRequested: false };
+}
+
+// ---------------------------------------------------------------------------
 // Confirmation
 // ---------------------------------------------------------------------------
 
@@ -299,6 +362,9 @@ export async function confirmOrder(params: {
     invoice_url: order.invoiceUrl,
     general_notes: order.generalNotes,
     customer_concerns: params.concerns ?? null,
+    // Reflects a request already made via the standalone requestColorSample()
+    // action (not something confirmOrder() itself can set).
+    color_sample_requested: order.colorSampleRequestedAt !== null,
     garments: order.garments.map((g) => ({
       name: g.name,
       fabrics: g.fabrics,
@@ -379,7 +445,10 @@ export async function confirmOrder(params: {
       firedAt: confirmedAt,
     });
 
-    // g. Domain event
+    // g. Domain event. colorSampleRequested here just reflects whether a
+    // request was already made via requestColorSample() before this
+    // confirmation — that action emits its own order.color_sample_requested
+    // event at the time it happens, not here.
     await emitDomainEvent(tx, {
       aggregateId: order.id,
       eventType: 'order.confirmed',
@@ -389,6 +458,7 @@ export async function confirmOrder(params: {
         customerEmail: order.customerEmail,
         valueAmount: order.orderValueAmount,
         valueCurrency: order.orderValueCurrency,
+        colorSampleRequested: order.colorSampleRequestedAt !== null,
       },
     });
 

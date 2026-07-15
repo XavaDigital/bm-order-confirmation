@@ -48,6 +48,7 @@ function baseOrder(overrides: Partial<AdminOrderData> = {}): AdminOrderData {
     createdAt: '2026-06-01T10:00:00Z',
     updatedAt: '2026-06-01T10:00:00Z',
     confirmedAt: null,
+    colorSampleRequestedAt: null,
     changesRequestedComment: null,
     changesRequestedCount: 0,
     garments: [],
@@ -106,6 +107,27 @@ describe('OrderDetailView', () => {
     renderView(baseOrder({ status: 'confirmed', confirmedAt: '2026-06-15T10:00:00Z' }));
     expect(screen.getByText('This order has been confirmed by the customer.')).toBeInTheDocument();
     expect(screen.getByText(/Confirmed on/)).toBeInTheDocument();
+  });
+
+  it('shows a hold-production alert when the customer requested a colour sample', () => {
+    renderView(
+      baseOrder({
+        status: 'confirmed',
+        confirmedAt: '2026-06-15T10:00:00Z',
+        colorSampleRequestedAt: '2026-06-15T10:00:00Z',
+      }),
+    );
+    expect(
+      screen.getByText('Customer requested a colour book / physical sample — hold production.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Arrange colour matching/)).toBeInTheDocument();
+  });
+
+  it('does not show the colour sample alert when it was not requested', () => {
+    renderView(baseOrder({ status: 'confirmed', confirmedAt: '2026-06-15T10:00:00Z' }));
+    expect(
+      screen.queryByText(/colour book \/ physical sample/),
+    ).not.toBeInTheDocument();
   });
 
   it('shows a changes-requested alert with the round number and comment', () => {

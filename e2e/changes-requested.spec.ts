@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
 import {
-  loginAsSeedAdmin,
   createDraftOrder,
   generateCustomerLink,
   checkAllAcknowledgments,
@@ -15,8 +14,7 @@ test.describe('Changes requested', () => {
     const suffix = uniqueSuffix();
     const comment = `E2E please make it bigger ${suffix}`;
 
-    // 1. Staff creates and shares an order.
-    await loginAsSeedAdmin(page);
+    // 1. Staff (already logged in via storageState) creates and shares an order.
     await createDraftOrder(page, {
       customerName: `E2E Changes ${suffix}`,
       customerEmail: `e2e-changes-${suffix}@example.com`,

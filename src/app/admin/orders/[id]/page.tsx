@@ -60,6 +60,9 @@ export default async function OrderDetailPage({ params }: Props) {
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),
     confirmedAt: order.confirmedAt ? order.confirmedAt.toISOString() : null,
+    colorSampleRequestedAt: order.colorSampleRequestedAt
+      ? order.colorSampleRequestedAt.toISOString()
+      : null,
     changesRequestedComment,
     changesRequestedCount,
     garments: garments.map((g) => ({

@@ -312,6 +312,62 @@ export async function sendStaffChangeRequestEmail(params: SendStaffChangeRequest
 }
 
 // ---------------------------------------------------------------------------
+// Colour book / physical sample request — fired when a customer uses the
+// standalone "Request Colour Sample" action (independent of confirming).
+// ---------------------------------------------------------------------------
+
+export interface SendStaffColorSampleRequestParams {
+  to: string;
+  toName: string;
+  customerName: string;
+  orderNumber: string;
+  adminOrderUrl: string;
+  cc?: string;
+}
+
+export async function sendStaffColorSampleRequestEmail(
+  params: SendStaffColorSampleRequestParams,
+): Promise<void> {
+  if (!env.SMTP_HOST) throw new Error('SMTP is not configured');
+
+  const from = env.MAIL_FROM ?? EMAIL_FROM_DEFAULT;
+  const transport = createTransport();
+
+  await transport.sendMail({
+    from,
+    to: `${params.toName} <${params.to}>`,
+    ...(params.cc ? { cc: params.cc } : {}),
+    subject: `🎨 ${params.customerName} requested a colour sample for order ${params.orderNumber} — hold production`,
+    text: [
+      `Hi ${params.toName},`,
+      '',
+      `${params.customerName} has requested a colour book / physical sample for order ${params.orderNumber} before production begins.`,
+      '',
+      `Contact them to arrange colour matching, and hold production until it's resolved.`,
+      '',
+      `View the order: ${params.adminOrderUrl}`,
+    ].join('\n'),
+    html: wrapEmailLayout({
+      title: 'Colour Sample Requested',
+      headerLabel: 'Colour Sample Requested',
+      bodyHtml: `<p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
+              <p style="color:rgba(255,255,255,0.65);font-size:15px;line-height:1.6;margin:0 0 16px;">
+                <strong style="color:#ffffff;">${params.customerName}</strong> has requested a colour book / physical sample for order <strong style="color:#ffffff;">${params.orderNumber}</strong> before production begins.
+              </p>
+              <table cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 24px;">
+                <tr>
+                  <td style="background:#1c2128;border-left:3px solid #d46b08;border-radius:4px;padding:16px 20px;">
+                    <p style="color:#faad14;font-size:13px;font-weight:bold;margin:0;">⚠️ Hold production</p>
+                    <p style="color:rgba(255,255,255,0.65);font-size:14px;line-height:1.6;margin:8px 0 0;">Contact the customer to arrange colour matching before releasing this order to production.</p>
+                  </td>
+                </tr>
+              </table>
+              ${emailButton(params.adminOrderUrl, 'View Order')}`,
+    }),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Sales staff notification — fired after a customer confirms an order
 // ---------------------------------------------------------------------------
 
@@ -322,6 +378,8 @@ export interface SendStaffConfirmationParams {
   orderNumber: string;
   confirmedAt: Date;
   adminOrderUrl: string;
+  /** Customer asked for a colour book / physical sample — production must hold. */
+  colorSampleRequested?: boolean;
   cc?: string;
 }
 
@@ -336,20 +394,40 @@ export async function sendStaffConfirmationEmail(params: SendStaffConfirmationPa
     hour: '2-digit', minute: '2-digit',
   });
 
+  const sampleTextBlock = params.colorSampleRequested
+    ? [
+        '',
+        '⚠️ COLOUR SAMPLE REQUESTED — HOLD PRODUCTION',
+        'The customer asked for a colour book / physical sample for colour matching',
+        'before production. Contact them to arrange it before releasing this order.',
+      ]
+    : [];
+
+  const sampleHtmlBlock = params.colorSampleRequested
+    ? `<div style="margin:16px 0;padding:12px 16px;border:2px solid #d46b08;border-radius:6px;background:#fff7e6;">
+<p style="margin:0;font-weight:bold;color:#d46b08;">⚠️ Colour sample requested — hold production</p>
+<p style="margin:8px 0 0;">The customer asked for a <strong>colour book / physical sample</strong> for colour matching before production. Contact them to arrange it before releasing this order.</p>
+</div>`
+    : '';
+
   await transport.sendMail({
     from,
     to: `${params.toName} <${params.to}>`,
     ...(params.cc ? { cc: params.cc } : {}),
-    subject: `✅ ${params.customerName} confirmed order ${params.orderNumber}`,
+    subject: params.colorSampleRequested
+      ? `✅ ${params.customerName} confirmed order ${params.orderNumber} — ⚠️ colour sample requested`
+      : `✅ ${params.customerName} confirmed order ${params.orderNumber}`,
     text: [
       `Hi ${params.toName},`,
       '',
       `${params.customerName} has confirmed order ${params.orderNumber} on ${dateStr}.`,
+      ...sampleTextBlock,
       '',
       `View the order: ${params.adminOrderUrl}`,
     ].join('\n'),
     html: `<p>Hi ${params.toName},</p>
 <p><strong>${params.customerName}</strong> has confirmed order <strong>${params.orderNumber}</strong> on ${dateStr}.</p>
+${sampleHtmlBlock}
 <p><a href="${params.adminOrderUrl}">View order in admin</a></p>`,
   });
 }
