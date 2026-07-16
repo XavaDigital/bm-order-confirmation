@@ -13,16 +13,20 @@ import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
 import { hashPassword } from '@/lib/password';
 import { hashToken } from '@/lib/tokens';
+import { verifyPassword } from '@/lib/password';
 import {
   listStaffUsers,
   inviteUser,
   acceptInvite,
+  requestPasswordReset,
+  resetPassword,
   updateUser,
   deleteUser,
   UserNotFoundError,
   UserConflictError,
   LastAdminError,
   InviteExpiredError,
+  ResetTokenExpiredError,
 } from './service';
 
 afterEach(async () => {
@@ -138,6 +142,124 @@ describe('acceptInvite', () => {
 
     await expect(acceptInvite('expired-raw-token', 'new-password-123')).rejects.toThrow(
       InviteExpiredError,
+    );
+  });
+});
+
+describe('requestPasswordReset', () => {
+  it('issues a token for an active user and records an audit event', async () => {
+    const user = await seedActiveUser();
+
+    const result = await requestPasswordReset('staff@example.com');
+
+    expect(result).not.toBeNull();
+    expect(result!.rawToken).toBeTruthy();
+    expect(result!.resetUrl).toContain(result!.rawToken);
+
+    const updated = await db.query.staffUsers.findFirst({ where: eq(schema.staffUsers.id, user.id) });
+    expect(updated!.resetTokenHash).toBe(hashToken(result!.rawToken));
+    expect(updated!.resetTokenExpiresAt).not.toBeNull();
+
+    const events = await db.query.domainEvents.findMany({
+      where: eq(schema.domainEvents.aggregateId, user.id),
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0].eventType).toBe('staff.password_reset_requested');
+  });
+
+  it('is case-insensitive on email', async () => {
+    await seedActiveUser();
+
+    const result = await requestPasswordReset('STAFF@Example.com');
+
+    expect(result).not.toBeNull();
+  });
+
+  it('returns null for an unknown email (no enumeration)', async () => {
+    const result = await requestPasswordReset('nobody@example.com');
+    expect(result).toBeNull();
+  });
+
+  it('returns null for a deactivated user', async () => {
+    await seedActiveUser({ isActive: false });
+
+    const result = await requestPasswordReset('staff@example.com');
+    expect(result).toBeNull();
+  });
+
+  it('returns null for a still-pending invited user', async () => {
+    await seedPendingUser();
+
+    const result = await requestPasswordReset('invitee@example.com');
+    expect(result).toBeNull();
+  });
+
+  it('overwrites a prior outstanding reset token', async () => {
+    const user = await seedActiveUser({
+      resetTokenHash: hashToken('old-raw-token'),
+      resetTokenExpiresAt: new Date(Date.now() + 1000 * 60 * 60),
+    });
+
+    const result = await requestPasswordReset('staff@example.com');
+
+    const updated = await db.query.staffUsers.findFirst({ where: eq(schema.staffUsers.id, user.id) });
+    expect(updated!.resetTokenHash).not.toBe(hashToken('old-raw-token'));
+    expect(updated!.resetTokenHash).toBe(hashToken(result!.rawToken));
+  });
+});
+
+describe('resetPassword', () => {
+  it('happy path: updates the password, clears the token, leaves 2FA/isActive untouched, records an audit event', async () => {
+    const user = await seedActiveUser({
+      resetTokenHash: hashToken('valid-raw-token'),
+      resetTokenExpiresAt: new Date(Date.now() + 1000 * 60 * 60),
+      totpEnabled: true,
+      totpSecret: 'SOMESECRET',
+    });
+
+    await resetPassword('valid-raw-token', 'brand-new-password-123');
+
+    const updated = await db.query.staffUsers.findFirst({ where: eq(schema.staffUsers.id, user.id) });
+    expect(updated!.resetTokenHash).toBeNull();
+    expect(updated!.resetTokenExpiresAt).toBeNull();
+    expect(await verifyPassword('brand-new-password-123', updated!.passwordHash)).toBe(true);
+    expect(updated!.isActive).toBe(true);
+    expect(updated!.totpEnabled).toBe(true);
+    expect(updated!.totpSecret).toBe('SOMESECRET');
+
+    const events = await db.query.domainEvents.findMany({
+      where: eq(schema.domainEvents.aggregateId, user.id),
+    });
+    expect(events.map((e) => e.eventType)).toContain('staff.password_reset_completed');
+  });
+
+  it('the token is single-use', async () => {
+    await seedActiveUser({
+      resetTokenHash: hashToken('one-time-token'),
+      resetTokenExpiresAt: new Date(Date.now() + 1000 * 60 * 60),
+    });
+
+    await resetPassword('one-time-token', 'first-new-password-1');
+
+    await expect(resetPassword('one-time-token', 'second-new-password-2')).rejects.toThrow(
+      ResetTokenExpiredError,
+    );
+  });
+
+  it('throws ResetTokenExpiredError for an unknown token', async () => {
+    await expect(resetPassword('unknown-token', 'new-password-123')).rejects.toThrow(
+      ResetTokenExpiredError,
+    );
+  });
+
+  it('throws ResetTokenExpiredError for an expired token', async () => {
+    await seedActiveUser({
+      resetTokenHash: hashToken('expired-raw-token'),
+      resetTokenExpiresAt: new Date(Date.now() - 1000),
+    });
+
+    await expect(resetPassword('expired-raw-token', 'new-password-123')).rejects.toThrow(
+      ResetTokenExpiredError,
     );
   });
 });

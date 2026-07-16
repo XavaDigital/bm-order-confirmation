@@ -98,7 +98,7 @@ describe('CustomerOrderView', () => {
 
     expect(screen.getByRole('heading', { name: 'OC-1' })).toBeInTheDocument();
     expect(screen.getByText(/home jersey/i)).toBeInTheDocument();
-    expect(screen.getByText(/please tick all 7 acknowledgments/i)).toBeInTheDocument();
+    expect(screen.getByText(/please tick all 9 acknowledgments/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /confirm order/i })).toBeDisabled();
   });
 
@@ -196,7 +196,7 @@ describe('CustomerOrderView', () => {
     );
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
     expect(body.token).toBe('raw-token');
-    expect(body.acknowledgments).toHaveLength(7);
+    expect(body.acknowledgments).toHaveLength(9);
     expect(body.colorSampleRequested).toBeUndefined();
 
     expect(await screen.findByText('Confirmed')).toBeInTheDocument();
@@ -267,13 +267,13 @@ describe('CustomerOrderView', () => {
     expect(within(dialog).getByRole('button', { name: /submit request/i })).toBeDisabled();
   });
 
-  it('shows an informational note about colour matching that is not a checkbox and does not block confirming', () => {
+  it('renders the colour accuracy and colour matching escalation acknowledgments among the checklist', () => {
     renderView(baseOrder());
 
+    expect(screen.getByText(/screens display colour using light \(rgb\)/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/must request a colour book or physical sample for matching/i),
+      screen.getByText(/must request a colour book or send a physical sample for matching/i),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: /colour/i })).not.toBeInTheDocument();
   });
 
   it('requesting a colour sample opens a confirm modal, posts to the dedicated endpoint, and disables the action', async () => {

@@ -55,6 +55,7 @@ export const eventStatus = confirmation.enum('event_status', [
   'pending',
   'delivered',
   'failed',
+  'dead',
 ]);
 
 // --- staff users -----------------------------------------------------------
@@ -67,6 +68,10 @@ export const staffUsers = confirmation.table('staff_users', {
   isActive: boolean('is_active').notNull().default(true),
   inviteTokenHash: text('invite_token_hash'),
   inviteTokenExpiresAt: timestamp('invite_token_expires_at', { withTimezone: true }),
+  // Forgot-password self-service reset (separate from invite fields above —
+  // resetting a password must never re-activate a deactivated/pending account).
+  resetTokenHash: text('reset_token_hash'),
+  resetTokenExpiresAt: timestamp('reset_token_expires_at', { withTimezone: true }),
   // TOTP-based 2FA
   totpSecret: text('totp_secret'),
   totpEnabled: boolean('totp_enabled').notNull().default(false),
@@ -305,7 +310,7 @@ export const acknowledgments = confirmation.table(
     orderId: uuid('order_id')
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
-    ackKey: text('ack_key').notNull(), // 'color_accuracy' | 'mockup_correct' | ...
+    ackKey: text('ack_key').notNull(), // 'color_matching' | 'mockup_correct' | ...
     ackTextVersion: text('ack_text_version').notNull(),
     accepted: boolean('accepted').notNull().default(false),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),
@@ -357,12 +362,27 @@ export const domainEvents = confirmation.table(
     status: eventStatus('status').notNull().default('pending'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    // Retry/redrive (roadmap 3.1). attempts counts failed deliveries; nextAttemptAt
+    // gates when a 'failed' row becomes eligible for re-selection (exponential backoff).
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
   },
   (t) => [
     index('domain_events_status_idx').on(t.status),
     index('domain_events_aggregate_idx').on(t.aggregateType, t.aggregateId),
   ],
 );
+
+// --- rate limiting (Postgres-backed, roadmap 3.3) --------------------------
+// Fixed-window counter shared across horizontally-scaled instances via a
+// single atomic upsert (see checkRateLimitDb() in src/lib/rate-limit.ts).
+// The in-memory limiter in that same file remains the fallback when this
+// table is unreachable (and is what unit tests exercise).
+export const rateLimits = confirmation.table('rate_limits', {
+  key: text('key').primaryKey(),
+  windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
+  count: integer('count').notNull().default(1),
+});
 
 // --- relations (no DB migration needed — type-level only for db.query.* API) ---
 

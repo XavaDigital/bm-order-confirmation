@@ -45,7 +45,12 @@ function fileIcon(storageKey: string | null) {
   );
 }
 
-export function SizeChartsView() {
+interface SizeChartsViewProps {
+  role: 'sales' | 'admin';
+}
+
+export function SizeChartsView({ role }: SizeChartsViewProps) {
+  const canMutate = role === 'admin';
   const { message } = App.useApp();
   const [charts, setCharts] = useState<SizeChart[]>([]);
   const [loading, setLoading] = useState(true);
@@ -205,34 +210,38 @@ export function SizeChartsView() {
                 />
               </Tooltip>
             )}
-            <Tooltip title="Edit name / description">
-              <Button
-                type="text"
-                size="small"
-                icon={<EditOutlined />}
-                onClick={() => {
-                  setEditingChart(record);
-                  form.setFieldsValue({ name: record.name, description: record.description ?? '' });
-                }}
-              />
-            </Tooltip>
-            <Popconfirm
-              title="Delete this size chart?"
-              description="This will also remove it from any garments it is linked to."
-              onConfirm={() => handleDelete(record)}
-              okText="Delete"
-              okType="danger"
-              disabled={deletingId !== null}
-            >
-              <Button
-                type="text"
-                size="small"
-                icon={<DeleteOutlined />}
-                danger
-                loading={deletingId === record.id}
-                disabled={deletingId !== null && deletingId !== record.id}
-              />
-            </Popconfirm>
+            {canMutate && (
+              <Tooltip title="Edit name / description">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => {
+                    setEditingChart(record);
+                    form.setFieldsValue({ name: record.name, description: record.description ?? '' });
+                  }}
+                />
+              </Tooltip>
+            )}
+            {canMutate && (
+              <Popconfirm
+                title="Delete this size chart?"
+                description="This will also remove it from any garments it is linked to."
+                onConfirm={() => handleDelete(record)}
+                okText="Delete"
+                okType="danger"
+                disabled={deletingId !== null}
+              >
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<DeleteOutlined />}
+                  danger
+                  loading={deletingId === record.id}
+                  disabled={deletingId !== null && deletingId !== record.id}
+                />
+              </Popconfirm>
+            )}
           </Space>
         );
       },
@@ -248,9 +257,11 @@ export function SizeChartsView() {
             Reusable reference charts that can be linked to garments.
           </Typography.Paragraph>
         </div>
-        <Button type="primary" icon={<UploadOutlined />} onClick={() => { form.resetFields(); setUploadOpen(true); }}>
-          Upload chart
-        </Button>
+        {canMutate && (
+          <Button type="primary" icon={<UploadOutlined />} onClick={() => { form.resetFields(); setUploadOpen(true); }}>
+            Upload chart
+          </Button>
+        )}
       </div>
 
       <Card>

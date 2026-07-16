@@ -130,6 +130,47 @@ describe('OrderDetailView', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('resolving a colour sample request clears the hold-production alert', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true } as Response);
+    renderView(
+      baseOrder({
+        status: 'confirmed',
+        confirmedAt: '2026-06-15T10:00:00Z',
+        colorSampleRequestedAt: '2026-06-15T10:00:00Z',
+      }),
+    );
+
+    await user.click(screen.getByRole('button', { name: /mark resolved/i }));
+    await user.click(await screen.findByRole('button', { name: 'Yes, resolved' }));
+
+    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/resolve-color-sample', { method: 'POST' });
+    expect(await screen.findByText('Colour sample request marked as resolved')).toBeInTheDocument();
+    expect(
+      screen.queryByText('Customer requested a colour book / physical sample — hold production.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows an error message when resolving fails, and keeps the alert', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'Failed to resolve' }) } as Response);
+    renderView(
+      baseOrder({
+        status: 'confirmed',
+        confirmedAt: '2026-06-15T10:00:00Z',
+        colorSampleRequestedAt: '2026-06-15T10:00:00Z',
+      }),
+    );
+
+    await user.click(screen.getByRole('button', { name: /mark resolved/i }));
+    await user.click(await screen.findByRole('button', { name: 'Yes, resolved' }));
+
+    expect(await screen.findByText('Failed to resolve')).toBeInTheDocument();
+    expect(
+      screen.getByText('Customer requested a colour book / physical sample — hold production.'),
+    ).toBeInTheDocument();
+  });
+
   it('shows a changes-requested alert with the round number and comment', () => {
     renderView(
       baseOrder({

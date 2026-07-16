@@ -20,10 +20,10 @@ function mockChartsOnce(charts: ReturnType<typeof chart>[]) {
   vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => charts } as Response);
 }
 
-function renderView() {
+function renderView(role: 'sales' | 'admin' = 'admin') {
   return render(
     <AntdApp>
-      <SizeChartsView />
+      <SizeChartsView role={role} />
     </AntdApp>,
   );
 }
@@ -254,6 +254,18 @@ describe('SizeChartsView', () => {
 
     expect(await screen.findByText('Failed to delete chart')).toBeInTheDocument();
     expect(screen.getByText('Adult Unisex')).toBeInTheDocument();
+  });
+
+  it('hides the upload button and edit/delete row actions for a sales-role session', async () => {
+    mockChartsOnce([chart()]);
+    renderView('sales');
+    await screen.findByText('Adult Unisex');
+
+    expect(screen.queryByRole('button', { name: /upload chart/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
+    // View is still available — sales keeps read access.
+    expect(screen.getByRole('button', { name: /eye/i })).toBeInTheDocument();
   });
 
   it('closing the upload modal without saving does not call fetch again', async () => {

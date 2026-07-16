@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cancelOrder, NotFoundError, ConflictError } from '@/server/orders/service';
 import { getSession } from '@/lib/session';
+import { logger } from '@/lib/logger';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -15,7 +16,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
     if (err instanceof ConflictError) return NextResponse.json({ error: err.message }, { status: 409 });
-    console.error('[admin/orders/cancel POST]', err);
+    logger.error('[admin/orders/cancel POST]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

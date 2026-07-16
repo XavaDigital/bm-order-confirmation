@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { listSizeCharts, createSizeChart } from '@/server/size-charts/service';
 import { parseMultipartFormData, parseUploadedFile } from '@/lib/uploads';
+import { requireAdmin } from '@/lib/session';
+import { logger } from '@/lib/logger';
 
 const ALLOWED_TYPES: Record<string, string> = {
   'application/pdf': 'pdf',
@@ -16,12 +18,15 @@ export async function GET() {
     const charts = await listSizeCharts();
     return NextResponse.json(charts);
   } catch (err) {
-    console.error('[size-charts GET]', err);
+    logger.error('[size-charts GET]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
+  const check = await requireAdmin();
+  if (check.error) return check.error;
+
   const formData = await parseMultipartFormData(request);
   if (formData instanceof NextResponse) return formData;
 
@@ -51,7 +56,7 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(chart, { status: 201 });
   } catch (err) {
-    console.error('[size-charts POST]', err);
+    logger.error('[size-charts POST]', err);
     return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
   }
 }

@@ -44,6 +44,7 @@ function eventIcon(type: string) {
     case 'order.viewed':    return <EyeOutlined style={{ color: '#722ed1' }} />;
     case 'order.confirmed': return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
     case 'order.color_sample_requested': return <BgColorsOutlined style={{ color: '#d46b08' }} />;
+    case 'order.color_sample_resolved': return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
     case 'order.changes_requested': return <MessageOutlined style={{ color: '#faad14' }} />;
     case 'order.duplicated': return <CopyOutlined style={{ color: '#13c2c2' }} />;
     case 'order.cancelled': return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
@@ -73,6 +74,7 @@ function eventLabel(type: string): string {
     'order.viewed':    'Customer viewed order',
     'order.confirmed': 'Customer confirmed order',
     'order.color_sample_requested': 'Colour book / sample requested',
+    'order.color_sample_resolved': 'Colour sample request resolved',
     'order.changes_requested': 'Changes requested',
     'order.duplicated': 'Duplicated from another order',
     'order.cancelled': 'Order cancelled',
@@ -98,6 +100,7 @@ function eventColor(type: string): string {
     case 'token.revoked':          return 'red';
     case 'order.confirmed':        return 'green';
     case 'order.color_sample_requested': return 'volcano';
+    case 'order.color_sample_resolved': return 'green';
     case 'link.emailed':           return 'green';
     case 'order.viewed':           return 'purple';
     case 'token.generated':        return 'blue';

@@ -26,6 +26,7 @@ export type TestDatabase = ReturnType<typeof drizzle<typeof schema>>;
 type ExecutableDb = { execute: (query: ReturnType<typeof sql.raw>) => Promise<unknown> };
 
 const CONFIRMATION_TABLES = [
+  'rate_limits',
   'domain_events',
   'conversion_events',
   'confirmations',

@@ -233,41 +233,34 @@ also disabled until SMTP is configured.
 ### 6. Set up the outbox processor cron job
 
 The outbox processor delivers domain events to their handlers (Google Ads conversion,
-staff email notifications). It must be called on a schedule via
-`POST /api/internal/process-outbox` with the `x-api-key` header.
+staff email notifications) and drives the retry/redrive backoff described in
+[IMPROVEMENT_ROADMAP.md](./IMPROVEMENT_ROADMAP.md) 3.1. It must be called on a schedule
+via `POST /api/internal/process-outbox` with the `x-api-key` header.
 
-**Option A — Supabase pg_cron (recommended if using Supabase)**
+**Decision (roadmap 3.2): Supabase pg_cron + pg_net — this is the mechanism, not one
+option among several.** The app itself is deliberately host-agnostic (PROJECT_BRIEF.md
+§2 — App Runner is tentative, "not locked"); the database on Supabase is the one fixed
+part of the stack, so scheduling from inside Supabase means the job's lifetime is tied
+to the DB rather than to whichever compute host runs the app this month, with no
+host-specific config (no `vercel.json`, no host's own cron product) to carry over on a
+future migration.
 
-Enable the `pg_cron` and `pg_net` extensions in Supabase → Database → Extensions,
-then run this once in the SQL Editor (replace the URL and key):
+Run **[scripts/setup-outbox-cron.sql](./scripts/setup-outbox-cron.sql)** once against
+the production Supabase project's SQL Editor (after enabling the `pg_cron` and `pg_net`
+extensions under Database → Extensions) — it has the full instructions and the
+verify/remove commands inline. It needs the deployed app's `APP_BASE_URL` and
+`INTERNAL_API_KEY` values substituted in; no new env vars beyond those two (already
+required — see step 1) are involved.
 
-```sql
-select cron.schedule(
-  'process-outbox',
-  '* * * * *',
-  $$
-  select net.http_post(
-    url := 'https://your-app.com/api/internal/process-outbox',
-    headers := jsonb_build_object('x-api-key', 'your-INTERNAL_API_KEY'),
-    body := '{}'::jsonb
-  );
-  $$
-);
-```
+<details>
+<summary>Alternatives (not used) — Vercel Cron / external cron</summary>
 
-To check it is running:
-```sql
-select * from cron.job_run_details order by start_time desc limit 10;
-```
+These remain viable if the app ever moves off a Postgres host that supports `pg_cron`
+(e.g. a non-Supabase Postgres). Vercel Cron additionally needs the `CRON_SECRET` env var
+(`isCronAuthorized` in `src/lib/api-auth.ts` validates Vercel's
+`Authorization: Bearer $CRON_SECRET` header).
 
-To remove it:
-```sql
-select cron.unschedule('process-outbox');
-```
-
-**Option B — Vercel Cron**
-
-Add to `vercel.json`:
+**Vercel Cron** — add to `vercel.json`:
 ```json
 {
   "crons": [
@@ -278,18 +271,13 @@ Add to `vercel.json`:
   ]
 }
 ```
-Vercel sends `Authorization: Bearer $CRON_SECRET` automatically on these calls — no
-`x-api-key` needed. Set the `CRON_SECRET` env var (Vercel Project Settings →
-Environment Variables) to any random secret so `isCronAuthorized` in
-`src/lib/api-auth.ts` can validate it.
 
-**Option C — External cron (Railway, cron-job.org, etc.)**
-
-Make a POST request every minute:
+**External cron (Railway, cron-job.org, etc.)** — POST every minute:
 ```bash
 curl -X POST https://your-app.com/api/internal/process-outbox \
   -H "x-api-key: your-INTERNAL_API_KEY"
 ```
+</details>
 
 ### 7. Configure Google Ads (optional)
 

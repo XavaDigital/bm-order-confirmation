@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { addMockupImage } from '@/server/orders/service';
 import { uploadFile, getSignedUrl, mockupKey } from '@/lib/storage';
 import { parseMultipartFormData, parseUploadedFile } from '@/lib/uploads';
+import { logger } from '@/lib/logger';
 
 type Params = { params: Promise<{ id: string; garmentId: string }> };
 
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     return NextResponse.json({ ...image, url }, { status: 201 });
   } catch (err) {
-    console.error('[admin/images POST]', err);
+    logger.error('[admin/images POST]', err);
     return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
   }
 }

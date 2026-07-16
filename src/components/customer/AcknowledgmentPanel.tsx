@@ -2,32 +2,47 @@
 
 import { Checkbox, Space, Typography } from 'antd';
 import { CheckCircleOutlined } from '@ant-design/icons';
+import { APP_NAME } from '@/lib/config';
 
 export interface Ack {
   key: string;
   text: string;
 }
 
+// Items 1-7 mirror PROJECT_BRIEF.md §5 acks 1-7 exactly (wording adapted to
+// British spelling to match the rest of the customer surface). Items 8-9 are
+// business-process acknowledgments beyond the brief's list — the brief isn't
+// exclusive ("the legally/operationally important confirmations", a "starting
+// draft") and nothing else in the flow surfaces payment-terms or approval-
+// authority consent, so they're kept as their own tracked acknowledgments.
 export const ACKNOWLEDGMENTS: Ack[] = [
   {
+    key: 'color_accuracy',
+    text: 'I understand that colours may not print exactly as they appear on the mock-ups or on my screen. Screens display colour using light (RGB) while printing uses inks/dyes (CMYK and material differences), so some variation is expected.',
+  },
+  {
+    key: 'color_matching',
+    text: 'If I am highly concerned about exact colour matching, I understand I must request a colour book or send a physical sample for matching before production.',
+  },
+  {
     key: 'mockup_correct',
-    text: 'I confirm the mock-up designs shown are correct and approved for production.',
+    text: 'I confirm the mock-up(s) shown are correct.',
   },
   {
     key: 'sizing_correct',
-    text: 'I confirm all sizing information entered above is correct for each player / person.',
+    text: 'I confirm the sizing, names, and numbers are correct.',
   },
   {
-    key: 'fabrics_accepted',
-    text: 'I accept the fabrics, materials, and construction details shown for each garment.',
+    key: 'size_charts_used',
+    text: 'I confirm I used the provided size charts (not my own or legacy charts), because factory size standards differ from other brands.',
   },
   {
-    key: 'delivery_noted',
-    text: 'I acknowledge the expected ship date and understand it is subject to production schedules.',
+    key: 'no_refunds',
+    text: `I understand that orders that are incorrect due to information I provided cannot be refunded. ${APP_NAME} takes responsibility only for manufacturing errors on our part.`,
   },
   {
-    key: 'no_changes',
-    text: 'I understand that once confirmed, changes to designs, sizing, or specifications cannot be made.',
+    key: 'womens_unisex_sizing',
+    text: "I acknowledge the difference between women's and unisex sizing and have accounted for it in my specifications.",
   },
   {
     key: 'payment_terms',

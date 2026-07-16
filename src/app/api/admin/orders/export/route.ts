@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { listOrdersForExport } from '@/server/orders/service';
 import { csvCell, untrustedCsvCell, toCsv } from '@/lib/csv';
+import { logger } from '@/lib/logger';
 
 const HEADER = [
   'Order Number',
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (err) {
-    console.error('[admin/orders/export GET]', err);
+    logger.error('[admin/orders/export GET]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

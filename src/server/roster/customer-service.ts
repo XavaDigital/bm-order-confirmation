@@ -13,6 +13,7 @@ import {
   rosterMembers,
 } from '@/db/schema';
 import { hashToken } from '@/lib/tokens';
+import { MAX_ROSTER_MEMBERS } from './service';
 import type { AddRosterMemberInput, SubmitMemberSizesInput } from './contract';
 
 type PublicMember = {
@@ -33,6 +34,10 @@ function rosterLocked(): never {
 
 function invalidSizes(): never {
   throw new Error('invalid_sizes');
+}
+
+function rosterFull(): never {
+  throw new Error('roster_full');
 }
 
 function toPublicMember(member: {
@@ -169,10 +174,15 @@ export async function addSelf(rawToken: string, data: AddRosterMemberInput): Pro
   const { order } = await getRosterOrderOrThrow(rawToken);
   if (order.rosterLockedAt) rosterLocked();
 
-  const [{ maxSort }] = await db
-    .select({ maxSort: sql<number>`coalesce(max(${rosterMembers.sortOrder}), -1)` })
+  const [{ maxSort, count }] = await db
+    .select({
+      maxSort: sql<number>`coalesce(max(${rosterMembers.sortOrder}), -1)`,
+      count: sql<number>`count(*)`,
+    })
     .from(rosterMembers)
     .where(eq(rosterMembers.orderId, order.id));
+
+  if (Number(count) >= MAX_ROSTER_MEMBERS) rosterFull();
 
   const [member] = await db
     .insert(rosterMembers)

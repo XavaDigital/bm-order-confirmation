@@ -1,7 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
-import { Typography, Row, Col, Card, Statistic, Button, Badge, Space, List, Avatar } from 'antd';
+import { Typography, Row, Col, Card, Statistic, Button, Badge, Space, List, Avatar, Tag, App } from 'antd';
 import {
   FileAddOutlined,
   ClockCircleOutlined,
@@ -14,6 +15,9 @@ import {
   ArrowRightOutlined,
   WarningOutlined,
   CalendarOutlined,
+  BgColorsOutlined,
+  ThunderboltOutlined,
+  RedoOutlined,
 } from '@ant-design/icons';
 import {
   BarChart,
@@ -71,6 +75,26 @@ type UpcomingDeadline = {
   expectedShipDate: string | null;
 };
 
+type ColorSampleHold = {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  clubName: string | null;
+  status: string;
+  colorSampleRequestedAt: string;
+};
+
+type FailedEvent = {
+  id: string;
+  eventType: string;
+  aggregateType: string;
+  aggregateId: string;
+  status: 'failed' | 'dead';
+  attempts: number;
+  createdAt: string;
+  nextAttemptAt: string | null;
+};
+
 interface Props {
   counts: {
     draft: number;
@@ -86,6 +110,9 @@ interface Props {
   recentOrders: RecentOrder[];
   staleOrders: StaleOrder[];
   upcomingDeadlines: UpcomingDeadline[];
+  colorSampleHolds: ColorSampleHold[];
+  role: 'sales' | 'admin';
+  failedEvents: FailedEvent[];
 }
 
 function formatNZD(value: number) {
@@ -179,7 +206,30 @@ function DashboardOrderListItem({
   );
 }
 
-export function DashboardView({ counts, totalValueNZD, trend, recentOrders, staleOrders, upcomingDeadlines }: Props) {
+export function DashboardView({ counts, totalValueNZD, trend, recentOrders, staleOrders, upcomingDeadlines, colorSampleHolds, role, failedEvents }: Props) {
+  const { message } = App.useApp();
+  const [events, setEvents] = useState(failedEvents);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+
+  async function retryEvent(id: string) {
+    setRetryingId(id);
+    try {
+      const res = await fetch(`/api/admin/events/${id}/retry`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? 'Failed to retry event');
+      }
+      setEvents((prev) => prev.filter((e) => e.id !== id));
+      message.success('Event queued for retry');
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to retry event');
+    } finally {
+      setRetryingId(null);
+    }
+  }
+
+  const deadCount = events.filter((e) => e.status === 'dead').length;
+
   const pieData = [
     { name: 'Draft', value: counts.draft, key: 'draft' },
     { name: 'Sent', value: counts.sent, key: 'sent' },
@@ -210,7 +260,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
 
       {/* Stat cards */}
       <Row gutter={[16, 16]}>
-        <Col xs={12} sm={8} xl={4}>
+        <Col xs={12} sm={8} xl={{ flex: 1 }}>
           <Card styles={{ body: { padding: '16px 20px' } }}>
             <Statistic
               title="Total Orders"
@@ -220,7 +270,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
             />
           </Card>
         </Col>
-        <Col xs={12} sm={8} xl={4}>
+        <Col xs={12} sm={8} xl={{ flex: 1 }}>
           <Card styles={{ body: { padding: '16px 20px' } }}>
             <Statistic
               title="Pipeline Value"
@@ -230,7 +280,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
             />
           </Card>
         </Col>
-        <Col xs={12} sm={8} xl={4}>
+        <Col xs={12} sm={8} xl={{ flex: 1 }}>
           <Card styles={{ body: { padding: '16px 20px' } }}>
             <Statistic
               title="Awaiting Customer"
@@ -240,7 +290,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
             />
           </Card>
         </Col>
-        <Col xs={12} sm={8} xl={4}>
+        <Col xs={12} sm={8} xl={{ flex: 1 }}>
           <Card styles={{ body: { padding: '16px 20px' } }}>
             <Statistic
               title="In Progress"
@@ -250,7 +300,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
             />
           </Card>
         </Col>
-        <Col xs={12} sm={8} xl={4}>
+        <Col xs={12} sm={8} xl={{ flex: 1 }}>
           <Card styles={{ body: { padding: '16px 20px' } }}>
             <Statistic
               title="Confirmed"
@@ -260,7 +310,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
             />
           </Card>
         </Col>
-        <Col xs={12} sm={8} xl={4}>
+        <Col xs={12} sm={8} xl={{ flex: 1 }}>
           <Card styles={{ body: { padding: '16px 20px' } }}>
             <Statistic
               title="Changes Requested"
@@ -270,6 +320,29 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
             />
           </Card>
         </Col>
+        <Col xs={12} sm={8} xl={{ flex: 1 }}>
+          <Card styles={{ body: { padding: '16px 20px' } }}>
+            <Statistic
+              title="Colour Sample Holds"
+              value={colorSampleHolds.length}
+              prefix={<BgColorsOutlined />}
+              valueStyle={{ color: colorSampleHolds.length > 0 ? '#d46b08' : undefined, fontWeight: 700 }}
+            />
+          </Card>
+        </Col>
+        {role === 'admin' && (
+          <Col xs={12} sm={8} xl={{ flex: 1 }}>
+            <Card styles={{ body: { padding: '16px 20px' } }}>
+              <Statistic
+                title="Failed Events"
+                value={events.length}
+                prefix={<ThunderboltOutlined />}
+                valueStyle={{ color: events.length > 0 ? '#ff4d4f' : undefined, fontWeight: 700 }}
+                suffix={deadCount > 0 ? <Text style={{ fontSize: 12 }} type="secondary">({deadCount} dead)</Text> : undefined}
+              />
+            </Card>
+          </Col>
+        )}
       </Row>
 
       {/* Charts row */}
@@ -506,6 +579,96 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
           </Card>
         </Col>
       </Row>
+
+      {/* Colour sample holds: orders where the customer asked for a colour book / physical sample and staff hasn't resolved it yet */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24}>
+          <Card
+            title={
+              <Space size={8}>
+                <BgColorsOutlined style={{ color: colorSampleHolds.length > 0 ? '#d46b08' : undefined }} />
+                Colour Sample Holds
+                {colorSampleHolds.length > 0 && (
+                  <Badge count={colorSampleHolds.length} style={{ backgroundColor: '#d46b08' }} />
+                )}
+              </Space>
+            }
+            styles={{ body: { padding: 0 } }}
+          >
+            <List
+              dataSource={colorSampleHolds}
+              renderItem={(order) => (
+                <DashboardOrderListItem
+                  id={order.id}
+                  customerName={order.customerName}
+                  clubName={order.clubName}
+                  orderNumber={order.orderNumber}
+                  status={order.status}
+                  trailing={timeAgo(order.colorSampleRequestedAt)}
+                />
+              )}
+              locale={{ emptyText: 'No orders currently on hold for colour matching.' }}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Failed events: outbox deliveries (Google Ads, staff/customer email) still failing after retries. Admin only. */}
+      {role === 'admin' && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col xs={24}>
+            <Card
+              title={
+                <Space size={8}>
+                  <ThunderboltOutlined style={{ color: events.length > 0 ? '#ff4d4f' : undefined }} />
+                  Failed Events
+                  {events.length > 0 && <Badge count={events.length} style={{ backgroundColor: '#ff4d4f' }} />}
+                </Space>
+              }
+              styles={{ body: { padding: 0 } }}
+            >
+              <List
+                dataSource={events}
+                renderItem={(event) => (
+                  <List.Item
+                    style={{ padding: '10px 20px' }}
+                    actions={[
+                      <Button
+                        key="retry"
+                        size="small"
+                        icon={<RedoOutlined />}
+                        loading={retryingId === event.id}
+                        onClick={() => retryEvent(event.id)}
+                      >
+                        Retry now
+                      </Button>,
+                    ]}
+                  >
+                    <List.Item.Meta
+                      title={
+                        <Space size={8}>
+                          <Text strong style={{ fontSize: 13 }}>{event.eventType}</Text>
+                          <Tag color={event.status === 'dead' ? 'red' : 'orange'}>{event.status}</Tag>
+                        </Space>
+                      }
+                      description={
+                        <Space size={8}>
+                          <Text style={{ fontSize: 11 }} type="secondary">{event.aggregateType} {event.aggregateId}</Text>
+                          <Text style={{ fontSize: 11 }} type="secondary">
+                            {event.attempts} {event.attempts === 1 ? 'attempt' : 'attempts'}
+                          </Text>
+                          <Text style={{ fontSize: 11 }} type="secondary">{timeAgo(event.createdAt)}</Text>
+                        </Space>
+                      }
+                    />
+                  </List.Item>
+                )}
+                locale={{ emptyText: 'No delivery failures — the outbox is healthy.' }}
+              />
+            </Card>
+          </Col>
+        </Row>
+      )}
     </div>
   );
 }

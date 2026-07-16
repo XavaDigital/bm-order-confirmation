@@ -22,6 +22,17 @@ import type { AddRosterMemberInput, UpdateRosterMemberInput, RosterImportMapping
 // boundary; an unparsable value is simply dropped to null rather than rejected.
 const EMAIL_LIKE = /\S+@\S+\.\S+/;
 
+// TEAM_ROSTER_PLAN.md open question #3 — a single constant, enforced on every
+// path that can grow a roster (manual add, import, customer self-add).
+export const MAX_ROSTER_MEMBERS = 100;
+
+export class RosterFullError extends Error {
+  constructor(message = `Roster is full (maximum ${MAX_ROSTER_MEMBERS} members)`) {
+    super(message);
+    this.name = 'RosterFullError';
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Reads
 // ---------------------------------------------------------------------------
@@ -59,10 +70,15 @@ export async function addRosterMember(orderId: string, data: AddRosterMemberInpu
   const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
   if (!order) throw new NotFoundError('Order');
 
-  const [{ maxSort }] = await db
-    .select({ maxSort: sql<number>`coalesce(max(${rosterMembers.sortOrder}), -1)` })
+  const [{ maxSort, count }] = await db
+    .select({
+      maxSort: sql<number>`coalesce(max(${rosterMembers.sortOrder}), -1)`,
+      count: sql<number>`count(*)`,
+    })
     .from(rosterMembers)
     .where(eq(rosterMembers.orderId, orderId));
+
+  if (Number(count) >= MAX_ROSTER_MEMBERS) throw new RosterFullError();
 
   const [member] = await db
     .insert(rosterMembers)
@@ -247,6 +263,12 @@ export async function importRosterMembers(
       needsConfirmation: true,
       ambiguousDuplicates: ambiguous,
     };
+  }
+
+  if (existing.length + accepted.length > MAX_ROSTER_MEMBERS) {
+    throw new RosterFullError(
+      `This import would bring the roster to ${existing.length + accepted.length} members, over the ${MAX_ROSTER_MEMBERS}-member limit. Remove some rows and try again.`,
+    );
   }
 
   const [{ maxSort }] = await db

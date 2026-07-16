@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { getOrderForCustomer, recordOrderViewed } from '@/server/orders/customer-service';
 import { getSignedUrl } from '@/lib/storage';
 import { isAccessCodeCookieValid } from '@/lib/access-code';
+import { logger } from '@/lib/logger';
 import CustomerOrderPage from './page';
 
 vi.mock('next/navigation', () => ({
@@ -36,6 +37,10 @@ vi.mock('@/components/customer/AccessCodeGate', () => ({
 
 vi.mock('./view', () => ({
   CustomerOrderView: (props: unknown) => <div data-testid="order-view">{JSON.stringify(props)}</div>,
+}));
+
+vi.mock('@/lib/logger', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 function baseOrder(overrides: Record<string, unknown> = {}) {
@@ -191,7 +196,6 @@ describe('CustomerOrderPage', () => {
   });
 
   it('logs but does not throw when the fire-and-forget view-tracking call fails', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(getOrderForCustomer).mockResolvedValueOnce(mockOrderResult(baseOrder(), baseAccess()));
     vi.mocked(recordOrderViewed).mockRejectedValueOnce(new Error('db down'));
 
@@ -199,9 +203,8 @@ describe('CustomerOrderPage', () => {
 
     expect(screen.getByTestId('order-view')).toBeInTheDocument();
     await vi.waitFor(() =>
-      expect(consoleError).toHaveBeenCalledWith('[page.tsx] recordOrderViewed failed', expect.any(Error)),
+      expect(logger.error).toHaveBeenCalledWith('[page.tsx] recordOrderViewed failed', expect.any(Error)),
     );
-    consoleError.mockRestore();
   });
 
   it('leaves image and size-chart URLs empty/null instead of throwing when storage is not configured', async () => {

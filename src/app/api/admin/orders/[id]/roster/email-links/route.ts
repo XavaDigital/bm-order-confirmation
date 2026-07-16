@@ -4,6 +4,7 @@ import { getOrderAdmin, NotFoundError } from '@/server/orders/service';
 import { recordAuditEvent } from '@/server/events/outbox';
 import { sendRosterMemberLinkEmail, isEmailConfigured } from '@/lib/email';
 import { getSession } from '@/lib/session';
+import { logger } from '@/lib/logger';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -55,7 +56,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     });
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
-    console.error('[admin/roster/email-links POST]', err);
+    logger.error('[admin/roster/email-links POST]', err);
     const msg = err instanceof Error ? err.message : 'Internal server error';
     return NextResponse.json({ error: msg }, { status: 500 });
   }

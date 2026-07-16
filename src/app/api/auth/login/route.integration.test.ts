@@ -126,16 +126,48 @@ describe('POST /api/auth/login', () => {
   });
 
   it('rate limits after 10 attempts from the same IP', async () => {
-    await seedStaff();
     const ip = '10.0.0.99';
+    // Distinct unknown emails per attempt so the stricter per-account limit
+    // (5) never kicks in first — this isolates the pure per-IP limit (10).
     for (let i = 0; i < 10; i++) {
-      const res = await POST(loginRequest({ email: 'staff@example.com', password: 'wrong' }, ip));
+      const res = await POST(loginRequest({ email: `nobody-${i}@example.com`, password: 'wrong' }, ip));
       expect(res.status).toBe(401);
     }
     const eleventh = await POST(
-      loginRequest({ email: 'staff@example.com', password: 'wrong' }, ip),
+      loginRequest({ email: 'nobody-10@example.com', password: 'wrong' }, ip),
     );
     expect(eleventh.status).toBe(429);
     expect(eleventh.headers.get('Retry-After')).not.toBeNull();
+  });
+
+  it('rate limits a single account after 5 attempts even when rotating IPs', async () => {
+    await seedStaff();
+    for (let i = 0; i < 5; i++) {
+      const res = await POST(
+        loginRequest({ email: 'staff@example.com', password: 'wrong' }, `10.0.1.${i}`),
+      );
+      expect(res.status).toBe(401);
+    }
+    const sixth = await POST(
+      loginRequest({ email: 'staff@example.com', password: 'wrong' }, '10.0.1.99'),
+    );
+    expect(sixth.status).toBe(429);
+    expect(sixth.headers.get('Retry-After')).not.toBeNull();
+  });
+
+  it('keeps per-account limits independent between different email addresses', async () => {
+    await seedStaff();
+    await seedStaff({ email: 'other@example.com' });
+    const ip = '10.0.2.1';
+
+    for (let i = 0; i < 5; i++) {
+      const res = await POST(loginRequest({ email: 'staff@example.com', password: 'wrong' }, ip));
+      expect(res.status).toBe(401);
+    }
+    // A different account isn't affected by staff@example.com's exhausted limit.
+    const otherAccount = await POST(
+      loginRequest({ email: 'other@example.com', password: 'correct-horse' }, ip),
+    );
+    expect(otherAccount.status).toBe(200);
   });
 });

@@ -32,7 +32,7 @@ vi.mock('next/headers', () => ({
   cookies: vi.fn(async () => cookieStore),
 }));
 
-import { getSession, requireAdmin } from './session';
+import { getSession, requireAdmin, sessionOptions } from './session';
 
 afterEach(() => {
   cookieStore = createCookieStore();
@@ -71,6 +71,32 @@ describe('getSession', () => {
 
     const reloaded = await getSession();
     expect(reloaded.userId).toBeUndefined();
+  });
+
+  it('rejects an expired session seal once the configured ttl has elapsed (roadmap 3.5)', async () => {
+    vi.useFakeTimers();
+    try {
+      const sealedAt = Date.now();
+      const session = await getSession();
+      session.userId = 'staff-1';
+      session.email = 'staff@example.com';
+      session.name = 'Staff One';
+      session.role = 'admin';
+      await session.save();
+
+      // Still valid comfortably inside the ttl window.
+      vi.setSystemTime(sealedAt + (sessionOptions.ttl! - 60) * 1000);
+      expect((await getSession()).userId).toBe('staff-1');
+
+      // Past ttl (+ iron-session's 60s clock-skew allowance) — unseal treats
+      // this as "Expired seal" and getIronSession() swallows that into an
+      // empty session rather than throwing.
+      vi.setSystemTime(sealedAt + (sessionOptions.ttl! + 120) * 1000);
+      const expired = await getSession();
+      expect(expired.userId).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { lockRoster, unlockRoster, NotFoundError } from '@/server/orders/service';
 import { getSession } from '@/lib/session';
+import { logger } from '@/lib/logger';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -13,7 +14,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
-    console.error('[admin/roster/lock POST]', err);
+    logger.error('[admin/roster/lock POST]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -27,7 +28,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
-    console.error('[admin/roster/lock DELETE]', err);
+    logger.error('[admin/roster/lock DELETE]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

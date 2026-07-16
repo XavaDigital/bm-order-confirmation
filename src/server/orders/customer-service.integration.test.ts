@@ -421,7 +421,7 @@ describe('confirmOrder', () => {
       .select()
       .from(schema.acknowledgments)
       .where(eq(schema.acknowledgments.orderId, created.orderId));
-    expect(ackRows).toHaveLength(7);
+    expect(ackRows).toHaveLength(REQUIRED_ACK_KEYS.length);
     expect(ackRows.every((a) => a.accepted && a.ackTextVersion === ACK_TEXT_VERSION)).toBe(true);
 
     const confirmationRows = await db

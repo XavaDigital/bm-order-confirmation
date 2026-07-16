@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
   }
 
   const ip = getClientIp(request.headers);
-  const rateLimited = rateLimitedResponse(`2fa:${session.userId}:${ip}`, 5, 5 * 60 * 1_000, 'Too many attempts. Please try again later.');
+  const rateLimited = await rateLimitedResponse(`2fa:${session.userId}:${ip}`, 5, 5 * 60 * 1_000, 'Too many attempts. Please try again later.');
   if (rateLimited) return rateLimited;
 
   const body = await request.json().catch(() => null);

@@ -3,6 +3,7 @@ import { getSession } from '@/lib/session';
 import { listOrders, createOrder, NotFoundError, ConflictError } from '@/server/orders/service';
 import { createOrderSchema } from '@/server/orders/contract';
 import { badRequest } from '@/lib/api-responses';
+import { logger } from '@/lib/logger';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
     const result = await listOrders({ status, search, limit, offset, sortBy, sortDir });
     return NextResponse.json(result);
   } catch (err) {
-    console.error('[admin/orders GET]', err);
+    logger.error('[admin/orders GET]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
     const result = await createOrder(parsed.data, session.userId);
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
-    console.error('[admin/orders POST]', err);
+    logger.error('[admin/orders POST]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

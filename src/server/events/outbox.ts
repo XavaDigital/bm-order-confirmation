@@ -23,6 +23,7 @@ export type DomainEventType =
   | 'order.viewed'
   | 'order.confirmed'
   | 'order.color_sample_requested'
+  | 'order.color_sample_resolved'
   | 'order.changes_requested'
   | 'order.cancelled'
   | 'token.generated'
@@ -42,7 +43,9 @@ export type DomainEventType =
   | 'roster.link_emailed'
   | 'roster.reminder_sent'
   | 'roster.member_link_generated'
-  | 'roster.member_link_emailed';
+  | 'roster.member_link_emailed'
+  | 'staff.password_reset_requested'
+  | 'staff.password_reset_completed';
 
 export async function emitDomainEvent(
   tx: Transaction,

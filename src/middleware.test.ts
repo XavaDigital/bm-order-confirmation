@@ -7,13 +7,14 @@ import { middleware } from './middleware';
 async function requestWithSession(
   url: string,
   session?: Partial<SessionData>,
+  init?: RequestInit,
 ): Promise<NextRequest> {
-  const headers = new Headers();
+  const headers = new Headers(init?.headers);
   if (session) {
     const sealed = await sealData(session, sessionOptions);
     headers.set('cookie', `${sessionOptions.cookieName}=${sealed}`);
   }
-  return new NextRequest(new Request(url, { headers }));
+  return new NextRequest(new Request(url, { ...init, headers }));
 }
 
 describe('middleware', () => {
@@ -90,6 +91,65 @@ describe('middleware', () => {
     );
     expect(res.headers.get('location')).toBeNull();
     expect(res.status).toBe(200);
+  });
+
+  describe('CSRF Origin check on /api/admin/** mutations', () => {
+    const authedSession: Partial<SessionData> = {
+      userId: 'u1',
+      email: 'a@example.com',
+      name: 'A',
+      role: 'admin',
+      mfaPending: false,
+    };
+
+    it('allows a same-origin POST through', async () => {
+      const res = await middleware(
+        await requestWithSession('http://localhost/api/admin/orders', authedSession, {
+          method: 'POST',
+          headers: { origin: 'http://localhost' },
+        }),
+      );
+      expect(res.status).toBe(200);
+    });
+
+    it('rejects a cross-origin POST with 403', async () => {
+      const res = await middleware(
+        await requestWithSession('http://localhost/api/admin/orders', authedSession, {
+          method: 'POST',
+          headers: { origin: 'http://evil.example.com' },
+        }),
+      );
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body).toEqual({ error: 'Forbidden' });
+    });
+
+    it('allows a POST with no Origin header through (non-browser clients)', async () => {
+      const res = await middleware(
+        await requestWithSession('http://localhost/api/admin/orders', authedSession, { method: 'POST' }),
+      );
+      expect(res.status).toBe(200);
+    });
+
+    it('does not check Origin on GET requests', async () => {
+      const res = await middleware(
+        await requestWithSession('http://localhost/api/admin/orders', authedSession, {
+          method: 'GET',
+          headers: { origin: 'http://evil.example.com' },
+        }),
+      );
+      expect(res.status).toBe(200);
+    });
+
+    it('rejects a cross-origin POST before checking auth (403, not 401)', async () => {
+      const res = await middleware(
+        await requestWithSession('http://localhost/api/admin/orders', undefined, {
+          method: 'POST',
+          headers: { origin: 'http://evil.example.com' },
+        }),
+      );
+      expect(res.status).toBe(403);
+    });
   });
 
   describe('/login/2fa', () => {

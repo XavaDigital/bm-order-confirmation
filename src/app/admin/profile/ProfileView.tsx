@@ -20,6 +20,7 @@ import {
   CheckCircleOutlined,
   CopyOutlined,
   ExclamationCircleOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import Image from 'next/image';
 import { postJson, deleteJson } from '@/lib/api-fetch';
@@ -48,6 +49,9 @@ export function ProfileView({ user }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [disableModalOpen, setDisableModalOpen] = useState(false);
+  const [changePwLoading, setChangePwLoading] = useState(false);
+  const [changePwError, setChangePwError] = useState<string | null>(null);
+  const [changePwForm] = Form.useForm();
   const [messageApi, contextHolder] = message.useMessage();
 
   useEffect(() => {
@@ -114,6 +118,24 @@ export function ProfileView({ user }: Props) {
     messageApi.success('Backup codes copied to clipboard');
   }
 
+  async function changePassword(values: { currentPassword: string; newPassword: string }) {
+    setChangePwLoading(true);
+    setChangePwError(null);
+    try {
+      await postJson(
+        '/api/admin/auth/change-password',
+        { currentPassword: values.currentPassword, newPassword: values.newPassword },
+        'Failed to change password',
+      );
+      changePwForm.resetFields();
+      messageApi.success('Password changed');
+    } catch (e) {
+      setChangePwError(e instanceof Error ? e.message : 'Failed to change password');
+    } finally {
+      setChangePwLoading(false);
+    }
+  }
+
   return (
     <div style={{ maxWidth: 680, margin: '0 auto' }}>
       {contextHolder}
@@ -160,6 +182,63 @@ export function ProfileView({ user }: Props) {
             onCopyBackupCodes={copyBackupCodes}
           />
         )}
+      </Card>
+
+      <Divider />
+
+      <Card
+        title={
+          <Space>
+            <LockOutlined />
+            Change Password
+          </Space>
+        }
+      >
+        {changePwError && <Alert type="error" showIcon message={changePwError} style={{ marginBottom: 16 }} />}
+        <Form
+          form={changePwForm}
+          layout="vertical"
+          onFinish={changePassword}
+          requiredMark={false}
+          style={{ maxWidth: 360 }}
+        >
+          <Form.Item
+            name="currentPassword"
+            label="Current password"
+            rules={[{ required: true, message: 'Current password is required' }]}
+          >
+            <Input.Password autoComplete="current-password" />
+          </Form.Item>
+          <Form.Item
+            name="newPassword"
+            label="New password"
+            rules={[
+              { required: true, message: 'New password is required' },
+              { min: 8, message: 'Password must be at least 8 characters' },
+            ]}
+          >
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item
+            name="confirmNewPassword"
+            label="Confirm new password"
+            dependencies={['newPassword']}
+            rules={[
+              { required: true, message: 'Please confirm your new password' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('newPassword') === value) return Promise.resolve();
+                  return Promise.reject(new Error('Passwords do not match'));
+                },
+              }),
+            ]}
+          >
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" loading={changePwLoading}>
+            Change Password
+          </Button>
+        </Form>
       </Card>
 
       <DisableModal

@@ -9,8 +9,9 @@ import {
   Space,
   Typography,
   Tabs,
+  Tooltip,
 } from 'antd';
-import { FileAddOutlined, SearchOutlined, DownloadOutlined } from '@ant-design/icons';
+import { FileAddOutlined, SearchOutlined, DownloadOutlined, BgColorsOutlined } from '@ant-design/icons';
 import Link from 'next/link';
 import type { ColumnType } from 'antd/es/table';
 import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
@@ -30,6 +31,7 @@ interface OrderRow {
   orderValueCurrency: string | null;
   createdAt: string;
   confirmedAt: string | null;
+  colorSampleRequestedAt: string | null;
 }
 
 const STATUS_TABS = [
@@ -149,7 +151,16 @@ export function OrdersView() {
       title: 'Status',
       dataIndex: 'status',
       width: 160,
-      render: (val: string) => <OrderStatusBadge status={val} />,
+      render: (val: string, record: OrderRow) => (
+        <Space size={6}>
+          <OrderStatusBadge status={val} />
+          {record.colorSampleRequestedAt && (
+            <Tooltip title="Colour book / sample requested — hold production">
+              <BgColorsOutlined style={{ color: '#d46b08' }} />
+            </Tooltip>
+          )}
+        </Space>
+      ),
     },
     {
       title: 'Value',

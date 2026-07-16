@@ -572,31 +572,6 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
               Please read and tick each item to confirm your order.
             </Text>
             <AcknowledgmentPanel checked={checkedAcks} onChange={setCheckedAcks} />
-
-            {/* Informational only — not a checkbox, sets nothing. The actual
-                request is the separate "Request Colour Sample" action below,
-                so it can't be triggered just by ticking through this list. */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 10,
-                padding: '12px 16px',
-                marginTop: 16,
-                background: 'rgba(255,255,255,0.03)',
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 6,
-              }}
-            >
-              <BgColorsOutlined style={{ color: 'rgba(255,255,255,0.4)', marginTop: 2, flexShrink: 0 }} />
-              <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12.5, lineHeight: 1.6 }}>
-                If you are highly concerned about exact colour matching, please note that you must
-                request a colour book or physical sample for matching before production —
-                screen colours (RGB) can differ from printed fabric. Use the{' '}
-                <strong style={{ color: 'rgba(255,255,255,0.7)' }}>Request Colour Sample</strong>{' '}
-                action below if you&apos;d like to do this.
-              </Text>
-            </div>
           </Card>
 
           {/* ── Signature ── */}

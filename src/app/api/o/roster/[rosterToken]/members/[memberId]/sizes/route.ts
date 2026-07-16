@@ -3,6 +3,7 @@ import { submitMemberSizesSchema } from '@/server/roster/contract';
 import { submitMemberSizes } from '@/server/roster/customer-service';
 import { badRequest } from '@/lib/api-responses';
 import { getClientIp, rateLimitedResponse } from '@/lib/rate-limit';
+import { logger } from '@/lib/logger';
 
 type Params = { params: Promise<{ rosterToken: string; memberId: string }> };
 
@@ -11,7 +12,7 @@ const LOCKED_MESSAGE =
 
 export async function POST(request: NextRequest, { params }: Params) {
   const ip = getClientIp(request.headers);
-  const rateLimited = rateLimitedResponse(
+  const rateLimited = await rateLimitedResponse(
     `roster-submit-sizes:${ip}`,
     10,
     15 * 60 * 1_000,
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Invalid sizing submission' }, { status: 400 });
     }
 
-    console.error('[/api/o/roster/[rosterToken]/members/[memberId]/sizes]', err);
+    logger.error('[/api/o/roster/[rosterToken]/members/[memberId]/sizes]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -107,76 +107,73 @@ The only unshipped spec items that are pure code (no business decision needed).
 
 ---
 
-## Phase 2 — Quick hardening wins (~1 day total)
+## Phase 2 — Quick hardening wins (~1 day total) ✅ completed 2026-07-16
 
 Small, independent, no product decisions needed.
 
-- [ ] **2.1 Stop tracking `coverage/` output in git**
-  - Generated coverage HTML/JSON reports are committed and show as modified on every
-    test run — diff noise and repo bloat.
-  - Fix: `git rm -r --cached coverage/`, add `coverage/` to `.gitignore` (an edit to
-    `.gitignore` appears already started — finish it), commit.
-  - Effort: minutes.
+- [x] **2.1 Stop tracking `coverage/` output in git** *(verified 2026-07-16 — already done)*
+  - `coverage/` was already in `.gitignore` and nothing under it is tracked by git
+    (`git ls-files | grep coverage` returns only the unrelated `TEST_COVERAGE_PLAN.md`).
+    No action needed.
 
-- [ ] **2.2 Admin-role check on size-chart mutation routes**
-  - PROJECT_BRIEF §3 assigns size-chart *library management* to admin, but
-    `src/app/api/admin/size-charts/route.ts` (and `[id]` route) have no role check —
-    any `sales` user can create/replace/delete library charts. `requireAdmin()`
-    (`src/lib/session.ts:35`) is currently used only by `/api/admin/users/**`.
-  - Decision embedded here (confirm with the business): sales keep **read** access
-    (they must link charts to garments); **mutations** become admin-only.
-  - Steps:
-    - [ ] Add `requireAdmin()` to `POST`/`PUT`/`PATCH`/`DELETE` in
-      `src/app/api/admin/size-charts/**`. Leave `GET` open to any authenticated staff.
-    - [ ] Hide mutate buttons in `SizeChartsView` for `role === 'sales'` (role is
-      already available via the layout/shell — `AppShell.tsx` receives it).
-    - [ ] Integration tests: sales → 403 on mutate, 200 on GET; admin → 200 on both.
-  - Effort: 1–2 hours.
+- [x] **2.2 Admin-role check on size-chart mutation routes** *(completed 2026-07-16)*
+  - `requireAdmin()` added to `POST` in `src/app/api/admin/size-charts/route.ts` and to
+    `PATCH`/`DELETE` in `src/app/api/admin/size-charts/[id]/route.ts`; `GET` stays open
+    to any authenticated staff.
+  - `SizeChartsView` now takes a `role` prop (passed from `page.tsx` via `getSession()`)
+    and hides the "Upload chart" button plus the edit/delete row actions for `sales` —
+    the "View" action stays visible (sales keep read access).
+  - Integration tests added: sales → 403 on POST/PATCH/DELETE, admin → 200/201; unit
+    test added for the hidden buttons. Existing size-chart integration tests updated to
+    mock `@/lib/session` (same Proxy-based pattern as `users/route.integration.test.ts`)
+    since the routes are no longer session-agnostic.
 
-- [ ] **2.3 Roster size cap**
-  - TEAM_ROSTER_PLAN open question #3. No explicit max on roster size — member-create
-    and import paths are unbounded per order (import has a row cap per file, but
-    repeated imports accumulate).
-  - Fix: single constant (e.g. `MAX_ROSTER_MEMBERS = 100`) enforced in
-    `src/server/roster/service.ts` (add + import paths) **and**
-    `customer-service.ts` (self-add path), with a clear error message.
-  - Effort: trivial. Recommended regardless of the other roster open questions.
+- [x] **2.3 Roster size cap** *(completed 2026-07-16)*
+  - `MAX_ROSTER_MEMBERS = 100` + `RosterFullError` added to `src/server/roster/service.ts`,
+    enforced in `addRosterMember()` and `importRosterMembers()` (import checks
+    `existing.length + accepted.length` against the cap so a bulk import can't blow past
+    it even when nothing is ambiguous). `customer-service.ts`'s `addSelf()` imports the
+    same constant and throws a `roster_full` string error (matching that module's
+    existing `invalid_token`/`roster_locked` convention) enforced at the same count-query
+    call site as the sort-order lookup, no extra query.
+  - Routes: admin `members` route and `import/commit` route catch `RosterFullError` → 409;
+    customer `POST /api/o/roster/[rosterToken]/members` catches `roster_full` → 409 with
+    `code: 'roster_full'`, mirroring the existing `roster_locked` handling.
+  - Tests added at service, customer-service, and route level (bulk-insert to the cap,
+    then assert the next add/import is rejected and nothing further was written).
 
-- [ ] **2.4 Origin-header CSRF check for admin mutations**
-  - Session cookie is `sameSite: 'lax'` (`src/lib/session.ts:22`) which blocks most
-    cross-site POSTs, but PROJECT_BRIEF §7 asks for CSRF protection explicitly and an
-    Origin check is cheap defense-in-depth.
-  - Fix: in `src/middleware.ts`, for non-GET requests to `/api/admin/**`, reject with
-    403 when the `Origin` header is present and doesn't match the request host.
-    (Reject-if-mismatch, allow-if-absent — non-browser clients don't send Origin.)
-  - Add middleware tests for: same-origin POST ok, cross-origin POST 403, GET untouched.
-  - Effort: ~1 hour.
+- [x] **2.4 Origin-header CSRF check for admin mutations** *(completed 2026-07-16)*
+  - `src/middleware.ts`: for non-`GET`/`HEAD`/`OPTIONS` requests to `/api/admin/**`,
+    reject with 403 when `Origin` is present and its host doesn't match the request
+    `Host` header. Runs before the session/auth check, so a cross-origin mutation gets
+    403 even when unauthenticated (verified live: cross-origin POST → 403, same-origin
+    POST → falls through to the normal 401, GET is untouched regardless of Origin).
+  - Middleware tests added: same-origin POST ok, cross-origin POST 403, no-Origin POST ok
+    (non-browser clients), GET untouched, cross-origin checked before auth.
 
-- [ ] **2.5 Security response headers**
-  - `next.config.mjs:17-26` sets only `X-Robots-Tag`. Missing standard hardening
-    headers for an app that renders signed customer data.
-  - Add to the same `headers()` block:
-    - `X-Frame-Options: DENY` (nothing here should ever be framed),
-    - `X-Content-Type-Options: nosniff`,
-    - `Referrer-Policy: strict-origin-when-cross-origin` (magic-link tokens are in the
-      URL path — don't leak them via referrer to external invoice links),
-    - `Strict-Transport-Security: max-age=31536000; includeSubDomains` (prod only),
-    - optionally a starter `Content-Security-Policy` (report-only first; antd inline
-      styles make a strict CSP non-trivial — don't block the phase on it).
-  - Note: `Referrer-Policy` matters extra here because the customer page links out to
-    `invoice_url` — verify external links also carry `rel="noopener noreferrer"`.
-  - Effort: ~1 hour + a smoke check that nothing breaks (PDF route, signed URL fetches).
+- [x] **2.5 Security response headers** *(completed 2026-07-16)*
+  - Added to `next.config.mjs`'s `headers()` block: `X-Frame-Options: DENY`,
+    `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`,
+    and `Strict-Transport-Security` (prod-only, guarded by `process.env.NODE_ENV` —
+    read directly rather than via `src/lib/env.ts` since this file runs at Next
+    config-load time). CSP deferred as the roadmap allowed (antd inline styles).
+  - Verified `rel="noopener noreferrer"` is already present on every external
+    `target="_blank"` link (`invoiceUrl` in the customer view, the size-chart-library
+    link in `SizeChartLinker.tsx`) — no changes needed there.
+  - Smoke-tested: `npm run build` succeeds, and a real `npm run start` + curl confirmed
+    all four headers are present on a live response alongside the existing
+    `X-Robots-Tag`.
 
-- [ ] **2.6 Dependency vulnerability gate in CI**
-  - `.github/workflows/test.yml` runs typecheck → lint → tests but no audit. The
-    project already has a standing decision that dependencies must be
-    vulnerability-checked (the `xlsx` → `exceljs` swap in the roster work).
-  - Steps:
-    - [ ] Add `npm audit --omit=dev --audit-level=high` as a CI step (non-dev deps,
-      high+ severity fails the build).
-    - [ ] Add a Dependabot config (`.github/dependabot.yml`) for npm + github-actions
-      ecosystems, weekly.
-  - Effort: ~30 min.
+- [x] **2.6 Dependency vulnerability gate in CI** *(completed 2026-07-16 — deviation)*
+  - `npm audit --omit=dev --audit-level=high` currently reports one existing high-severity
+    finding (drizzle-orm <0.45.2, SQL-identifier-escaping advisory
+    GHSA-gpj5-g38j-94v9) whose fix is a breaking 0.38→0.45 upgrade, out of scope for this
+    phase. **Deviation from the plan** (user-confirmed): added the step with
+    `continue-on-error: true` and a comment explaining why, instead of blocking, so CI
+    doesn't go red on unrelated pushes. Flip `continue-on-error` off once the drizzle-orm
+    upgrade lands separately — tracked as a new follow-up, not in this doc's original
+    scope.
+  - `.github/dependabot.yml` added for `npm` + `github-actions` ecosystems, weekly.
 
 ---
 
@@ -184,78 +181,143 @@ Small, independent, no product decisions needed.
 
 The outbox retry is the highest-value fix in this whole document.
 
-- [ ] **3.1 Outbox retry / redrive for failed events** ⚠ highest value
-  - Problem: `markFailed()` (`src/server/events/processor.ts:140-145`) sets
-    `status='failed'` and nothing ever picks failed events up again. A transient
-    failure (Google Ads blip, SMTP timeout) permanently loses that conversion or
-    notification. No attempt counter, no backoff, no admin redrive.
-  - Aggravating detail: `/api/o/confirm` fires handlers fire-and-forget at confirm
-    time, so the outbox **is** the retry path — its no-retry behavior defeats its own
-    purpose.
+- [x] **3.1 Outbox retry / redrive for failed events** ⚠ highest value *(completed 2026-07-16)*
+  - Problem: `markFailed()` set `status='failed'` and nothing ever picked failed
+    events up again. A transient failure (Google Ads blip, SMTP timeout) permanently
+    lost that conversion or notification. No attempt counter, no backoff, no admin
+    redrive.
   - Steps:
-    - [ ] Additive migration: `attempts int not null default 0`,
-      `next_attempt_at timestamptz` on `domain_events`.
-    - [ ] Processor selects `status='pending' OR (status='failed' AND attempts < 5 AND
-      next_attempt_at <= now())`; on failure increment `attempts`, set
-      `next_attempt_at` by exponential backoff (1m → 5m → 30m → 2h → 12h).
-    - [ ] After max attempts → `status='dead'` (additive enum value / text status).
-    - [ ] Keep per-handler idempotency guarantees documented (Google Ads path already
-      skips when `conversion_events.status='sent'` — state the same expectation for
-      email handlers).
-    - [ ] Admin dashboard: "Failed events" widget (count of `failed`/`dead`) with a
-      per-event "Retry now" (reset to `pending`, zero `attempts`).
-    - [ ] Tests: transient-fail → retried → delivered; permanent-fail → dead; redrive.
-  - Effort: 0.5–1 day.
+    - [x] Additive migration (`drizzle/0010_lean_thunderbolts.sql`): `attempts int
+      not null default 0`, `next_attempt_at timestamptz` on `domain_events`, plus
+      `'dead'` added to the `event_status` enum.
+    - [x] `processOutbox()` (`src/server/events/processor.ts`) now selects
+      `status='pending' OR (status='failed' AND attempts < 5 AND (next_attempt_at IS
+      NULL OR next_attempt_at <= now()))`; on failure increments `attempts` and sets
+      `next_attempt_at` via exponential backoff (1m → 5m → 30m → 2h → 12h). The
+      per-row optimistic-lock guard now checks against whichever status the row had
+      *when selected* (`pending` or `failed`), not just `pending`.
+    - [x] At `attempts >= 5` the event is marked `'dead'` instead of rescheduled.
+    - [x] Per-handler idempotency documented in `processor.ts`'s header comment: a
+      retry re-runs *every* handler for the event, not just the one that failed (no
+      per-handler status) — Google Ads already guards on
+      `conversion_events.status='sent'`; email handlers currently have no such guard,
+      so a retry after a partial failure can resend an email that already went out.
+      **Deviation from the plan**: left as documented behavior rather than adding
+      per-handler status tracking, which is out of scope for this pass.
+    - [x] Admin dashboard: admin-only "Failed Events" stat tile + list widget
+      (`DashboardView.tsx`) sourced from `listFailedEvents()`/`countFailedEvents()`,
+      with a per-event "Retry now" button calling `POST
+      /api/admin/events/[id]/retry` (`requireAdmin()`-gated → `redriveEvent()`,
+      resets to `pending` with `attempts=0`).
+    - [x] Tests: `processor.integration.test.ts` (fresh failure → backoff window →
+      not re-selected early → retried once due → re-runs all handlers → dead-letters
+      at the 5th failure → stops being selected), `redriveEvent`/`listFailedEvents`/
+      `countFailedEvents` coverage, plus route-level 401/403/404/200 tests for
+      `/api/admin/events/[id]/retry` and dashboard widget tests (admin-only
+      visibility, retry success/error).
 
-- [ ] **3.2 Schedule the outbox processor (ops prerequisite)**
-  - `POST /api/internal/process-outbox` exists and is guarded (`x-api-key` /
-    `CRON_SECRET`), but nothing in-repo schedules it — delivery currently depends on
-    the fire-and-forget calls at confirm time.
-  - Pick one (options already documented in README ~L237-291): Supabase `pg_cron` +
-    `http` extension, Vercel Cron, or the host's scheduler. Every 5 min is plenty.
-  - [ ] Set up the schedule in the chosen environment.
-  - [ ] Document the chosen mechanism + env vars in README as *the* decision.
+- [x] **3.2 Schedule the outbox processor (ops prerequisite)** *(completed 2026-07-16 — decision + script only, not run)*
+  - Decision: **Supabase pg_cron + pg_net**, documented as *the* mechanism (not one
+    option among several) in README §6 — host-agnostic per PROJECT_BRIEF §2 (the app
+    host is tentative; the Supabase DB is the fixed part of the stack). Vercel
+    Cron/external cron kept in the README as documented fallbacks only.
+  - [x] Runbook script added: `scripts/setup-outbox-cron.sql` (idempotent
+    `cron.schedule()` call + verify/remove commands), parameterized on
+    `APP_BASE_URL` / `INTERNAL_API_KEY`.
+  - [x] README §6 rewritten to state the decision plainly and link the script.
+  - [ ] **Not done in this pass**: actually running the script against the
+    production Supabase project — that's a live, hard-to-reverse change against
+    shared infrastructure this session has no standing to execute unattended.
+    Whoever holds production Supabase credentials needs to run
+    `scripts/setup-outbox-cron.sql` once (steps are inline in the file).
   - Effort: < 1 hour once hosting is settled. Blocks the value of 3.1 — do together.
 
-- [ ] **3.3 Postgres-backed rate limiting (pre-scale-out)**
-  - `src/lib/rate-limit.ts` is a per-process sliding window. The intended hosting
-    (App Runner, PROJECT_BRIEF §2) autoscales horizontally: N instances = N× the
-    intended limit, and every deploy resets all windows.
-  - Fix: `rate_limits` table (`key text, window_start timestamptz, count int`) with a
-    single upsert-increment statement; keep the in-memory path as fallback when the DB
-    is unavailable and for unit tests. Redis is overkill at this volume.
-  - Timing: required before running more than one instance — fine to defer until the
-    hosting decision executes, but record it in the deploy runbook now.
-  - Effort: ~0.5 day.
+- [x] **3.3 Postgres-backed rate limiting (pre-scale-out)** *(completed 2026-07-16)*
+  - `src/lib/rate-limit.ts` was a per-process sliding window; N horizontally-scaled
+    instances meant N× the intended limit, and every deploy reset all windows.
+  - Fix: additive `rate_limits` table (`key text primary key, window_start
+    timestamptz, count int`) with a single atomic `INSERT ... ON CONFLICT DO UPDATE`
+    upsert (`checkRateLimitAsync()` in `rate-limit.ts`) — the `CASE` resets the
+    window when expired, otherwise increments the existing count in one round trip.
+    The original in-memory `checkRateLimit()` is kept as the automatic fallback when
+    the DB call throws (wrapped in try/catch), which is also what plain unit tests
+    exercise since `.env.test`'s `DATABASE_URL` points nowhere. All 12
+    `rateLimitedResponse()` call sites updated to `await` it (now async).
+  - Tests: `rate-limit.integration.test.ts` (Postgres-backed path against PGlite —
+    boundary, independent keys, window reset/no-reset), `rate-limit.test.ts` (DB
+    unreachable → in-memory fallback, verified via a `console.error` spy).
+  - Timing note preserved: still fine with a single instance today; this just makes
+    horizontal scaling safe whenever that happens.
 
-- [ ] **3.4 Structured logging + error monitoring**
-  - Today errors go to `console.error` with ad-hoc prefixes (`[outbox]`,
-    `[size-charts GET]`, …). Fine for dev; opaque in production.
-  - Steps (keep light — this is not an observability platform build-out):
-    - [ ] Tiny `src/lib/logger.ts` wrapper (level + JSON output in prod, pretty in
-      dev), swap `console.error` call sites.
-    - [ ] Optional Sentry (or similar) behind an env var (`SENTRY_DSN` absent = no-op),
-      wired into the logger's error path and Next's `instrumentation.ts` — degrade
-      gracefully like every other optional env var in `src/lib/env.ts`.
-    - [ ] Alert-worthy signal #1: outbox `failed`/`dead` count > 0 (pairs with 3.1's
-      widget).
-  - Effort: ~0.5 day.
+- [x] **3.4 Structured logging + error monitoring** *(completed 2026-07-16)*
+  - `src/lib/logger.ts`: `logger.info/warn/error(message, ...args)` — pretty console
+    output in dev (same shape as the old `console.error('[ctx]', err)` calls, so
+    existing `stringContaining`-style test assertions kept working unmodified), a
+    single-line JSON object per entry in prod (parseable by any log aggregator
+    tailing stdout, no vendor lock-in). Every in-scope `console.error`/`console.warn`
+    call site swapped: all `src/app/api/**` route handlers, `src/server/**`,
+    `src/lib/rate-limit.ts`, and the server component `src/app/o/[token]/page.tsx`.
+    **Deviation from the plan** — left untouched, intentionally: `src/lib/env.ts`'s
+    own bootstrap-time warning (can't depend on itself), `src/db/seed*.ts` CLI
+    scripts (human-facing terminal output, not a production error path), and
+    `src/app/o/[token]/view.tsx`'s two `console.error` calls (a `'use client'`
+    component — `logger.ts` imports the Zod-validated `env`, which would crash on
+    import in the browser bundle; browser-side error reporting is a separate,
+    unscoped feature).
+  - `SENTRY_DSN` (optional, `src/lib/env.ts`) — absent = no-op. When set,
+    `logger.error()` fire-and-forgets a hand-rolled Sentry envelope POST via `fetch`
+    (no SDK dependency, matching the raw-fetch style already used for the Google Ads
+    API in `src/server/conversions/google-ads.ts`), 5s timeout, never throws even if
+    delivery fails.
+    **Deviation from the plan**: "Optional Sentry (or similar)" was read literally —
+    installing `@sentry/nextjs` would have pulled in source-map upload tooling and an
+    auth-token requirement well past "keep light"; the envelope API is stable and
+    documented, so a ~40-line fetch-based reporter gets the same outcome (errors land
+    in Sentry when configured) without the SDK footprint.
+  - `src/instrumentation.ts`: `register()` logs a structured startup line;
+    `onRequestError` (Next 15's instrumentation hook) forwards errors that never
+    reach a route's own try/catch (e.g. a render-time throw) to `logger.error()` as a
+    backstop — routes should still catch and log their own errors directly.
+  - Alert-worthy signal #1: `processor.ts`'s `markFailedOrDead()` now reports whether
+    an event went `'dead'`; `processOutbox()` calls `logger.error()` with
+    `{ eventId, eventType, aggregateId, attempts }` on that transition, so a
+    dead-lettered event reaches Sentry (when configured), not just the 3.1 dashboard
+    tile.
+  - Tests: `src/lib/logger.test.ts` (dev pretty-print, prod JSON shape, Error
+    serialization, Sentry envelope POST built/skipped correctly, malformed-DSN
+    no-op, delivery failure never throws/rejects). `page.test.tsx` updated to mock
+    `@/lib/logger` instead of spying on `console.error` (the exact-string assertion
+    there would otherwise break on the new `[time] LEVEL message` prefix). Full
+    suite: 122 files / 1081 tests passing, typecheck + lint clean.
 
-- [ ] **3.5 Explicit session TTL**
-  - `sessionOptions` (`src/lib/session.ts:16-24`) sets no `ttl` — iron-session's
-    default applies (14 days) and the cookie has no `maxAge` (session cookie).
-    Nothing was *decided* here; make it explicit.
-  - [ ] Decide idle/absolute expiry (suggest: `ttl: 60 * 60 * 24 * 7` — 7 days — for
-    an internal tool with 2FA available), set it, and add a test that an expired seal
-    is rejected.
-  - Effort: < 1 hour.
+- [x] **3.5 Explicit session TTL** *(completed 2026-07-16)*
+  - `sessionOptions` (`src/lib/session.ts`) now sets `ttl: 60 * 60 * 24 * 7` (7 days,
+    as suggested) — an explicit decision instead of relying on iron-session's 14-day
+    default. This also fixes the cookie's `max-age` (`ttl - 60s`, computed
+    automatically by iron-session) and the seal's own expiry check on unseal.
+  - Test added in `src/lib/session.test.ts`: seals a session at a fake system time,
+    confirms it's still valid comfortably inside the ttl window, then advances past
+    `ttl + 60s` (iron-session's clock-skew allowance) and confirms `getSession()`
+    comes back empty (`userId` undefined) rather than throwing — matches
+    `getIronSession()`'s actual behavior of swallowing an "Expired seal" error into
+    an empty session.
 
-- [ ] **3.6 (Optional) Per-account login backoff**
-  - Login rate limiting is per-IP only. A distributed guesser rotating IPs gets
-    unlimited tries per account.
-  - Cheap version: also rate-limit by normalized email key
-    (`login:${email.toLowerCase()}`) with a stricter window; no schema change.
-  - Effort: ~1 hour. Optional — bcrypt cost + 2FA already blunt this.
+- [x] **3.6 (Optional) Per-account login backoff** *(completed 2026-07-16)*
+  - `src/app/api/auth/login/route.ts`: added a second `rateLimitedResponse()` check
+    keyed by normalized email (`login-account:${email.toLowerCase()}`, 5 attempts /
+    15 min), on top of the existing per-IP check (`login:${ip}`, 10 attempts / 15
+    min) — stricter window, as suggested, so a distributed guesser rotating IPs
+    against one account still gets capped. No schema change (reuses the existing
+    Postgres-backed `rate_limits` table from 3.3).
+    **Deviation from the plan**: used the `login-account:` prefix instead of the
+    literal `login:${email}` suggested in the roadmap, so the email-keyed and
+    IP-keyed rate limit rows can never collide in the `rate_limits` table.
+  - Tests (`route.integration.test.ts`): the pre-existing per-IP test was reworked
+    to use distinct unknown emails per attempt so it isolates the IP limit alone
+    (the new stricter account limit would otherwise trip first); two new tests
+    cover the account limit itself (5 attempts from 5 different IPs → 429 on the
+    6th) and that two different accounts' limits don't cross-contaminate.
+  - Full suite: 122 files / 1083 tests passing, typecheck + lint clean.
 
 ---
 

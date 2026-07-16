@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { NotFoundError } from '@/server/orders/service';
-import { importRosterMembers } from '@/server/roster/service';
+import { importRosterMembers, RosterFullError } from '@/server/roster/service';
 import { rosterImportMappingSchema, duplicateResolutionSchema } from '@/server/roster/contract';
 import { parseRosterFile, ImportParseError, MAX_IMPORT_FILE_BYTES } from '@/server/roster/import';
 import { badRequest } from '@/lib/api-responses';
+import { logger } from '@/lib/logger';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -50,7 +51,8 @@ export async function POST(request: NextRequest, { params }: Params) {
   } catch (err) {
     if (err instanceof ImportParseError) return NextResponse.json({ error: err.message }, { status: 400 });
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
-    console.error('[admin/roster/import/commit POST]', err);
+    if (err instanceof RosterFullError) return NextResponse.json({ error: err.message }, { status: 409 });
+    logger.error('[admin/roster/import/commit POST]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

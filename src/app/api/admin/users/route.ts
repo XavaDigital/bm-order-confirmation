@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/session';
 import { badRequest } from '@/lib/api-responses';
 import { listStaffUsers, inviteUser, UserConflictError } from '@/server/users/service';
 import { sendInviteEmail, isEmailConfigured } from '@/lib/email';
+import { logger } from '@/lib/logger';
 
 const inviteSchema = z.object({
   name: z.string().min(1),
@@ -19,7 +20,7 @@ export async function GET() {
     const users = await listStaffUsers();
     return NextResponse.json(users);
   } catch (err) {
-    console.error('[admin/users GET]', err);
+    logger.error('[admin/users GET]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
     if (err instanceof UserConflictError) {
       return NextResponse.json({ error: err.message }, { status: 409 });
     }
-    console.error('[admin/users POST]', err);
+    logger.error('[admin/users POST]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

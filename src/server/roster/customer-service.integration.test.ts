@@ -13,7 +13,7 @@ import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
 import { createOrderSchema } from '@/server/orders/contract';
 import { createOrder } from '@/server/orders/service';
-import { addRosterMember, generateRosterToken, revokeRosterToken, generateMemberToken } from './service';
+import { addRosterMember, generateRosterToken, revokeRosterToken, generateMemberToken, MAX_ROSTER_MEMBERS } from './service';
 import {
   addSelf,
   getRosterForMember,
@@ -151,6 +151,20 @@ describe('addSelf', () => {
       .where(eq(schema.orders.id, created.orderId));
 
     await expect(addSelf(token, { name: 'Sam' })).rejects.toThrow('roster_locked');
+  });
+
+  it('throws roster_full once the roster is at MAX_ROSTER_MEMBERS', async () => {
+    const created = await createOrder(minimalInput());
+    const { token } = await generateRosterToken(created.orderId);
+    await db.insert(schema.rosterMembers).values(
+      Array.from({ length: MAX_ROSTER_MEMBERS }, (_, i) => ({
+        orderId: created.orderId,
+        name: `Player ${i}`,
+        sortOrder: i,
+      })),
+    );
+
+    await expect(addSelf(token, { name: 'One Too Many' })).rejects.toThrow('roster_full');
   });
 });
 

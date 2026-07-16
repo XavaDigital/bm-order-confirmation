@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateRosterToken, revokeRosterToken } from '@/server/roster/service';
 import { NotFoundError } from '@/server/orders/service';
 import { getSession } from '@/lib/session';
+import { logger } from '@/lib/logger';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -14,7 +15,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
-    console.error('[admin/roster/token POST]', err);
+    logger.error('[admin/roster/token POST]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -27,7 +28,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     await revokeRosterToken(orderId, { actorEmail: session.email });
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error('[admin/roster/token DELETE]', err);
+    logger.error('[admin/roster/token DELETE]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

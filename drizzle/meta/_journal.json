@@ -64,6 +64,20 @@
       "when": 1784106497540,
       "tag": "0008_tranquil_barracuda",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784173788314,
+      "tag": "0009_fresh_captain_universe",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784183490321,
+      "tag": "0010_lean_thunderbolts",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateMemberToken, getRosterMember } from '@/server/roster/service';
 import { NotFoundError } from '@/server/orders/service';
 import { getSession } from '@/lib/session';
+import { logger } from '@/lib/logger';
 
 type Params = { params: Promise<{ id: string; memberId: string }> };
 
@@ -15,7 +16,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
-    console.error('[admin/roster/members/link POST]', err);
+    logger.error('[admin/roster/members/link POST]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

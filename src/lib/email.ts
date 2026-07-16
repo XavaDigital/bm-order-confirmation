@@ -253,6 +253,58 @@ export async function sendInviteEmail(params: SendInviteEmailParams): Promise<vo
 }
 
 // ---------------------------------------------------------------------------
+// Staff password reset email — sent from the forgot-password flow
+// ---------------------------------------------------------------------------
+
+export interface SendPasswordResetEmailParams {
+  to: string;
+  toName: string;
+  resetUrl: string;
+}
+
+function buildPasswordResetHtml(params: SendPasswordResetEmailParams): string {
+  const { toName, resetUrl } = params;
+  return wrapEmailLayout({
+    title: `Reset your ${APP_PORTAL_NAME} password`,
+    headerLabel: 'Password Reset',
+    bodyHtml: `<p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${toName},</p>
+              <p style="color:rgba(255,255,255,0.65);font-size:15px;line-height:1.6;margin:0 0 24px;">
+                We received a request to reset your ${APP_PORTAL_NAME} password. Click the button below to choose a new one. This link expires in 1 hour.
+              </p>
+              ${emailButton(resetUrl, 'Reset My Password')}
+              ${emailCopyLinkLine(resetUrl)}
+              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;">
+              <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.5;margin:0;">
+                If you didn't request this, you can safely ignore this email — your password won't change.
+              </p>`,
+  });
+}
+
+export async function sendPasswordResetEmail(params: SendPasswordResetEmailParams): Promise<void> {
+  if (!env.SMTP_HOST) throw new Error('SMTP is not configured (SMTP_HOST missing)');
+
+  const from = env.MAIL_FROM ?? EMAIL_FROM_DEFAULT;
+  const transport = createTransport();
+
+  await transport.sendMail({
+    from,
+    to: `${params.toName} <${params.to}>`,
+    subject: `Reset your ${APP_PORTAL_NAME} password`,
+    html: buildPasswordResetHtml(params),
+    text: [
+      `Hi ${params.toName},`,
+      '',
+      `We received a request to reset your ${APP_PORTAL_NAME} password.`,
+      '',
+      `Reset it here (expires in 1 hour):`,
+      params.resetUrl,
+      '',
+      `If you didn't request this, you can safely ignore this email — your password won't change.`,
+    ].join('\n'),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Sales staff notification — fired after a customer requests changes
 // ---------------------------------------------------------------------------
 

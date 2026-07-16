@@ -3,6 +3,7 @@ import { updateRosterMember, removeRosterMember } from '@/server/roster/service'
 import { updateRosterMemberSchema } from '@/server/roster/contract';
 import { NotFoundError } from '@/server/orders/service';
 import { badRequest } from '@/lib/api-responses';
+import { logger } from '@/lib/logger';
 
 type Params = { params: Promise<{ id: string; memberId: string }> };
 
@@ -20,7 +21,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
-    console.error('[admin/roster/members PATCH]', err);
+    logger.error('[admin/roster/members PATCH]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -32,7 +33,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
-    console.error('[admin/roster/members DELETE]', err);
+    logger.error('[admin/roster/members DELETE]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

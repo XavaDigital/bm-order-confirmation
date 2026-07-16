@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isInternalAuthorized, isCronAuthorized } from '@/lib/api-auth';
 import { processOutbox } from '@/server/events/processor';
+import { logger } from '@/lib/logger';
 
 export async function POST(request: NextRequest) {
   if (!isInternalAuthorized(request) && !isCronAuthorized(request)) {
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
     const result = await processOutbox();
     return NextResponse.json(result);
   } catch (err) {
-    console.error('[/api/internal/process-outbox]', err);
+    logger.error('[/api/internal/process-outbox]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

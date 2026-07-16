@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { setOrderAccessCode, clearOrderAccessCode, ConflictError } from '@/server/orders/service';
 import { getSession } from '@/lib/session';
+import { logger } from '@/lib/logger';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -16,7 +17,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
     if (err instanceof ConflictError) return NextResponse.json({ error: err.message }, { status: 409 });
-    console.error('[admin/access-code POST]', err);
+    logger.error('[admin/access-code POST]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -29,7 +30,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     await clearOrderAccessCode(orderId, { actorEmail: session.email });
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error('[admin/access-code DELETE]', err);
+    logger.error('[admin/access-code DELETE]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

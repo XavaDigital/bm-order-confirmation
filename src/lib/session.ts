@@ -13,9 +13,17 @@ export interface SessionData {
   mfaPending?: boolean;
 }
 
+// Explicit idle/absolute session lifetime (roadmap 3.5) — an internal staff
+// tool with 2FA available doesn't need iron-session's 14-day default. This
+// sets both the cookie's max-age and the seal's own expiry check: a cookie
+// older than this is rejected on unseal (treated as logged out), not just
+// trusted until the browser happens to drop it.
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
+
 export const sessionOptions: SessionOptions = {
   password: env.SESSION_SECRET,
   cookieName: 'bm-session',
+  ttl: SESSION_TTL_SECONDS,
   cookieOptions: {
     secure: env.NODE_ENV === 'production',
     httpOnly: true,

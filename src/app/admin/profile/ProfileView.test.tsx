@@ -233,4 +233,61 @@ describe('ProfileView', () => {
 
     expect(await screen.findByText('Incorrect password')).toBeInTheDocument();
   });
+
+  describe('Change Password card', () => {
+    it('shows a validation error when the confirmation does not match', async () => {
+      const user = userEvent.setup();
+      mockStatusOnce(false);
+      render(<ProfileView user={USER} />);
+      await screen.findByPlaceholderText('Current password');
+
+      await user.type(screen.getByLabelText('Current password'), 'correct-horse');
+      await user.type(screen.getByLabelText('New password'), 'brand-new-password-1');
+      await user.type(screen.getByLabelText('Confirm new password'), 'does-not-match');
+      await user.click(screen.getByRole('button', { name: /^change password$/i }));
+
+      expect(await screen.findByText('Passwords do not match')).toBeInTheDocument();
+      expect(fetch).not.toHaveBeenCalledWith('/api/admin/auth/change-password', expect.anything());
+    });
+
+    it('submits the current and new password, clears the form, and shows a success message', async () => {
+      const user = userEvent.setup();
+      mockStatusOnce(false);
+      render(<ProfileView user={USER} />);
+      await screen.findByPlaceholderText('Current password');
+
+      vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response);
+      await user.type(screen.getByLabelText('Current password'), 'correct-horse');
+      await user.type(screen.getByLabelText('New password'), 'brand-new-password-1');
+      await user.type(screen.getByLabelText('Confirm new password'), 'brand-new-password-1');
+      await user.click(screen.getByRole('button', { name: /^change password$/i }));
+
+      expect(fetch).toHaveBeenCalledWith('/api/admin/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: 'correct-horse', newPassword: 'brand-new-password-1' }),
+      });
+      expect(await screen.findByText('Password changed')).toBeInTheDocument();
+      expect(screen.getByLabelText('Current password')).toHaveValue('');
+    });
+
+    it('shows an inline error when the current password is incorrect', async () => {
+      const user = userEvent.setup();
+      mockStatusOnce(false);
+      render(<ProfileView user={USER} />);
+      await screen.findByPlaceholderText('Current password');
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: 'Incorrect password' }),
+      } as Response);
+      await user.type(screen.getByLabelText('Current password'), 'wrong');
+      await user.type(screen.getByLabelText('New password'), 'brand-new-password-1');
+      await user.type(screen.getByLabelText('Confirm new password'), 'brand-new-password-1');
+      await user.click(screen.getByRole('button', { name: /^change password$/i }));
+
+      expect(await screen.findByText('Incorrect password')).toBeInTheDocument();
+    });
+  });
 });

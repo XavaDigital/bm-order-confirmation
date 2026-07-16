@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { staffUsers } from '@/db/schema';
 import { verifyPassword } from '@/lib/password';
+import { logger } from '@/lib/logger';
 
 export class AuthError extends Error {
   constructor(message = 'Invalid email or password') {
@@ -38,7 +39,7 @@ export async function loginStaff(email: string, password: string): Promise<AuthU
       .set({ lastLoginAt: new Date() })
       .where(eq(staffUsers.id, user.id));
   } catch (err) {
-    console.error('[auth] failed to stamp lastLoginAt', err);
+    logger.error('[auth] failed to stamp lastLoginAt', err);
   }
 
   return {

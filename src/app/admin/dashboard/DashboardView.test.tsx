@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
+import { App as AntdApp } from 'antd';
 import { DashboardView } from './DashboardView';
 
 function localYMD(d: Date) {
@@ -24,6 +26,23 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof DashboardView>
     recentOrders: [],
     staleOrders: [],
     upcomingDeadlines: [],
+    colorSampleHolds: [],
+    role: 'sales' as const,
+    failedEvents: [],
+    ...overrides,
+  };
+}
+
+function failedEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'event-1',
+    eventType: 'order.confirmed',
+    aggregateType: 'order',
+    aggregateId: 'order-1',
+    status: 'failed' as const,
+    attempts: 2,
+    createdAt: '2026-07-10T09:00:00Z',
+    nextAttemptAt: null,
     ...overrides,
   };
 }
@@ -43,6 +62,7 @@ function order(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-07-10T12:00:00Z'));
+  vi.stubGlobal('fetch', vi.fn());
 });
 
 afterEach(() => {
@@ -186,5 +206,115 @@ describe('DashboardView', () => {
       />,
     );
     expect(screen.getByText(expected)).toBeInTheDocument();
+  });
+
+  it('shows the "no holds" empty state for Colour Sample Holds', () => {
+    render(<DashboardView {...baseProps({ colorSampleHolds: [] })} />);
+    expect(screen.getByText(/no orders currently on hold for colour matching/i)).toBeInTheDocument();
+  });
+
+  it('renders the colour sample holds count and list entries', () => {
+    render(
+      <DashboardView
+        {...baseProps({
+          colorSampleHolds: [
+            { ...order(), colorSampleRequestedAt: '2026-07-10T09:00:00Z' },
+            { ...order(), id: 'order-2', orderNumber: 'OC-2', colorSampleRequestedAt: '2026-07-08T12:00:00Z' },
+          ],
+        })}
+      />,
+    );
+
+    const cardTitle = screen.getByText('Colour Sample Holds', { selector: '.ant-card-head-title *' });
+    const card = cardTitle.closest('.ant-card') as HTMLElement;
+    expect(within(card).getByText('2')).toBeInTheDocument();
+    expect(screen.getByText('3h ago')).toBeInTheDocument();
+    expect(screen.getByText('2d ago')).toBeInTheDocument();
+  });
+
+  it('shows the colour sample holds count in its stat card', () => {
+    render(
+      <DashboardView
+        {...baseProps({
+          colorSampleHolds: [{ ...order(), colorSampleRequestedAt: '2026-07-10T09:00:00Z' }],
+        })}
+      />,
+    );
+
+    const statTitle = screen.getByText('Colour Sample Holds', { selector: '.ant-statistic-title' });
+    const statCard = statTitle.closest('.ant-statistic') as HTMLElement;
+    expect(within(statCard).getByText('1')).toBeInTheDocument();
+  });
+
+  it('hides the Failed Events widget entirely for a sales-role session', () => {
+    render(<DashboardView {...baseProps({ role: 'sales', failedEvents: [failedEvent()] })} />);
+    expect(screen.queryByText('Failed Events')).not.toBeInTheDocument();
+  });
+
+  it('shows the "outbox is healthy" empty state for an admin with no failed events', () => {
+    render(<DashboardView {...baseProps({ role: 'admin', failedEvents: [] })} />);
+    expect(screen.getByText(/the outbox is healthy/i)).toBeInTheDocument();
+  });
+
+  it('renders a failed event with its type, status tag, and attempt count', () => {
+    render(
+      <DashboardView
+        {...baseProps({
+          role: 'admin',
+          failedEvents: [failedEvent({ status: 'dead', attempts: 5 })],
+        })}
+      />,
+    );
+
+    expect(screen.getByText('order.confirmed')).toBeInTheDocument();
+    expect(screen.getByText('dead')).toBeInTheDocument();
+    expect(screen.getByText('5 attempts')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry now/i })).toBeInTheDocument();
+  });
+
+  it('retrying a failed event calls the retry endpoint and removes it from the list', async () => {
+    vi.useRealTimers(); // userEvent's internal waits deadlock under fake timers
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true } as Response);
+    render(
+      <AntdApp>
+        <DashboardView
+          {...baseProps({
+            role: 'admin',
+            failedEvents: [failedEvent({ id: 'event-7' })],
+          })}
+        />
+      </AntdApp>,
+    );
+
+    await user.click(screen.getByRole('button', { name: /retry now/i }));
+
+    expect(fetch).toHaveBeenCalledWith('/api/admin/events/event-7/retry', { method: 'POST' });
+    expect(await screen.findByText('Event queued for retry')).toBeInTheDocument();
+    expect(screen.getByText(/the outbox is healthy/i)).toBeInTheDocument();
+  });
+
+  it('shows an error message when retrying fails, and keeps the event listed', async () => {
+    vi.useRealTimers(); // userEvent's internal waits deadlock under fake timers
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: 'Event not found or not failed/dead' }),
+    } as Response);
+    render(
+      <AntdApp>
+        <DashboardView
+          {...baseProps({
+            role: 'admin',
+            failedEvents: [failedEvent({ id: 'event-8' })],
+          })}
+        />
+      </AntdApp>,
+    );
+
+    await user.click(screen.getByRole('button', { name: /retry now/i }));
+
+    expect(await screen.findByText('Event not found or not failed/dead')).toBeInTheDocument();
+    expect(screen.getByText('order.confirmed')).toBeInTheDocument();
   });
 });

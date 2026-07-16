@@ -62,6 +62,10 @@ const schema = z.object({
   // Optional CC address for all staff notification emails (change-request + confirmation).
   // Set to a team inbox to ensure the whole team sees these events.
   STAFF_NOTIFICATIONS_CC: z.string().optional(),
+
+  // Error monitoring (src/lib/logger.ts). Leave unset to disable — logger.error()
+  // still logs to stdout as usual, it just skips the Sentry delivery.
+  SENTRY_DSN: z.string().optional(),
 });
 
 // Next.js sets NEXT_PHASE=phase-production-build only during `next build` — not

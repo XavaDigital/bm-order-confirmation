@@ -5,6 +5,7 @@ import { getSignedUrl } from '@/lib/storage';
 import { ACCESS_CODE_COOKIE, isAccessCodeCookieValid } from '@/lib/access-code';
 import { AccessCodeGate } from '@/components/customer/AccessCodeGate';
 import { CustomerOrderView, type CustomerOrderViewProps } from './view';
+import { logger } from '@/lib/logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,7 +52,7 @@ export default async function CustomerOrderPage({ params }: Props) {
   // Record the view (transitions 'sent' → 'viewed', emits domain event, updates last_viewed_at).
   // Fire-and-forget: a view-recording failure must not block the customer seeing their order.
   recordOrderViewed(order.id, access.id, order.status).catch((err) =>
-    console.error('[page.tsx] recordOrderViewed failed', err),
+    logger.error('[page.tsx] recordOrderViewed failed', err),
   );
 
   // Build garment data with signed image URLs and signed size chart URLs

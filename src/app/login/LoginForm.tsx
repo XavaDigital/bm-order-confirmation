@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { Form, Input, Button, Typography, Alert } from 'antd';
 import { LockOutlined, MailOutlined } from '@ant-design/icons';
 import { APP_NAME, APP_TAGLINE } from '@/lib/config';
@@ -111,6 +112,12 @@ export function LoginForm() {
             }}
           />
         </Form.Item>
+
+        <div style={{ textAlign: 'right', marginBottom: 8, marginTop: -8 }}>
+          <Link href="/forgot-password" style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
+            Forgot password?
+          </Link>
+        </div>
 
         <Form.Item style={{ marginBottom: 0, marginTop: 8 }}>
           <Button

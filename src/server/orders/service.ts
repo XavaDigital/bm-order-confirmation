@@ -213,6 +213,7 @@ export async function listOrders(opts?: {
         orderValueCurrency: true,
         createdAt: true,
         confirmedAt: true,
+        colorSampleRequestedAt: true,
       },
       with: {
         access: {
@@ -840,6 +841,32 @@ export async function unlockRoster(
     await emitDomainEvent(tx, {
       aggregateId: orderId,
       eventType: 'roster.unlocked',
+      payload: { actorEmail: meta?.actorEmail ?? null },
+    });
+  });
+}
+
+/** Clear the "hold production" flag once colour matching has been arranged with the customer. */
+export async function resolveColorSampleRequest(
+  orderId: string,
+  meta?: { actorEmail?: string },
+): Promise<void> {
+  const existing = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
+  if (!existing) throw new NotFoundError('Order');
+
+  await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(orders)
+      .set({ colorSampleRequestedAt: null, updatedAt: new Date() })
+      .where(and(eq(orders.id, orderId), isNotNull(orders.colorSampleRequestedAt)))
+      .returning({ id: orders.id });
+
+    // Idempotent: nothing to resolve if it was never requested (or already resolved).
+    if (updated.length === 0) return;
+
+    await emitDomainEvent(tx, {
+      aggregateId: orderId,
+      eventType: 'order.color_sample_resolved',
       payload: { actorEmail: meta?.actorEmail ?? null },
     });
   });

@@ -110,4 +110,10 @@ describe('LoginForm', () => {
 
     expect(await screen.findByText('An unexpected error occurred. Please try again.')).toBeInTheDocument();
   });
+
+  it('links "Forgot password?" to /forgot-password', () => {
+    render(<LoginForm />);
+
+    expect(screen.getByRole('link', { name: /forgot password/i })).toHaveAttribute('href', '/forgot-password');
+  });
 });

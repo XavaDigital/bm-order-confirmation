@@ -14,8 +14,9 @@ import {
 import { generateToken, hashToken } from '@/lib/tokens';
 
 const ACK_KEYS = [
-  'mockup_correct', 'sizing_correct', 'fabrics_accepted',
-  'delivery_noted', 'no_changes', 'payment_terms', 'authorised',
+  'color_accuracy', 'color_matching', 'mockup_correct', 'sizing_correct',
+  'size_charts_used', 'no_refunds', 'womens_unisex_sizing',
+  'payment_terms', 'authorised',
 ] as const;
 
 function isoDate(offsetDays: number) {

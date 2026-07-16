@@ -156,11 +156,13 @@ export async function recordOrderViewed(
 // ---------------------------------------------------------------------------
 
 export const REQUIRED_ACK_KEYS = [
+  'color_accuracy',
+  'color_matching',
   'mockup_correct',
   'sizing_correct',
-  'fabrics_accepted',
-  'delivery_noted',
-  'no_changes',
+  'size_charts_used',
+  'no_refunds',
+  'womens_unisex_sizing',
   'payment_terms',
   'authorised',
 ] as const;
@@ -334,7 +336,7 @@ export async function confirmOrder(params: {
   if (!order) throw new Error('invalid_token');
   if (order.status === 'confirmed') throw new Error('already_confirmed');
 
-  // Validate all 7 required acks are present
+  // Validate all required acks are present
   const providedKeys = new Set(params.acks.map((a) => a.key));
   for (const key of REQUIRED_ACK_KEYS) {
     if (!providedKeys.has(key)) throw new Error(`missing_ack:${key}`);

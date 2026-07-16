@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { acceptInvite, InviteExpiredError } from '@/server/users/service';
 import { badRequest } from '@/lib/api-responses';
+import { logger } from '@/lib/logger';
 
 const bodySchema = z.object({
   token: z.string().min(1),
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
     if (err instanceof InviteExpiredError) {
       return NextResponse.json({ error: err.message }, { status: 410 });
     }
-    console.error('[auth/accept-invite POST]', err);
+    logger.error('[auth/accept-invite POST]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAdmin } from '@/lib/session';
 import { badRequest } from '@/lib/api-responses';
 import { updateUser, deleteUser, UserNotFoundError, LastAdminError } from '@/server/users/service';
+import { logger } from '@/lib/logger';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -36,7 +37,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   } catch (err) {
     if (err instanceof UserNotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
     if (err instanceof LastAdminError) return NextResponse.json({ error: err.message }, { status: 409 });
-    console.error('[admin/users PATCH]', err);
+    logger.error('[admin/users PATCH]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -56,7 +57,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof UserNotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
-    console.error('[admin/users DELETE]', err);
+    logger.error('[admin/users DELETE]', err);
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal server error' }, { status: 500 });
   }
 }

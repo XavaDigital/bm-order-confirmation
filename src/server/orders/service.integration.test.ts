@@ -43,6 +43,7 @@ import {
   clearOrderAccessCode,
   lockRoster,
   unlockRoster,
+  resolveColorSampleRequest,
   NotFoundError,
   ConflictError,
 } from './service';
@@ -827,6 +828,47 @@ describe('lockRoster / unlockRoster', () => {
     const unlockEvent = events.find((e) => e.eventType === 'roster.unlocked');
     expect(unlockEvent).toBeDefined();
     expect(unlockEvent!.payload).toMatchObject({ actorEmail: 'staff@x.com' });
+  });
+});
+
+describe('resolveColorSampleRequest', () => {
+  it('throws NotFoundError for an unknown id', async () => {
+    await expect(
+      resolveColorSampleRequest('00000000-0000-0000-0000-000000000000'),
+    ).rejects.toThrow(NotFoundError);
+  });
+
+  it('clears colorSampleRequestedAt and emits order.color_sample_resolved', async () => {
+    const created = await createOrder(minimalInput());
+    await db
+      .update(schema.orders)
+      .set({ colorSampleRequestedAt: new Date() })
+      .where(eq(schema.orders.id, created.orderId));
+
+    await resolveColorSampleRequest(created.orderId, { actorEmail: 'staff@x.com' });
+
+    const order = await getOrderById(created.orderId);
+    expect(order!.colorSampleRequestedAt).toBeNull();
+
+    const events = await db
+      .select()
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+    const resolvedEvent = events.find((e) => e.eventType === 'order.color_sample_resolved');
+    expect(resolvedEvent).toBeDefined();
+    expect(resolvedEvent!.payload).toMatchObject({ actorEmail: 'staff@x.com' });
+  });
+
+  it('is idempotent — no-ops and emits nothing when there was nothing to resolve', async () => {
+    const created = await createOrder(minimalInput());
+
+    await resolveColorSampleRequest(created.orderId, { actorEmail: 'staff@x.com' });
+
+    const events = await db
+      .select()
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+    expect(events.find((e) => e.eventType === 'order.color_sample_resolved')).toBeUndefined();
   });
 });
 

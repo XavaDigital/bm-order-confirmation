@@ -5,6 +5,7 @@ import { getClientIp, rateLimitedResponse } from '@/lib/rate-limit';
 import { buildAccessCodeCookie } from '@/lib/access-code';
 import { hashToken } from '@/lib/tokens';
 import { env } from '@/lib/env';
+import { logger } from '@/lib/logger';
 
 const bodySchema = z.object({
   token: z.string().min(1),
@@ -13,7 +14,7 @@ const bodySchema = z.object({
 
 export async function POST(request: NextRequest) {
   const ip = getClientIp(request.headers);
-  const rateLimited = rateLimitedResponse(`verify-code:${ip}`, 10, 15 * 60 * 1_000, 'Too many attempts. Please try again later.');
+  const rateLimited = await rateLimitedResponse(`verify-code:${ip}`, 10, 15 * 60 * 1_000, 'Too many attempts. Please try again later.');
   if (rateLimited) return rateLimited;
 
   const body = await request.json().catch(() => null);
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
   // Also limit per link, so rotating IPs doesn't buy an attacker more guesses
   // at a specific order's 6-digit code.
   const tokenKey = hashToken(parsed.data.token).slice(0, 16);
-  const tokenLimited = rateLimitedResponse(`verify-code:token:${tokenKey}`, 10, 15 * 60 * 1_000, 'Too many attempts. Please try again later.');
+  const tokenLimited = await rateLimitedResponse(`verify-code:token:${tokenKey}`, 10, 15 * 60 * 1_000, 'Too many attempts. Please try again later.');
   if (tokenLimited) return tokenLimited;
 
   try {
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
     }
     return res;
   } catch (err) {
-    console.error('[/api/o/verify-code]', err);
+    logger.error('[/api/o/verify-code]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

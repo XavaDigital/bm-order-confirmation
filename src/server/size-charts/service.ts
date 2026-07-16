@@ -3,6 +3,7 @@ import { eq, count } from 'drizzle-orm';
 import { db } from '@/db';
 import { sizeCharts, garmentSizeChartLinks } from '@/db/schema';
 import { uploadFile, getSignedUrl, deleteFile, sizeChartKey } from '@/lib/storage';
+import { logger } from '@/lib/logger';
 
 export class SizeChartNotFoundError extends Error {
   constructor() {
@@ -83,7 +84,7 @@ export async function deleteSizeChart(id: string): Promise<{ linkedGarmentCount:
 
   if (chart.storageKey) {
     deleteFile(chart.storageKey).catch((err) =>
-      console.warn('[size-charts] storage delete failed', chart.storageKey, err),
+      logger.warn('[size-charts] storage delete failed', chart.storageKey, err),
     );
   }
 

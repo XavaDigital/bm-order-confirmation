@@ -4,6 +4,7 @@ import { staffUsers } from '@/db/schema';
 import { generateToken, hashToken } from '@/lib/tokens';
 import { hashPassword } from '@/lib/password';
 import { env } from '@/lib/env';
+import { recordAuditEvent } from '@/server/events/outbox';
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -34,6 +35,13 @@ export class InviteExpiredError extends Error {
   constructor() {
     super('This invite link has expired or is invalid');
     this.name = 'InviteExpiredError';
+  }
+}
+
+export class ResetTokenExpiredError extends Error {
+  constructor() {
+    super('This password reset link has expired or is invalid');
+    this.name = 'ResetTokenExpiredError';
   }
 }
 
@@ -139,6 +147,83 @@ export async function acceptInvite(rawToken: string, password: string): Promise<
       updatedAt: new Date(),
     })
     .where(eq(staffUsers.id, user.id));
+}
+
+// ---------------------------------------------------------------------------
+// Forgot password
+// ---------------------------------------------------------------------------
+
+const RESET_TTL_MS = 60 * 60 * 1_000; // 1 hour — shorter-lived than an invite
+
+export async function requestPasswordReset(
+  email: string,
+): Promise<{ rawToken: string; resetUrl: string; userName: string; userEmail: string } | null> {
+  const user = await db.query.staffUsers.findFirst({
+    where: eq(staffUsers.email, email.toLowerCase().trim()),
+  });
+
+  // Deactivated accounts and still-pending invites can't log in anyway (see
+  // loginStaff), and a pending invite should be completed via its own invite
+  // link — don't issue a reset token for either. Caller treats this the same
+  // as success (no account-existence enumeration).
+  if (!user || !user.isActive) return null;
+
+  const rawToken = generateToken();
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + RESET_TTL_MS);
+
+  // Overwriting the single reset-token column invalidates any prior
+  // outstanding reset link for this user.
+  await db
+    .update(staffUsers)
+    .set({ resetTokenHash: tokenHash, resetTokenExpiresAt: expiresAt })
+    .where(eq(staffUsers.id, user.id));
+
+  await recordAuditEvent({
+    aggregateType: 'staff_user',
+    aggregateId: user.id,
+    eventType: 'staff.password_reset_requested',
+    payload: { email: user.email },
+  });
+
+  const base = env.APP_BASE_URL.replace(/\/$/, '');
+  const resetUrl = `${base}/reset-password?token=${rawToken}`;
+
+  return { rawToken, resetUrl, userName: user.name, userEmail: user.email };
+}
+
+export async function resetPassword(rawToken: string, password: string): Promise<void> {
+  const tokenHash = hashToken(rawToken);
+
+  const user = await db.query.staffUsers.findFirst({
+    where: eq(staffUsers.resetTokenHash, tokenHash),
+  });
+
+  if (!user || !user.resetTokenExpiresAt || user.resetTokenExpiresAt < new Date()) {
+    throw new ResetTokenExpiredError();
+  }
+
+  const passwordHash = await hashPassword(password);
+
+  // Deliberately leaves isActive, totpEnabled/totpSecret/totpBackupCodes
+  // untouched — a password reset must not silently reactivate an account or
+  // clear an existing 2FA enrollment.
+  await db
+    .update(staffUsers)
+    .set({
+      passwordHash,
+      resetTokenHash: null,
+      resetTokenExpiresAt: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(staffUsers.id, user.id));
+
+  await recordAuditEvent({
+    aggregateType: 'staff_user',
+    aggregateId: user.id,
+    eventType: 'staff.password_reset_completed',
+    payload: { email: user.email },
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,9 @@
 import { db } from '@/db';
 import { orders } from '@/db/schema';
-import { count, sum, desc, asc, and, gte, lte, inArray, ne, sql } from 'drizzle-orm';
+import { count, sum, desc, asc, and, gte, lte, inArray, ne, sql, isNotNull } from 'drizzle-orm';
 import { getStaleOrders } from '@/server/orders/service';
+import { listFailedEvents } from '@/server/events/processor';
+import { getSession } from '@/lib/session';
 import { DashboardView } from './DashboardView';
 
 const DEADLINE_LOOKAHEAD_DAYS = 14;
@@ -15,7 +17,7 @@ async function getDashboardData() {
   deadlineCutoff.setDate(deadlineCutoff.getDate() + DEADLINE_LOOKAHEAD_DAYS);
   const deadlineCutoffDate = deadlineCutoff.toISOString().slice(0, 10);
 
-  const [countRows, valueRow, recentRows, trendRows, staleOrders, upcomingDeadlineRows] = await Promise.all([
+  const [countRows, valueRow, recentRows, trendRows, staleOrders, upcomingDeadlineRows, colorSampleHoldRows] = await Promise.all([
     db.select({ status: orders.status, count: count() }).from(orders).groupBy(orders.status),
 
     // Excludes cancelled orders — a dead deal's value shouldn't inflate the pipeline total.
@@ -68,6 +70,22 @@ async function getDashboardData() {
       )
       .orderBy(asc(orders.deadlineDate))
       .limit(10),
+
+    // Orders where the customer asked for a colour book / physical sample and
+    // it hasn't been resolved by staff yet — production must hold on these.
+    db
+      .select({
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        customerName: orders.customerName,
+        clubName: orders.clubName,
+        status: orders.status,
+        colorSampleRequestedAt: orders.colorSampleRequestedAt,
+      })
+      .from(orders)
+      .where(isNotNull(orders.colorSampleRequestedAt))
+      .orderBy(asc(orders.colorSampleRequestedAt))
+      .limit(10),
   ]);
 
   const map = Object.fromEntries(countRows.map((r) => [r.status, Number(r.count)]));
@@ -101,10 +119,29 @@ async function getDashboardData() {
     trend,
     staleOrders,
     upcomingDeadlines: upcomingDeadlineRows,
+    colorSampleHolds: colorSampleHoldRows.map((o) => ({
+      ...o,
+      colorSampleRequestedAt: o.colorSampleRequestedAt!.toISOString(),
+    })),
   };
 }
 
 export default async function DashboardPage() {
-  const data = await getDashboardData();
-  return <DashboardView {...data} />;
+  const session = await getSession();
+  const [data, failedEvents] = await Promise.all([
+    getDashboardData(),
+    // Outbox delivery failures are an ops concern — admin only (roadmap 3.1).
+    session.role === 'admin' ? listFailedEvents() : Promise.resolve([]),
+  ]);
+  return (
+    <DashboardView
+      {...data}
+      role={session.role}
+      failedEvents={failedEvents.map((e) => ({
+        ...e,
+        createdAt: e.createdAt.toISOString(),
+        nextAttemptAt: e.nextAttemptAt ? e.nextAttemptAt.toISOString() : null,
+      }))}
+    />
+  );
 }

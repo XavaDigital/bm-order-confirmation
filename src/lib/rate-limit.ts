@@ -1,15 +1,24 @@
 /**
- * In-memory sliding-window rate limiter.
+ * Rate limiting, two-tier (roadmap 3.3):
  *
- * Works correctly for single-instance deployments. For multi-instance setups
- * (horizontal scaling), replace the Map with a shared Redis store such as
- * @upstash/ratelimit + Upstash Redis.
+ *  1. checkRateLimitAsync() / rateLimitedResponse() — the path every route
+ *     should use. Backed by the `rate_limits` Postgres table via a single
+ *     atomic upsert, so the counter is correct across horizontally-scaled
+ *     instances and survives deploys (unlike the in-memory Map below).
+ *  2. checkRateLimit() — in-memory fallback, used automatically when the DB
+ *     call throws (and exercised directly by plain unit tests, since
+ *     .env.test's DATABASE_URL points nowhere and fails fast). Also correct
+ *     for genuinely single-instance/dev setups on its own.
  *
  * Each key has a fixed window: the first request in a new window sets a
  * counter that resets at windowMs. Subsequent requests in that same window
  * increment the counter and are rejected once it hits maxRequests.
  */
 import { NextResponse } from 'next/server';
+import { sql } from 'drizzle-orm';
+import { db } from '@/db';
+import { rateLimits } from '@/db/schema';
+import { logger } from '@/lib/logger';
 
 interface Entry {
   count: number;
@@ -56,17 +65,52 @@ export function checkRateLimit(
 }
 
 /**
+ * Postgres-backed equivalent of checkRateLimit(), atomic under concurrent
+ * callers (single INSERT ... ON CONFLICT DO UPDATE): the CASE resets the
+ * window when it has expired, otherwise increments the existing count. Falls
+ * back to the in-memory checkRateLimit() if the DB is unreachable.
+ */
+export async function checkRateLimitAsync(
+  key: string,
+  maxRequests: number,
+  windowMs: number,
+): Promise<RateLimitResult> {
+  try {
+    const [row] = await db
+      .insert(rateLimits)
+      .values({ key, windowStart: new Date(), count: 1 })
+      .onConflictDoUpdate({
+        target: rateLimits.key,
+        set: {
+          windowStart: sql`CASE WHEN ${rateLimits.windowStart} <= now() - (${windowMs} * interval '1 millisecond') THEN now() ELSE ${rateLimits.windowStart} END`,
+          count: sql`CASE WHEN ${rateLimits.windowStart} <= now() - (${windowMs} * interval '1 millisecond') THEN 1 ELSE ${rateLimits.count} + 1 END`,
+        },
+      })
+      .returning({ count: rateLimits.count, windowStart: rateLimits.windowStart });
+
+    if (!row) throw new Error('rate_limits upsert returned no row');
+
+    const resetAt = row.windowStart.getTime() + windowMs;
+    const allowed = row.count <= maxRequests;
+    return { allowed, retryAfterMs: allowed ? 0 : Math.max(0, resetAt - Date.now()) };
+  } catch (err) {
+    logger.error('[rate-limit] Postgres check failed, falling back to in-memory limiter:', err);
+    return checkRateLimit(key, maxRequests, windowMs);
+  }
+}
+
+/**
  * Checks the rate limit and returns a ready-to-return 429 `NextResponse`
  * (with `Retry-After` set) when exceeded, or `null` when the request is
  * allowed through.
  */
-export function rateLimitedResponse(
+export async function rateLimitedResponse(
   key: string,
   maxRequests: number,
   windowMs: number,
   message: string,
-): NextResponse | null {
-  const rl = checkRateLimit(key, maxRequests, windowMs);
+): Promise<NextResponse | null> {
+  const rl = await checkRateLimitAsync(key, maxRequests, windowMs);
   if (rl.allowed) return null;
   return NextResponse.json(
     { error: message },

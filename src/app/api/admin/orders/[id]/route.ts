@@ -3,6 +3,7 @@ import { getOrderAdmin, updateOrder, deleteOrder, NotFoundError, ConflictError }
 import { updateOrderSchema } from '@/server/orders/admin-contract';
 import { getSession } from '@/lib/session';
 import { badRequest } from '@/lib/api-responses';
+import { logger } from '@/lib/logger';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -28,7 +29,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
-    console.error('[admin/orders PATCH]', err);
+    logger.error('[admin/orders PATCH]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -41,7 +42,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
     if (err instanceof ConflictError) return NextResponse.json({ error: err.message }, { status: 409 });
-    console.error('[admin/orders DELETE]', err);
+    logger.error('[admin/orders DELETE]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

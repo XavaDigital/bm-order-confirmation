@@ -24,6 +24,8 @@ import {
   revokeRosterToken,
   importRosterMembers,
   generateMemberToken,
+  MAX_ROSTER_MEMBERS,
+  RosterFullError,
 } from './service';
 import type { RosterImportMapping } from './contract';
 
@@ -63,6 +65,22 @@ describe('addRosterMember', () => {
     const addedEvents = events.filter((e) => e.eventType === 'roster.member_added');
     expect(addedEvents).toHaveLength(2);
     expect(addedEvents[0].payload).toMatchObject({ name: 'Alex' });
+  });
+
+  it('throws RosterFullError once the roster is at MAX_ROSTER_MEMBERS', async () => {
+    const created = await createOrder(minimalInput());
+    await db.insert(schema.rosterMembers).values(
+      Array.from({ length: MAX_ROSTER_MEMBERS }, (_, i) => ({
+        orderId: created.orderId,
+        name: `Player ${i}`,
+        sortOrder: i,
+      })),
+    );
+
+    await expect(addRosterMember(created.orderId, { name: 'One Too Many' })).rejects.toThrow(RosterFullError);
+
+    const rows = await db.query.rosterMembers.findMany({ where: eq(schema.rosterMembers.orderId, created.orderId) });
+    expect(rows).toHaveLength(MAX_ROSTER_MEMBERS);
   });
 });
 
@@ -439,6 +457,24 @@ describe('importRosterMembers', () => {
 
     expect(result.imported).toBe(0);
     expect(result.skippedAmbiguous).toBe(1);
+  });
+
+  it('throws RosterFullError when the import would push the roster past MAX_ROSTER_MEMBERS', async () => {
+    const created = await createOrder(minimalInput());
+    await db.insert(schema.rosterMembers).values(
+      Array.from({ length: MAX_ROSTER_MEMBERS - 1 }, (_, i) => ({
+        orderId: created.orderId,
+        name: `Player ${i}`,
+        sortOrder: i,
+      })),
+    );
+
+    await expect(
+      importRosterMembers(created.orderId, [['One'], ['Two']], mapping),
+    ).rejects.toThrow(RosterFullError);
+
+    const rows = await db.query.rosterMembers.findMany({ where: eq(schema.rosterMembers.orderId, created.orderId) });
+    expect(rows).toHaveLength(MAX_ROSTER_MEMBERS - 1);
   });
 
   it('continues sortOrder after existing members', async () => {

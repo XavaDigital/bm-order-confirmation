@@ -74,6 +74,21 @@ describe('AuditLogTab', () => {
     expect(await screen.findByText('Colour book / sample requested')).toBeInTheDocument();
   });
 
+  it('renders a label for the colour sample resolved event', async () => {
+    mockFetchOnce([
+      {
+        id: 'evt-1',
+        eventType: 'order.color_sample_resolved',
+        payload: {},
+        status: 'delivered',
+        createdAt: '2026-06-26T10:30:00Z',
+      },
+    ]);
+    render(<AuditLogTab orderId="order-1" />);
+
+    expect(await screen.findByText('Colour sample request resolved')).toBeInTheDocument();
+  });
+
   it('falls back to the raw event type string for an unrecognized event', async () => {
     mockFetchOnce([
       { id: 'evt-1', eventType: 'some.future_event', payload: {}, status: 'delivered', createdAt: '2026-06-26T10:30:00Z' },

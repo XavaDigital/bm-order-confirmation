@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getOrderById } from '@/server/orders/service';
 import { parseRosterFile, guessColumnMapping, ImportParseError, MAX_IMPORT_FILE_BYTES } from '@/server/roster/import';
+import { logger } from '@/lib/logger';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
   } catch (err) {
     if (err instanceof ImportParseError) return NextResponse.json({ error: err.message }, { status: 400 });
-    console.error('[admin/roster/import/preview POST]', err);
+    logger.error('[admin/roster/import/preview POST]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

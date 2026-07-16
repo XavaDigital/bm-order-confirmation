@@ -29,6 +29,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { conversionEvents, orders } from '@/db/schema';
 import { env } from '@/lib/env';
+import { logger } from '@/lib/logger';
 
 const GOOGLE_ADS_API_VERSION = 'v18';
 
@@ -62,7 +63,7 @@ export async function fireGoogleAdsConversion(orderId: string): Promise<void> {
     .limit(1);
 
   if (!convEvent) {
-    console.warn('[google-ads] no conversion_events row for order', orderId);
+    logger.warn('[google-ads] no conversion_events row for order', orderId);
     return;
   }
 

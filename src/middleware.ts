@@ -11,12 +11,40 @@ function isAdminApiPath(pathname: string) {
   return pathname.startsWith('/api/admin');
 }
 
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * Origin-header CSRF check for admin mutations (PROJECT_BRIEF.md §7). The
+ * session cookie is already sameSite:'lax' — this is cheap defense-in-depth
+ * on top of that, not the primary control. Reject only when Origin is present
+ * and mismatched; non-browser clients (curl, server-to-server) don't send an
+ * Origin header at all, so absence is allowed through.
+ */
+function hasOriginMismatch(request: NextRequest): boolean {
+  const origin = request.headers.get('origin');
+  if (!origin) return false;
+
+  let originHost: string;
+  try {
+    originHost = new URL(origin).host;
+  } catch {
+    return true;
+  }
+
+  const requestHost = request.headers.get('host') ?? request.nextUrl.host;
+  return originHost !== requestHost;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const response = NextResponse.next();
 
   // Reinforce noindex on every response (PROJECT_BRIEF.md §7).
   response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+
+  if (isAdminApiPath(pathname) && !SAFE_METHODS.has(request.method) && hasOriginMismatch(request)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
   const needsAuth = isAdminUiPath(pathname) || isAdminApiPath(pathname);
   const isLoginPage = pathname === '/login';

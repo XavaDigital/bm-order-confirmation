@@ -14,7 +14,7 @@ import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
 import { createOrderSchema } from '@/server/orders/contract';
 import { createOrder } from '@/server/orders/service';
-import { generateRosterToken } from '@/server/roster/service';
+import { generateRosterToken, MAX_ROSTER_MEMBERS } from '@/server/roster/service';
 import { POST } from './route';
 
 afterEach(async () => {
@@ -94,6 +94,26 @@ describe('POST /api/o/roster/[rosterToken]/members', () => {
     });
 
     expect(res.status).toBe(409);
+  });
+
+  it('returns 409 with code roster_full once the roster is at MAX_ROSTER_MEMBERS', async () => {
+    const created = await createOrder(minimalInput());
+    const { token } = await generateRosterToken(created.orderId);
+    await db.insert(schema.rosterMembers).values(
+      Array.from({ length: MAX_ROSTER_MEMBERS }, (_, i) => ({
+        orderId: created.orderId,
+        name: `Player ${i}`,
+        sortOrder: i,
+      })),
+    );
+
+    const res = await POST(postRequest(token, { name: 'One Too Many' }, '198.51.100.14'), {
+      params: Promise.resolve({ rosterToken: token }),
+    });
+    const json = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(json.code).toBe('roster_full');
   });
 
   it('returns 429 with a Retry-After header after 10 requests from the same IP', async () => {

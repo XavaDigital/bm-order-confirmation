@@ -106,6 +106,8 @@ export function OrderDetailView({ order }: Props) {
   const [resending, setResending] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [colorSampleRequestedAt, setColorSampleRequestedAt] = useState(order.colorSampleRequestedAt);
+  const [resolvingColorSample, setResolvingColorSample] = useState(false);
   const [currentStatus, setCurrentStatus] = useState(order.status);
   const [internalNotes, setInternalNotes] = useState(order.internalNotes ?? '');
   const [hasActiveToken, setHasActiveToken] = useState(
@@ -242,6 +244,23 @@ export function OrderDetailView({ order }: Props) {
     }
   }
 
+  async function resolveColorSample() {
+    setResolvingColorSample(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${order.id}/resolve-color-sample`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? 'Failed to resolve colour sample request');
+      }
+      setColorSampleRequestedAt(null);
+      message.success('Colour sample request marked as resolved');
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to resolve colour sample request');
+    } finally {
+      setResolvingColorSample(false);
+    }
+  }
+
   const tabItems = [
     {
       key: 'details',
@@ -268,13 +287,27 @@ export function OrderDetailView({ order }: Props) {
               }
             />
           )}
-          {order.colorSampleRequestedAt && (
+          {colorSampleRequestedAt && (
             <Alert
               type="warning"
               showIcon
               icon={<BgColorsOutlined />}
               message="Customer requested a colour book / physical sample — hold production."
-              description={`Requested on ${new Date(order.colorSampleRequestedAt).toLocaleString('en-NZ')}. Arrange colour matching with the customer before releasing this order to production.`}
+              description={
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  <span>{`Requested on ${new Date(colorSampleRequestedAt).toLocaleString('en-NZ')}. Arrange colour matching with the customer before releasing this order to production.`}</span>
+                  <Popconfirm
+                    title="Mark colour sample request as resolved?"
+                    description="This clears the hold-production alert. Only confirm once colour matching has actually been arranged with the customer."
+                    onConfirm={resolveColorSample}
+                    okText="Yes, resolved"
+                  >
+                    <Button size="small" loading={resolvingColorSample}>
+                      Mark Resolved
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              }
             />
           )}
           {currentStatus === 'changes_requested' && (

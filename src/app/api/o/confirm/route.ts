@@ -4,6 +4,7 @@ import { confirmOrder, REQUIRED_ACK_KEYS } from '@/server/orders/customer-servic
 import { getClientIp, rateLimitedResponse } from '@/lib/rate-limit';
 import { ACCESS_CODE_COOKIE } from '@/lib/access-code';
 import { badRequest } from '@/lib/api-responses';
+import { logger } from '@/lib/logger';
 
 const ackSchema = z.object({
   key: z.enum(REQUIRED_ACK_KEYS),
@@ -21,7 +22,7 @@ const bodySchema = z.object({
 
 export async function POST(request: NextRequest) {
   const ip = getClientIp(request.headers);
-  const rateLimited = rateLimitedResponse(`confirm:${ip}`, 10, 15 * 60 * 1_000, 'Too many requests. Please try again later.');
+  const rateLimited = await rateLimitedResponse(`confirm:${ip}`, 10, 15 * 60 * 1_000, 'Too many requests. Please try again later.');
   if (rateLimited) return rateLimited;
 
   const body = await request.json().catch(() => null);
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing acknowledgment', code: msg }, { status: 400 });
     }
 
-    console.error('[/api/o/confirm]', err);
+    logger.error('[/api/o/confirm]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

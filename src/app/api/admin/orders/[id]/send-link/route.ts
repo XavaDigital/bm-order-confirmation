@@ -3,6 +3,7 @@ import { generateAccessToken, getOrderAdmin, NotFoundError, ConflictError } from
 import { recordAuditEvent, getChangesRequestedComment, getChangesRequestedCount } from '@/server/events/outbox';
 import { sendMagicLink, isEmailConfigured } from '@/lib/email';
 import { getSession } from '@/lib/session';
+import { logger } from '@/lib/logger';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -63,7 +64,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
   } catch (err) {
     if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
     if (err instanceof ConflictError) return NextResponse.json({ error: err.message }, { status: 409 });
-    console.error('[admin/send-link POST]', err);
+    logger.error('[admin/send-link POST]', err);
     const msg = err instanceof Error ? err.message : 'Internal server error';
     return NextResponse.json({ error: msg }, { status: 500 });
   }

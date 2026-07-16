@@ -60,6 +60,22 @@ describe('OrdersView', () => {
     expect(url.searchParams.get('offset')).toBe('0');
   });
 
+  it('shows a colour-sample tooltip icon on the status column when a hold is active', async () => {
+    mockOrdersResponse([order({ colorSampleRequestedAt: '2026-06-15T10:00:00Z' })], 1);
+    render(<OrdersView />);
+
+    expect(await screen.findByText('OC-1')).toBeInTheDocument();
+    expect(screen.getByLabelText('bg-colors')).toBeInTheDocument();
+  });
+
+  it('does not show the colour-sample icon when no hold is active', async () => {
+    mockOrdersResponse([order()], 1);
+    render(<OrdersView />);
+
+    expect(await screen.findByText('OC-1')).toBeInTheDocument();
+    expect(screen.queryByLabelText('bg-colors')).not.toBeInTheDocument();
+  });
+
   it('shows a dash for a missing club and formats the order value', async () => {
     mockOrdersResponse([order({ clubName: null })], 1);
     render(<OrdersView />);
