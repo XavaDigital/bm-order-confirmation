@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  Tabs,
   Form,
   Button,
   Space,
@@ -15,6 +14,10 @@ import {
   Alert,
   Tooltip,
   Input,
+  Menu,
+  Grid,
+  Segmented,
+  Tag,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -26,11 +29,20 @@ import {
   LockOutlined,
   CopyOutlined,
   StopOutlined,
+  ProfileOutlined,
+  SkinOutlined,
+  LinkOutlined,
+  TeamOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
+import { formatDateTime } from '@/lib/format';
+import { SEMANTIC } from '@/lib/semantic-colors';
 import { useRouter } from 'next/navigation';
+import { ApiError, deleteJson, patchJson, postJson } from '@/lib/api-fetch';
 import { OrderForm, toApiPayload, type OrderFormValues } from '@/components/admin/orders/OrderForm';
-import { GarmentAccordion } from '@/components/admin/orders/GarmentAccordion';
+import { GarmentsMasterDetail } from '@/components/admin/orders/GarmentsMasterDetail';
+import { CustomerHubSelect, type HubCustomerPick } from '@/components/admin/orders/CustomerHubSelect';
 import { ShareLinkPanel } from '@/components/admin/orders/ShareLinkPanel';
 import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
 import { AuditLogTab } from '@/components/admin/orders/AuditLogTab';
@@ -55,6 +67,9 @@ interface GarmentData {
   sizing: SizingRow[];
   images: MockupImage[];
   sizeChartIds: string[];
+  garmentTypeId?: string | null;
+  selectedOptions?: Record<string, string> | null;
+  selectedFabrics?: Record<string, string> | null;
 }
 
 export interface AdminOrderData {
@@ -79,6 +94,15 @@ export interface AdminOrderData {
   colorSampleRequestedAt: string | null;
   changesRequestedComment: string | null;
   changesRequestedCount: number;
+  hubCustomerId?: string | null;
+  hubCustomerName?: string | null;
+  notes?: {
+    id: string;
+    body: string;
+    authorKind: 'staff' | 'email_flow' | 'system';
+    authorLabel: string | null;
+    createdAt: string;
+  }[];
   garments: GarmentData[];
   currentAccess: {
     id: string;
@@ -100,6 +124,12 @@ export function OrderDetailView({ order }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialTab = searchParams.get('tab') ?? 'details';
+  const [activeTab, setActiveTab] = useState(initialTab);
+  // Panels mount on first visit and stay mounted after (they hold state and
+  // fetch their own data) — same semantics as the old Tabs lazy render.
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([initialTab]));
+  const screens = Grid.useBreakpoint();
+  const isNarrow = screens.lg === false;
   const [form] = Form.useForm<OrderFormValues>();
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -110,6 +140,9 @@ export function OrderDetailView({ order }: Props) {
   const [resolvingColorSample, setResolvingColorSample] = useState(false);
   const [currentStatus, setCurrentStatus] = useState(order.status);
   const [internalNotes, setInternalNotes] = useState(order.internalNotes ?? '');
+  const [hubCustomer, setHubCustomer] = useState<HubCustomerPick | null>(
+    order.hubCustomerId ? { id: order.hubCustomerId, name: order.hubCustomerName ?? '' } : null,
+  );
   const [hasActiveToken, setHasActiveToken] = useState(
     order.currentAccess !== null && order.currentAccess.revokedAt === null,
   );
@@ -157,15 +190,11 @@ export function OrderDetailView({ order }: Props) {
         generalNotes: payload.generalNotes ?? null,
         internalNotes: internalNotes || null,
         shippingMode: payload.shippingMode,
+        hubCustomerId: hubCustomer?.id ?? null,
+        hubCustomerName: hubCustomer?.name ?? null,
       };
 
-      const res = await fetch(`/api/admin/orders/${order.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) throw new Error('Save failed');
+      await patchJson(`/api/admin/orders/${order.id}`, body, 'Save failed');
       message.success('Order details saved');
     } catch {
       message.error('Failed to save order details');
@@ -177,11 +206,7 @@ export function OrderDetailView({ order }: Props) {
   async function deleteOrder() {
     setDeleting(true);
     try {
-      const res = await fetch(`/api/admin/orders/${order.id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? 'Delete failed');
-      }
+      await deleteJson(`/api/admin/orders/${order.id}`, undefined, 'Delete failed');
       message.success('Order deleted');
       router.push('/admin/orders');
     } catch (err: unknown) {
@@ -193,18 +218,16 @@ export function OrderDetailView({ order }: Props) {
   async function resendLink() {
     setResending(true);
     try {
-      const res = await fetch(`/api/admin/orders/${order.id}/send-link`, { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 503) {
-        message.error('Email delivery is not configured on this server.');
-        return;
-      }
-      if (!res.ok) throw new Error(data.error ?? 'Failed to send email');
+      await postJson(`/api/admin/orders/${order.id}/send-link`, undefined, 'Failed to send email');
       setHasActiveToken(true);
       setTokenCreatedAt(new Date().toISOString());
       setShareLinkVersion((v) => v + 1);
       message.success(`Link emailed to ${order.customerEmail}`);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 503) {
+        message.error('Email delivery is not configured on this server.');
+        return;
+      }
       message.error(err instanceof Error ? err.message : 'Failed to send email');
     } finally {
       setResending(false);
@@ -214,9 +237,11 @@ export function OrderDetailView({ order }: Props) {
   async function duplicateOrder() {
     setDuplicating(true);
     try {
-      const res = await fetch(`/api/admin/orders/${order.id}/duplicate`, { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? 'Failed to duplicate order');
+      const data = await postJson<{ orderId: string; orderNumber: string }>(
+        `/api/admin/orders/${order.id}/duplicate`,
+        undefined,
+        'Failed to duplicate order',
+      );
       message.success(`Created ${data.orderNumber} from this order`);
       router.push(`/admin/orders/${data.orderId}`);
     } catch (err) {
@@ -228,11 +253,7 @@ export function OrderDetailView({ order }: Props) {
   async function cancelOrder() {
     setCancelling(true);
     try {
-      const res = await fetch(`/api/admin/orders/${order.id}/cancel`, { method: 'POST' });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? 'Failed to cancel order');
-      }
+      await postJson(`/api/admin/orders/${order.id}/cancel`, undefined, 'Failed to cancel order');
       setCurrentStatus('cancelled');
       setHasActiveToken(false);
       setShareLinkVersion((v) => v + 1);
@@ -247,11 +268,11 @@ export function OrderDetailView({ order }: Props) {
   async function resolveColorSample() {
     setResolvingColorSample(true);
     try {
-      const res = await fetch(`/api/admin/orders/${order.id}/resolve-color-sample`, { method: 'POST' });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? 'Failed to resolve colour sample request');
-      }
+      await postJson(
+        `/api/admin/orders/${order.id}/resolve-color-sample`,
+        undefined,
+        'Failed to resolve colour sample request',
+      );
       setColorSampleRequestedAt(null);
       message.success('Colour sample request marked as resolved');
     } catch (err) {
@@ -261,10 +282,17 @@ export function OrderDetailView({ order }: Props) {
     }
   }
 
-  const tabItems = [
+  function selectTab(key: string) {
+    setActiveTab(key);
+    setVisitedTabs((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+    router.replace(`?tab=${key}`, { scroll: false });
+  }
+
+  const sections = [
     {
       key: 'details',
       label: 'Details',
+      icon: <ProfileOutlined />,
       children: (
         <Space direction="vertical" style={{ width: '100%' }} size={16}>
           {currentStatus === 'cancelled' && (
@@ -282,7 +310,7 @@ export function OrderDetailView({ order }: Props) {
               message="This order has been confirmed by the customer."
               description={
                 order.confirmedAt
-                  ? `Confirmed on ${new Date(order.confirmedAt).toLocaleString('en-NZ')}`
+                  ? `Confirmed on ${formatDateTime(order.confirmedAt)}`
                   : undefined
               }
             />
@@ -295,7 +323,7 @@ export function OrderDetailView({ order }: Props) {
               message="Customer requested a colour book / physical sample — hold production."
               description={
                 <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                  <span>{`Requested on ${new Date(colorSampleRequestedAt).toLocaleString('en-NZ')}. Arrange colour matching with the customer before releasing this order to production.`}</span>
+                  <span>{`Requested on ${formatDateTime(colorSampleRequestedAt)}. Arrange colour matching with the customer before releasing this order to production.`}</span>
                   <Popconfirm
                     title="Mark colour sample request as resolved?"
                     description="This clears the hold-production alert. Only confirm once colour matching has actually been arranged with the customer."
@@ -326,13 +354,31 @@ export function OrderDetailView({ order }: Props) {
               }
             />
           )}
+          {/* Renders nothing unless the Sales Hub integration is configured */}
+          <CustomerHubSelect value={hubCustomer} onSelect={setHubCustomer} />
           <OrderForm form={form} initialValues={initialValues} />
+          {(order.notes ?? []).length > 0 && (
+            <Card size="small" title="Notes">
+              <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                {(order.notes ?? []).map((note) => (
+                  <div key={note.id}>
+                    <Typography.Text style={{ display: 'block' }}>{note.body}</Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      {note.authorKind === 'email_flow' ? 'Email Flow' : note.authorKind}
+                      {note.authorLabel ? ` · ${note.authorLabel}` : ''} ·{' '}
+                      {formatDateTime(note.createdAt)}
+                    </Typography.Text>
+                  </div>
+                ))}
+              </Space>
+            </Card>
+          )}
           <Card
             size="small"
-            style={{ borderColor: '#faad14', background: 'rgba(250, 173, 20, 0.06)' }}
+            style={{ borderColor: SEMANTIC.warning, background: 'rgba(250, 173, 20, 0.06)' }}
           >
             <Typography.Text strong>
-              <LockOutlined style={{ color: '#faad14', marginRight: 6 }} />
+              <LockOutlined style={{ color: SEMANTIC.warning, marginRight: 6 }} />
               Internal notes — staff only, never shown to the customer
             </Typography.Text>
             <Input.TextArea
@@ -372,13 +418,15 @@ export function OrderDetailView({ order }: Props) {
     {
       key: 'garments',
       label: `Garments (${order.garments.length})`,
+      icon: <SkinOutlined />,
       children: (
-        <GarmentAccordion orderId={order.id} initialGarments={order.garments} />
+        <GarmentsMasterDetail orderId={order.id} initialGarments={order.garments} />
       ),
     },
     {
       key: 'share',
       label: 'Share Link',
+      icon: <LinkOutlined />,
       children: (
         <ShareLinkPanel
           key={shareLinkVersion}
@@ -398,17 +446,25 @@ export function OrderDetailView({ order }: Props) {
     {
       key: 'roster',
       label: 'Team Roster',
+      icon: <TeamOutlined />,
       children: <RosterPanel orderId={order.id} customerEmail={order.customerEmail} />,
     },
     {
       key: 'audit',
       label: 'Audit Log',
+      icon: <HistoryOutlined />,
       children: <AuditLogTab orderId={order.id} />,
     },
   ];
 
+  const panelBodies = sections.map((s) => (
+    <div key={s.key} style={{ display: s.key === activeTab ? 'block' : 'none' }}>
+      {visitedTabs.has(s.key) ? s.children : null}
+    </div>
+  ));
+
   return (
-    <div style={{ maxWidth: 900 }}>
+    <div style={{ maxWidth: 1200 }}>
       <Breadcrumb
         style={{ marginBottom: 16 }}
         items={[
@@ -433,6 +489,13 @@ export function OrderDetailView({ order }: Props) {
           {order.orderNumber}
         </Typography.Title>
         <OrderStatusBadge status={currentStatus} />
+        {hubCustomer && (
+          <Tooltip title="Linked to a Sales Hub customer">
+            <Tag icon={<LinkOutlined />} color="geekblue">
+              Hub: {hubCustomer.name}
+            </Tag>
+          </Tooltip>
+        )}
         {order.customerName && (
           <Typography.Text type="secondary">— {order.customerName}</Typography.Text>
         )}
@@ -483,13 +546,37 @@ export function OrderDetailView({ order }: Props) {
       </div>
 
       <Card styles={{ body: { padding: 0 } }}>
-        <Tabs
-          items={tabItems}
-          defaultActiveKey={initialTab}
-          style={{ padding: '0 16px 24px' }}
-          tabBarStyle={{ marginBottom: 0 }}
-          destroyOnHidden={false}
-        />
+        {isNarrow ? (
+          <div style={{ padding: 16 }}>
+            <Segmented
+              block
+              value={activeTab}
+              onChange={(v) => selectTab(v as string)}
+              options={sections.map((s) => ({ label: s.label, value: s.key }))}
+              style={{ marginBottom: 16 }}
+            />
+            {panelBodies}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'stretch', minHeight: 480 }}>
+            {/* Left rail — vertical section nav, stays visible while the content scrolls */}
+            <Menu
+              mode="inline"
+              selectedKeys={[activeTab]}
+              onClick={({ key }) => selectTab(key)}
+              items={sections.map(({ key, label, icon }) => ({ key, label, icon }))}
+              style={{
+                width: 200,
+                flexShrink: 0,
+                paddingTop: 8,
+                position: 'sticky',
+                top: 88,
+                alignSelf: 'flex-start',
+              }}
+            />
+            <div style={{ flex: 1, minWidth: 0, padding: 24 }}>{panelBodies}</div>
+          </div>
+        )}
       </Card>
     </div>
   );

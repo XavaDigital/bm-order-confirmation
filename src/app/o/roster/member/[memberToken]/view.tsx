@@ -1,54 +1,31 @@
 'use client';
 
 import { useState } from 'react';
-import Image from 'next/image';
 import {
   Alert,
   Button,
   Card,
-  ConfigProvider,
   Descriptions,
   Divider,
-  Input,
-  Modal,
-  Space,
   Tag,
   Typography,
   message,
 } from 'antd';
+import { CheckCircleFilled, LockOutlined } from '@ant-design/icons';
+import { SALES_REP_LABEL } from '@/lib/config';
+import type { RosterGarment, RosterMemberDto, SizeChartLink } from '@/types/customer';
+import { CustomerPageShell } from '@/components/customer/CustomerPageShell';
+import { SectionHeading } from '@/components/customer/SectionHeading';
+import { LockedRosterAlert } from '@/components/customer/LockedRosterAlert';
+import { RosterSizeEntry, buildSizeDraft } from '@/components/customer/RosterSizeEntry';
+import { SizeChartPreviewModal } from '@/components/customer/SizeChartPreviewModal';
 import {
-  CheckCircleFilled,
-  FileImageOutlined,
-  FilePdfOutlined,
-  LockOutlined,
-  TeamOutlined,
-} from '@ant-design/icons';
-import { APP_NAME, SALES_REP_LABEL } from '@/lib/config';
-import { BEASTMODE, darkTheme, headingFont } from '@/lib/theme';
+  CARD_STYLE,
+  CARD_BODY_STYLES,
+  DESCRIPTIONS_STYLES,
+} from '@/components/customer/customerStyles';
 
-const { Title, Text, Paragraph } = Typography;
-
-interface SizeChartLink {
-  name: string;
-  storageKey: string | null;
-  url: string | null;
-  downloadUrl: string | null;
-}
-
-interface GarmentData {
-  id: string;
-  name: string;
-  notes: string | null;
-  sizeCharts: SizeChartLink[];
-}
-
-interface RosterMember {
-  id: string;
-  name: string;
-  playerNumber: string | null;
-  submittedAt: string | null;
-  sizes: { garmentId: string; size: string | null }[];
-}
+const { Paragraph } = Typography;
 
 export interface RosterMemberViewProps {
   memberToken: string;
@@ -56,41 +33,9 @@ export interface RosterMemberViewProps {
     orderNumber: string;
     clubName: string | null;
     locked: boolean;
-    garments: GarmentData[];
-    member: RosterMember;
+    garments: RosterGarment[];
+    member: RosterMemberDto;
   };
-}
-
-function SectionHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        borderLeft: `4px solid ${BEASTMODE.accent}`,
-        paddingLeft: 12,
-        marginBottom: 20,
-      }}
-    >
-      <Title
-        level={4}
-        style={{
-          margin: 0,
-          color: '#fff',
-          textTransform: 'uppercase',
-          letterSpacing: 2,
-          fontSize: 13,
-          fontFamily: headingFont,
-          fontWeight: 400,
-        }}
-      >
-        {children}
-      </Title>
-    </div>
-  );
-}
-
-function buildSizeDraft(member: RosterMember, garments: GarmentData[]) {
-  const existing = new Map(member.sizes.map((row) => [row.garmentId, row.size ?? '']));
-  return Object.fromEntries(garments.map((garment) => [garment.id, existing.get(garment.id) ?? '']));
 }
 
 export function RosterMemberView({ memberToken, roster }: RosterMemberViewProps) {
@@ -101,13 +46,6 @@ export function RosterMemberView({ memberToken, roster }: RosterMemberViewProps)
   );
   const [savingSizes, setSavingSizes] = useState(false);
   const [chartPreview, setChartPreview] = useState<SizeChartLink | null>(null);
-
-  const cardStyle = {
-    background: BEASTMODE.charcoal,
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 8,
-    marginBottom: 24,
-  };
 
   async function handleSaveSizes() {
     if (locked) {
@@ -151,251 +89,77 @@ export function RosterMemberView({ memberToken, roster }: RosterMemberViewProps)
   }
 
   return (
-    <ConfigProvider theme={darkTheme}>
-      <div style={{ minHeight: '100vh', background: BEASTMODE.navy }}>
-        <header
-          style={{
-            background: BEASTMODE.ink,
-            borderBottom: `3px solid ${BEASTMODE.accent}`,
-            padding: '24px',
-          }}
-        >
-          <div style={{ maxWidth: 860, margin: '0 auto' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
-              <Image
-                src="/logo.svg"
-                alt={APP_NAME}
-                width={141}
-                height={44}
-                priority
-                style={{ display: 'block' }}
-              />
-              <div
-                style={{
-                  width: 1,
-                  height: 24,
-                  background: 'rgba(255,255,255,0.2)',
-                  flexShrink: 0,
-                }}
-              />
-              <div
-                style={{
-                  fontSize: 11,
-                  color: 'rgba(255,255,255,0.5)',
-                  letterSpacing: 3,
-                  textTransform: 'uppercase',
-                  fontWeight: 600,
-                }}
-              >
-                Your Size
-              </div>
-            </div>
-            <Title level={2} style={{ color: '#fff', margin: 0, fontWeight: 900, letterSpacing: 1 }}>
-              {member.name}
-            </Title>
-            <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 15, marginTop: 4, display: 'block' }}>
-              Check the size charts and enter your size for each garment below.
-            </Text>
-          </div>
-        </header>
-
-        <main style={{ maxWidth: 860, margin: '0 auto', padding: '32px 24px 80px' }}>
-          <Card style={cardStyle} styles={{ body: { padding: '20px 24px' } }}>
-            <SectionHeading>Order Summary</SectionHeading>
-            <Descriptions
-              column={{ xs: 1, sm: 2 }}
-              size="small"
-              styles={{
-                label: { color: 'rgba(255,255,255,0.45)', fontSize: 12 },
-                content: { color: 'rgba(255,255,255,0.9)' },
-              }}
-            >
-              <Descriptions.Item label="Order Number">{roster.orderNumber}</Descriptions.Item>
-              {roster.clubName && (
-                <Descriptions.Item label="Club">{roster.clubName}</Descriptions.Item>
-              )}
-              <Descriptions.Item label="Player Number">
-                {member.playerNumber ? `#${member.playerNumber}` : 'Not listed'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Roster Status">
-                {locked ? (
-                  <Tag color="warning" icon={<LockOutlined />}>Locked</Tag>
-                ) : (
-                  <Tag color="success">Open</Tag>
-                )}
-              </Descriptions.Item>
-            </Descriptions>
-            <Paragraph style={{ color: 'rgba(255,255,255,0.55)', marginTop: 16, marginBottom: 0 }}>
-              Entering your sizes here does not confirm the final order — your team manager will
-              review the roster and complete the final confirmation separately.
-            </Paragraph>
-          </Card>
-
-          {locked && (
-            <Alert
-              type="warning"
-              showIcon
-              message="This roster is locked"
-              description={`Please contact your ${SALES_REP_LABEL} if you need any changes.`}
-              style={{
-                marginBottom: 24,
-                background: 'rgba(250,173,20,0.08)',
-                border: '1px solid rgba(250,173,20,0.3)',
-              }}
-            />
+    <CustomerPageShell
+      label="Your Size"
+      title={member.name}
+      subtitle="Check the size charts and enter your size for each garment below."
+    >
+      <Card style={CARD_STYLE} styles={CARD_BODY_STYLES}>
+        <SectionHeading>Order Summary</SectionHeading>
+        <Descriptions column={{ xs: 1, sm: 2 }} size="small" styles={DESCRIPTIONS_STYLES}>
+          <Descriptions.Item label="Order Number">{roster.orderNumber}</Descriptions.Item>
+          {roster.clubName && (
+            <Descriptions.Item label="Club">{roster.clubName}</Descriptions.Item>
           )}
-
-          <Card style={cardStyle} styles={{ body: { padding: '20px 24px' } }}>
-            <SectionHeading>Enter Your Sizes</SectionHeading>
-
-            {member.submittedAt && (
-              <Alert
-                type="success"
-                showIcon
-                icon={<CheckCircleFilled />}
-                message="You have already submitted sizes for this roster."
-                description="You can update them below if something needs to change."
-                style={{ marginBottom: 20 }}
-              />
+          <Descriptions.Item label="Player Number">
+            {member.playerNumber ? `#${member.playerNumber}` : 'Not listed'}
+          </Descriptions.Item>
+          <Descriptions.Item label="Roster Status">
+            {locked ? (
+              <Tag color="warning" icon={<LockOutlined />}>Locked</Tag>
+            ) : (
+              <Tag color="success">Open</Tag>
             )}
+          </Descriptions.Item>
+        </Descriptions>
+        <Paragraph style={{ color: 'rgba(255,255,255,0.55)', marginTop: 16, marginBottom: 0 }}>
+          Entering your sizes here does not confirm the final order — your team manager will
+          review the roster and complete the final confirmation separately.
+        </Paragraph>
+      </Card>
 
-            {roster.garments.map((garment, idx) => (
-              <div
-                key={garment.id}
-                style={{
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: 8,
-                  padding: 16,
-                  marginBottom: 16,
-                  background: 'rgba(255,255,255,0.02)',
-                }}
-              >
-                <Text strong style={{ color: '#fff', display: 'block', marginBottom: 6 }}>
-                  Garment {idx + 1} — {garment.name}
-                </Text>
-                {garment.notes && (
-                  <Paragraph style={{ color: 'rgba(255,255,255,0.55)', marginBottom: 12 }}>
-                    {garment.notes}
-                  </Paragraph>
-                )}
+      {locked && <LockedRosterAlert />}
 
-                {garment.sizeCharts.length > 0 && (
-                  <div style={{ marginBottom: 12 }}>
-                    <Text
-                      style={{
-                        color: 'rgba(255,255,255,0.45)',
-                        fontSize: 12,
-                        textTransform: 'uppercase',
-                        letterSpacing: 1,
-                        display: 'block',
-                        marginBottom: 8,
-                      }}
-                    >
-                      <TeamOutlined style={{ marginRight: 6 }} />
-                      Reference Size Charts
-                    </Text>
-                    <Space wrap>
-                      {garment.sizeCharts.map((chart) =>
-                        chart.url ? (
-                          <Tag
-                            key={chart.name}
-                            color="default"
-                            icon={
-                              chart.storageKey?.endsWith('.pdf') ? (
-                                <FilePdfOutlined />
-                              ) : (
-                                <FileImageOutlined />
-                              )
-                            }
-                            style={{
-                              background: 'rgba(255,255,255,0.06)',
-                              border: '1px solid rgba(255,255,255,0.2)',
-                              color: 'rgba(255,255,255,0.8)',
-                              cursor: 'pointer',
-                            }}
-                            onClick={() => setChartPreview(chart)}
-                          >
-                            {chart.name}
-                          </Tag>
-                        ) : (
-                          <Tag
-                            key={chart.name}
-                            color="default"
-                            style={{
-                              background: 'rgba(255,255,255,0.04)',
-                              border: '1px solid rgba(255,255,255,0.1)',
-                              color: 'rgba(255,255,255,0.5)',
-                            }}
-                          >
-                            {chart.name}
-                          </Tag>
-                        ),
-                      )}
-                    </Space>
-                  </div>
-                )}
+      <Card style={CARD_STYLE} styles={CARD_BODY_STYLES}>
+        <SectionHeading>Enter Your Sizes</SectionHeading>
 
-                <Input
-                  value={sizeDraft[garment.id] ?? ''}
-                  onChange={(e) =>
-                    setSizeDraft((draft) => ({ ...draft, [garment.id]: e.target.value }))
-                  }
-                  placeholder="Enter your size (for example: XS, S, M, L)"
-                  maxLength={64}
-                  disabled={locked || savingSizes}
-                />
-              </div>
-            ))}
-
-            <Divider style={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-
-            <Button
-              type="primary"
-              size="large"
-              loading={savingSizes}
-              disabled={locked}
-              onClick={handleSaveSizes}
-            >
-              {member.submittedAt ? 'Update my sizes' : 'Save my sizes'}
-            </Button>
-          </Card>
-        </main>
-      </div>
-
-      <Modal
-        open={!!chartPreview}
-        onCancel={() => setChartPreview(null)}
-        footer={
-          chartPreview?.downloadUrl ? (
-            <a
-              href={chartPreview.downloadUrl}
-              style={{ color: BEASTMODE.accent, fontSize: 14 }}
-            >
-              Download
-            </a>
-          ) : null
-        }
-        title={chartPreview?.name}
-        width="80vw"
-        styles={{ body: { padding: 0, textAlign: 'center', background: '#111' } }}
-        centered
-      >
-        {chartPreview?.url && (
-          chartPreview.storageKey?.endsWith('.pdf') ? (
-            <iframe
-              src={chartPreview.url}
-              style={{ width: '100%', height: '75vh', border: 'none' }}
-              title={chartPreview.name}
-            />
-          ) : (
-            <img
-              src={chartPreview.url}
-              alt={chartPreview.name}
-              style={{ maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain' }}
-            />
-          )
+        {member.submittedAt && (
+          <Alert
+            type="success"
+            showIcon
+            icon={<CheckCircleFilled />}
+            message="You have already submitted sizes for this roster."
+            description="You can update them below if something needs to change."
+            style={{ marginBottom: 20 }}
+          />
         )}
-      </Modal>
-    </ConfigProvider>
+
+        {roster.garments.map((garment, idx) => (
+          <RosterSizeEntry
+            key={garment.id}
+            garment={garment}
+            index={idx}
+            value={sizeDraft[garment.id] ?? ''}
+            onChange={(v) => setSizeDraft((draft) => ({ ...draft, [garment.id]: v }))}
+            disabled={locked || savingSizes}
+            onPreviewChart={setChartPreview}
+          />
+        ))}
+
+        <Divider style={{ borderColor: 'rgba(255,255,255,0.1)' }} />
+
+        <Button
+          type="primary"
+          size="large"
+          loading={savingSizes}
+          disabled={locked}
+          onClick={handleSaveSizes}
+        >
+          {member.submittedAt ? 'Update my sizes' : 'Save my sizes'}
+        </Button>
+      </Card>
+
+      <SizeChartPreviewModal chart={chartPreview} onClose={() => setChartPreview(null)} />
+    </CustomerPageShell>
   );
 }

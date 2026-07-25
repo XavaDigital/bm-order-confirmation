@@ -362,13 +362,15 @@ describe('updateOrder', () => {
     expect(order!.clubName).toBe('New Club');
     expect(order!.customerName).toBe('Jane Coach'); // untouched
 
+    // Audit rows live in audit_events (split from the outbox), with the
+    // actor lifted into a real column.
     const events = await db
       .select()
-      .from(schema.domainEvents)
-      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.aggregateId, created.orderId));
     const updateEvent = events.find((e) => e.eventType === 'order.updated');
     expect(updateEvent).toBeDefined();
-    expect(updateEvent!.status).toBe('delivered');
+    expect(updateEvent!.actorEmail).toBe('staff@x.com');
     expect((updateEvent!.payload as { actorEmail: string }).actorEmail).toBe('staff@x.com');
   });
 

@@ -89,7 +89,7 @@ export function SignaturePad({ onChange }: Props) {
                 height: canvasSize.height,
                 style: { width: '100%', height: canvasSize.height, display: 'block' },
               }}
-              penColor="#0B1622"
+              penColor="#1e293b"
               backgroundColor="white"
             />
             {!hasDrawn && (

@@ -2,7 +2,7 @@
 
 import { Modal, Button, Space, Typography } from 'antd';
 import { BgColorsOutlined } from '@ant-design/icons';
-import { BEASTMODE } from '@/lib/theme';
+import { BRAND } from '@/lib/theme';
 import { SALES_REP_LABEL } from '@/lib/config';
 
 interface Props {
@@ -33,11 +33,11 @@ export function RequestColorSampleModal({ open, submitting, onCancel, onConfirm 
       }
       styles={{
         content: {
-          background: BEASTMODE.charcoal,
+          background: BRAND.panelDark,
           border: '1px solid rgba(255,255,255,0.12)',
           borderRadius: 8,
         },
-        header: { background: BEASTMODE.charcoal, borderBottom: '1px solid rgba(255,255,255,0.08)' },
+        header: { background: BRAND.panelDark, borderBottom: '1px solid rgba(255,255,255,0.08)' },
         mask: { backdropFilter: 'blur(4px)' },
       }}
     >

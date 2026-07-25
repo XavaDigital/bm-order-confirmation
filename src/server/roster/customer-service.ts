@@ -11,8 +11,10 @@ import {
   rosterAccess,
   rosterMemberAccess,
   rosterMembers,
+  type SizeChartSize,
 } from '@/db/schema';
-import { hashToken } from '@/lib/tokens';
+import { resolveActiveToken } from '@/server/access/tokens';
+import { unionChartSizes } from '@/lib/sizes';
 import { MAX_ROSTER_MEMBERS } from './service';
 import type { AddRosterMemberInput, SubmitMemberSizesInput } from './contract';
 
@@ -59,14 +61,34 @@ function toPublicMember(member: {
   };
 }
 
-async function getActiveRosterAccess(rawToken: string) {
-  const access = await db.query.rosterAccess.findFirst({
-    where: and(eq(rosterAccess.tokenHash, hashToken(rawToken)), isNull(rosterAccess.revokedAt)),
-  });
+/**
+ * Shared garment projection for the customer roster surfaces (shared link and
+ * per-member link) — chart-defined sizes drive the member size dropdown.
+ */
+function toRosterGarment(garment: {
+  id: string;
+  name: string;
+  notes: string | null;
+  sizeChartLinks: {
+    sizeChart: { name: string; storageKey: string | null; sizes: SizeChartSize[] | null } | null;
+  }[];
+}) {
+  const linkedCharts = garment.sizeChartLinks.filter((link) => link.sizeChart);
+  return {
+    id: garment.id,
+    name: garment.name,
+    notes: garment.notes ?? null,
+    // Chart-defined sizes drive the member size dropdown
+    sizes: unionChartSizes(linkedCharts.map((link) => ({ sizes: link.sizeChart!.sizes ?? [] }))),
+    sizeCharts: linkedCharts.map((link) => ({
+      name: link.sizeChart!.name,
+      storageKey: link.sizeChart!.storageKey ?? null,
+    })),
+  };
+}
 
-  if (!access) return null;
-  if (access.expiresAt && access.expiresAt.getTime() < Date.now()) return null;
-  return access;
+function getActiveRosterAccess(rawToken: string) {
+  return resolveActiveToken(rosterAccess, rawToken);
 }
 
 async function getRosterOrderOrThrow(rawToken: string) {
@@ -119,6 +141,7 @@ export async function getRosterForMember(rawToken: string) {
                 columns: {
                   name: true,
                   storageKey: true,
+                  sizes: true,
                 },
               },
             },
@@ -154,17 +177,7 @@ export async function getRosterForMember(rawToken: string) {
       orderNumber: order.orderNumber,
       clubName: order.clubName ?? null,
       locked: order.rosterLockedAt !== null,
-      garments: order.garments.map((garment) => ({
-        id: garment.id,
-        name: garment.name,
-        notes: garment.notes ?? null,
-        sizeCharts: garment.sizeChartLinks
-          .filter((link) => link.sizeChart)
-          .map((link) => ({
-            name: link.sizeChart!.name,
-            storageKey: link.sizeChart!.storageKey ?? null,
-          })),
-      })),
+      garments: order.garments.map(toRosterGarment),
     },
     members: order.rosterMembers.map(toPublicMember),
   };
@@ -230,14 +243,8 @@ export async function submitMemberSizes(
 // step and no memberId route param — the token itself scopes everything.
 // ---------------------------------------------------------------------------
 
-async function getActiveMemberAccess(rawToken: string) {
-  const access = await db.query.rosterMemberAccess.findFirst({
-    where: and(eq(rosterMemberAccess.tokenHash, hashToken(rawToken)), isNull(rosterMemberAccess.revokedAt)),
-  });
-
-  if (!access) return null;
-  if (access.expiresAt && access.expiresAt.getTime() < Date.now()) return null;
-  return access;
+function getActiveMemberAccess(rawToken: string) {
+  return resolveActiveToken(rosterMemberAccess, rawToken);
 }
 
 export async function getRosterForMemberByMemberToken(rawToken: string) {
@@ -282,7 +289,7 @@ export async function getRosterForMemberByMemberToken(rawToken: string) {
         with: {
           sizeChartLinks: {
             with: {
-              sizeChart: { columns: { name: true, storageKey: true } },
+              sizeChart: { columns: { name: true, storageKey: true, sizes: true } },
             },
           },
         },
@@ -297,17 +304,7 @@ export async function getRosterForMemberByMemberToken(rawToken: string) {
       orderNumber: order.orderNumber,
       clubName: order.clubName ?? null,
       locked: order.rosterLockedAt !== null,
-      garments: order.garments.map((garment) => ({
-        id: garment.id,
-        name: garment.name,
-        notes: garment.notes ?? null,
-        sizeCharts: garment.sizeChartLinks
-          .filter((link) => link.sizeChart)
-          .map((link) => ({
-            name: link.sizeChart!.name,
-            storageKey: link.sizeChart!.storageKey ?? null,
-          })),
-      })),
+      garments: order.garments.map(toRosterGarment),
     },
     member: toPublicMember(member),
   };
@@ -373,37 +370,53 @@ async function writeMemberSizes(
     size: row.size.trim(),
   }));
 
+  // Batched writes: instead of one UPDATE (or SELECT max + INSERT) per garment
+  // in a loop, group the rows up-front and issue set-based statements.
+  const memberFields = {
+    playerName: member.name,
+    playerNumber: member.playerNumber ?? null,
+    notes: null,
+  };
+  const updates = normalizedSizes.filter((row) => existingByGarment.has(row.garmentId));
+  const inserts = normalizedSizes.filter((row) => !existingByGarment.has(row.garmentId));
+
   await db.transaction(async (tx) => {
-    for (const row of normalizedSizes) {
-      const existing = existingByGarment.get(row.garmentId);
+    // One UPDATE per distinct submitted size (rows sharing a size share a statement).
+    const updateIdsBySize = new Map<string, string[]>();
+    for (const row of updates) {
+      const id = existingByGarment.get(row.garmentId)!.id;
+      const ids = updateIdsBySize.get(row.size);
+      if (ids) ids.push(id);
+      else updateIdsBySize.set(row.size, [id]);
+    }
+    for (const [size, ids] of updateIdsBySize) {
+      await tx
+        .update(garmentSizing)
+        .set({ size, ...memberFields })
+        .where(inArray(garmentSizing.id, ids));
+    }
 
-      if (existing) {
-        await tx
-          .update(garmentSizing)
-          .set({
-            size: row.size,
-            playerName: member.name,
-            playerNumber: member.playerNumber ?? null,
-            notes: null,
-          })
-          .where(eq(garmentSizing.id, existing.id));
-        continue;
-      }
-
-      const [{ maxSort }] = await tx
-        .select({ maxSort: sql<number>`coalesce(max(${garmentSizing.sortOrder}), -1)` })
+    if (inserts.length > 0) {
+      // One grouped max(sort_order) lookup replaces the per-garment queries.
+      const maxRows = await tx
+        .select({
+          garmentId: garmentSizing.garmentId,
+          maxSort: sql<number>`coalesce(max(${garmentSizing.sortOrder}), -1)`,
+        })
         .from(garmentSizing)
-        .where(eq(garmentSizing.garmentId, row.garmentId));
+        .where(inArray(garmentSizing.garmentId, inserts.map((row) => row.garmentId)))
+        .groupBy(garmentSizing.garmentId);
+      const maxSortByGarment = new Map(maxRows.map((r) => [r.garmentId, Number(r.maxSort)]));
 
-      await tx.insert(garmentSizing).values({
-        garmentId: row.garmentId,
-        rosterMemberId: member.id,
-        size: row.size,
-        playerName: member.name,
-        playerNumber: member.playerNumber ?? null,
-        notes: null,
-        sortOrder: Number(maxSort) + 1,
-      });
+      await tx.insert(garmentSizing).values(
+        inserts.map((row) => ({
+          garmentId: row.garmentId,
+          rosterMemberId: member.id,
+          size: row.size,
+          ...memberFields,
+          sortOrder: (maxSortByGarment.get(row.garmentId) ?? -1) + 1,
+        })),
+      );
     }
 
     await tx

@@ -7,7 +7,8 @@
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { sql } from 'drizzle-orm';
+import { sql, getTableName } from 'drizzle-orm';
+import { PgTable } from 'drizzle-orm/pg-core';
 import path from 'node:path';
 import * as schema from './schema';
 
@@ -25,23 +26,13 @@ export type TestDatabase = ReturnType<typeof drizzle<typeof schema>>;
  */
 type ExecutableDb = { execute: (query: ReturnType<typeof sql.raw>) => Promise<unknown> };
 
-const CONFIRMATION_TABLES = [
-  'rate_limits',
-  'domain_events',
-  'conversion_events',
-  'confirmations',
-  'acknowledgments',
-  'garment_size_chart_links',
-  'size_charts',
-  'mockup_images',
-  'garment_sizing',
-  'roster_members',
-  'roster_access',
-  'garments',
-  'order_access',
-  'orders',
-  'staff_users',
-] as const;
+// Derived from the schema module at runtime so a newly added table can never
+// be silently missed (a hand-maintained list fails OPEN: an unlisted table
+// with no FK chain to a listed one simply never gets truncated, and state
+// leaks between tests). TRUNCATE ... CASCADE makes ordering irrelevant.
+const CONFIRMATION_TABLES: string[] = Object.values(schema)
+  .filter((value) => value instanceof PgTable)
+  .map((table) => getTableName(table as PgTable));
 
 export async function createTestDb() {
   const client = new PGlite();

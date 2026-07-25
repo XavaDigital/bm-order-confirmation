@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { NextRequest, NextResponse } from 'next/server';
 
 vi.mock('@/db', async () => {
   const { createTestDb } = await import('@/db/test-helpers');
@@ -24,7 +25,14 @@ vi.mock('@/lib/session', () => {
       return true;
     },
   });
-  return { getSession: vi.fn(async () => session) };
+  return {
+    getSession: vi.fn(async () => session),
+    requireAdmin: vi.fn(async () => {
+      if (!session.userId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
+      if (session.role !== 'admin') return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
+      return { session };
+    }),
+  };
 });
 
 import { db } from '@/db';
@@ -52,6 +60,10 @@ async function seedStaff(overrides: Partial<typeof schema.staffUsers.$inferInser
   return staff;
 }
 
+function statusRequest() {
+  return new NextRequest('http://localhost/api/admin/auth/2fa/status');
+}
+
 async function setSession(userId: string) {
   const session = (await getSession()) as unknown as Record<string, unknown>;
   session.userId = userId;
@@ -59,20 +71,20 @@ async function setSession(userId: string) {
 
 describe('GET /api/admin/auth/2fa/status', () => {
   it('returns 401 when there is no session', async () => {
-    const res = await GET();
+    const res = await GET(statusRequest());
     expect(res.status).toBe(401);
   });
 
   it('returns 404 when the session user no longer exists', async () => {
     await setSession('00000000-0000-0000-0000-000000000000');
-    const res = await GET();
+    const res = await GET(statusRequest());
     expect(res.status).toBe(404);
   });
 
   it('reports disabled with zero backup codes for a fresh account', async () => {
     const staff = await seedStaff();
     await setSession(staff.id);
-    const res = await GET();
+    const res = await GET(statusRequest());
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ enabled: false, backupCodesRemaining: 0 });
   });
@@ -84,7 +96,7 @@ describe('GET /api/admin/auth/2fa/status', () => {
       totpBackupCodes: ['h1', 'h2', 'h3'],
     });
     await setSession(staff.id);
-    const res = await GET();
+    const res = await GET(statusRequest());
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ enabled: true, backupCodesRemaining: 3 });
   });

@@ -12,24 +12,25 @@ vi.mock('next/navigation', () => ({
 beforeEach(() => {
   pushMock.mockClear();
   refreshMock.mockClear();
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true } as Response));
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) } as Response));
 });
 
 describe('UserMenu', () => {
-  it('shows the name and role in the collapsed-sidebar trigger', () => {
+  it('renders the account avatar trigger', () => {
     render(<UserMenu name="Jane Sales" email="jane@example.com" role="sales" />);
 
-    expect(screen.getByText('Jane Sales')).toBeInTheDocument();
-    expect(screen.getByText('sales')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument();
   });
 
-  it('opens the dropdown and shows the email and role info', async () => {
+  it('opens the dropdown and shows the name, email and role info', async () => {
     const user = userEvent.setup();
     render(<UserMenu name="Jane Sales" email="jane@example.com" role="admin" />);
 
-    await user.click(screen.getByText('Jane Sales'));
+    await user.click(screen.getByRole('button', { name: 'Account menu' }));
 
-    expect(await screen.findByText('jane@example.com')).toBeInTheDocument();
+    expect(await screen.findByText('Jane Sales')).toBeInTheDocument();
+    expect(screen.getByText('jane@example.com')).toBeInTheDocument();
+    expect(screen.getByText('admin')).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /security \(2fa\)/i })).toBeInTheDocument();
   });
 
@@ -37,10 +38,10 @@ describe('UserMenu', () => {
     const user = userEvent.setup();
     render(<UserMenu name="Jane Sales" email="jane@example.com" role="sales" />);
 
-    await user.click(screen.getByText('Jane Sales'));
+    await user.click(screen.getByRole('button', { name: 'Account menu' }));
     await user.click(await screen.findByText('Sign out'));
 
-    expect(fetch).toHaveBeenCalledWith('/api/auth/logout', { method: 'POST' });
+    expect(fetch).toHaveBeenCalledWith('/api/auth/logout', expect.objectContaining({ method: 'POST' }));
     await vi.waitFor(() => expect(pushMock).toHaveBeenCalledWith('/login'));
     expect(refreshMock).toHaveBeenCalled();
   });

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ConfigProvider, Input, Typography, Spin } from 'antd';
 import { LockOutlined } from '@ant-design/icons';
-import { darkTheme, BEASTMODE, headingFont } from '@/lib/theme';
+import { darkTheme, BRAND } from '@/lib/theme';
 import { SALES_REP_LABEL } from '@/lib/config';
 import { StatusPage } from './StatusPage';
 
@@ -55,15 +55,12 @@ export function AccessCodeGate({ token }: { token: string }) {
 
   return (
     <ConfigProvider theme={darkTheme}>
-      <StatusPage icon={<LockOutlined style={{ fontSize: 64, color: BEASTMODE.accent, marginBottom: 24 }} />}>
+      <StatusPage icon={<LockOutlined style={{ fontSize: 64, color: BRAND.primaryDark, marginBottom: 24 }} />}>
         <Title
           style={{
             color: '#fff',
-            fontSize: 42,
-            fontFamily: headingFont,
-            fontWeight: 400,
-            letterSpacing: 5,
-            textTransform: 'uppercase',
+            fontSize: 34,
+            fontWeight: 700,
             marginBottom: 12,
           }}
         >

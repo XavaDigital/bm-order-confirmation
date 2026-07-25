@@ -48,6 +48,7 @@ afterEach(async () => {
 
 beforeEach(async () => {
   const session = (await getSession()) as unknown as Record<string, unknown>;
+  session.userId = 'staff-1';
   session.email = 'staff@example.com';
 });
 
@@ -134,7 +135,7 @@ describe('POST /api/admin/orders/[id]/send-link', () => {
 
     await POST(postRequest(), { params: Promise.resolve({ id: created.orderId }) });
 
-    const events = await db.query.domainEvents.findMany({ where: eq(schema.domainEvents.aggregateId, created.orderId) });
+    const events = await db.query.auditEvents.findMany({ where: eq(schema.auditEvents.aggregateId, created.orderId) });
     expect(events.some((e) => e.eventType === 'link.emailed')).toBe(true);
   });
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Table,
   Button,
@@ -26,23 +26,40 @@ import {
 } from '@ant-design/icons';
 import type { ColumnType } from 'antd/es/table';
 import { formatDate } from '@/lib/format';
+import { deleteJson, patchJson, postForm } from '@/lib/api-fetch';
+import { useAdminResource } from '@/lib/use-admin-resource';
+import { SEMANTIC } from '@/lib/semantic-colors';
+import type { SizeChartSize } from '@/db/schema';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { SizeListManager } from '@/components/admin/size-charts/SizeListManager';
 
 interface SizeChart {
   id: string;
   name: string;
   description: string | null;
   storageKey: string | null;
+  sizes: SizeChartSize[];
   createdAt: string;
   url: string | null;
 }
 
+/** Single source of truth for the PDF-vs-image file-type checks in this view. */
+function isPdf(storageKey: string | null | undefined): boolean {
+  return Boolean(storageKey?.endsWith('.pdf'));
+}
+
 function fileIcon(storageKey: string | null) {
   if (!storageKey) return null;
-  return storageKey.endsWith('.pdf') ? (
-    <FilePdfOutlined style={{ color: '#ff4d4f', marginRight: 6 }} />
+  return isPdf(storageKey) ? (
+    <FilePdfOutlined style={{ color: SEMANTIC.error, marginRight: 6 }} />
   ) : (
-    <FileImageOutlined style={{ color: '#1677ff', marginRight: 6 }} />
+    <FileImageOutlined style={{ color: SEMANTIC.info, marginRight: 6 }} />
   );
+}
+
+function fileTypeTag(storageKey: string | null) {
+  if (!storageKey) return null;
+  return isPdf(storageKey) ? <Tag color="red">PDF</Tag> : <Tag color="blue">Image</Tag>;
 }
 
 interface SizeChartsViewProps {
@@ -50,10 +67,13 @@ interface SizeChartsViewProps {
 }
 
 export function SizeChartsView({ role }: SizeChartsViewProps) {
+  // Convention: admins mutate, sales get a read-only view.
   const canMutate = role === 'admin';
   const { message } = App.useApp();
-  const [charts, setCharts] = useState<SizeChart[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: charts, loading, setData: setCharts } = useAdminResource<SizeChart[]>(
+    '/api/admin/size-charts',
+    { errorMessage: 'Failed to load size charts' },
+  );
   const [uploadOpen, setUploadOpen] = useState(false);
   const [editingChart, setEditingChart] = useState<SizeChart | null>(null);
   const [viewingChart, setViewingChart] = useState<SizeChart | null>(null);
@@ -61,21 +81,8 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
   const [uploading, setUploading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  async function fetchCharts() {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/admin/size-charts');
-      if (!res.ok) throw new Error('Failed to load');
-      setCharts(await res.json());
-    } catch {
-      message.error('Failed to load size charts');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { fetchCharts(); }, []);
+  // Managed outside the antd Form (custom component) — GarmentTypesView pattern
+  const [sizes, setSizes] = useState<SizeChartSize[]>([]);
 
   async function handleUpload() {
     let values: { name: string; description?: string; file?: { file: File } };
@@ -89,15 +96,11 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
       const fd = new FormData();
       fd.append('name', values.name);
       if (values.description) fd.append('description', values.description);
+      fd.append('sizes', JSON.stringify(sizes));
       fd.append('file', file);
 
-      const res = await fetch('/api/admin/size-charts', { method: 'POST', body: fd });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? 'Upload failed');
-      }
-      const chart: SizeChart = await res.json();
-      setCharts((prev) => [chart, ...prev]);
+      const chart = await postForm<SizeChart>('/api/admin/size-charts', fd, 'Upload failed');
+      setCharts((prev) => [chart, ...(prev ?? [])]);
       message.success(`"${chart.name}" uploaded`);
       setUploadOpen(false);
       form.resetFields();
@@ -115,14 +118,12 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
 
     setEditSaving(true);
     try {
-      const res = await fetch(`/api/admin/size-charts/${editingChart.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: values.name, description: values.description ?? null }),
-      });
-      if (!res.ok) throw new Error('Save failed');
-      const updated: SizeChart = await res.json();
-      setCharts((prev) => prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)));
+      const updated = await patchJson<SizeChart>(
+        `/api/admin/size-charts/${editingChart.id}`,
+        { name: values.name, description: values.description ?? null, sizes },
+        'Save failed',
+      );
+      setCharts((prev) => (prev ?? []).map((c) => (c.id === updated.id ? { ...c, ...updated } : c)));
       message.success('Chart updated');
       setEditingChart(null);
       form.resetFields();
@@ -136,10 +137,12 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
   async function handleDelete(chart: SizeChart) {
     setDeletingId(chart.id);
     try {
-      const res = await fetch(`/api/admin/size-charts/${chart.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Delete failed');
-      const { linkedGarmentCount }: { linkedGarmentCount: number } = await res.json();
-      setCharts((prev) => prev.filter((c) => c.id !== chart.id));
+      const { linkedGarmentCount } = await deleteJson<{ linkedGarmentCount: number }>(
+        `/api/admin/size-charts/${chart.id}`,
+        undefined,
+        'Delete failed',
+      );
+      setCharts((prev) => (prev ?? []).filter((c) => c.id !== chart.id));
       if (linkedGarmentCount > 0) {
         message.warning(`"${chart.name}" deleted. It was linked to ${linkedGarmentCount} garment(s) — those links have been removed.`);
       } else {
@@ -177,11 +180,24 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
       dataIndex: 'storageKey',
       width: 80,
       render(key: string | null) {
-        if (!key) return null;
-        return key.endsWith('.pdf') ? (
-          <Tag color="red">PDF</Tag>
-        ) : (
-          <Tag color="blue">Image</Tag>
+        return fileTypeTag(key);
+      },
+    },
+    {
+      title: 'Sizes',
+      dataIndex: 'sizes',
+      render(value: SizeChartSize[]) {
+        if (!value || value.length === 0) {
+          return <Typography.Text type="secondary">—</Typography.Text>;
+        }
+        const shown = value.slice(0, 6);
+        return (
+          <Space wrap size={4}>
+            {shown.map((s) => (
+              <Tag key={s.label}>{s.tall ? `${s.label} +Tall` : s.label}</Tag>
+            ))}
+            {value.length > shown.length && <Tag>+{value.length - shown.length}</Tag>}
+          </Space>
         );
       },
     },
@@ -218,6 +234,7 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
                   icon={<EditOutlined />}
                   onClick={() => {
                     setEditingChart(record);
+                    setSizes(record.sizes ?? []);
                     form.setFieldsValue({ name: record.name, description: record.description ?? '' });
                   }}
                 />
@@ -250,23 +267,21 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
 
   return (
     <div>
-      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <Typography.Title level={3} style={{ marginBottom: 4 }}>Size Chart Library</Typography.Title>
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            Reusable reference charts that can be linked to garments.
-          </Typography.Paragraph>
-        </div>
-        {canMutate && (
-          <Button type="primary" icon={<UploadOutlined />} onClick={() => { form.resetFields(); setUploadOpen(true); }}>
-            Upload chart
-          </Button>
-        )}
-      </div>
+      <AdminPageHeader
+        title="Size Chart Library"
+        subtitle="Reusable reference charts that can be linked to garments."
+        extra={
+          canMutate && (
+            <Button type="primary" icon={<UploadOutlined />} onClick={() => { form.resetFields(); setSizes([]); setUploadOpen(true); }}>
+              Upload chart
+            </Button>
+          )
+        }
+      />
 
       <Card>
         <Table
-          dataSource={charts}
+          dataSource={charts ?? []}
           columns={columns}
           rowKey="id"
           loading={loading}
@@ -302,6 +317,12 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
               <Button icon={<UploadOutlined />}>Select PDF or Image</Button>
             </Upload>
           </Form.Item>
+          <Form.Item
+            label="Sizes"
+            help="Selectable size options for garments linked to this chart; tick Tall where an extra-long variant exists"
+          >
+            <SizeListManager value={sizes} onChange={setSizes} />
+          </Form.Item>
         </Form>
       </Modal>
 
@@ -316,7 +337,7 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
         styles={{ body: { padding: 0, overflow: 'hidden' } }}
         destroyOnHidden
       >
-        {viewingChart?.url && viewingChart.storageKey?.endsWith('.pdf') ? (
+        {viewingChart?.url && isPdf(viewingChart.storageKey) ? (
           <iframe
             src={viewingChart.url}
             style={{ width: '100%', height: 'calc(80vh - 110px)', border: 'none', display: 'block' }}
@@ -356,6 +377,12 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
           </Form.Item>
           <Form.Item name="description" label="Description">
             <Input />
+          </Form.Item>
+          <Form.Item
+            label="Sizes"
+            help="Selectable size options for garments linked to this chart; tick Tall where an extra-long variant exists"
+          >
+            <SizeListManager value={sizes} onChange={setSizes} />
           </Form.Item>
         </Form>
       </Modal>

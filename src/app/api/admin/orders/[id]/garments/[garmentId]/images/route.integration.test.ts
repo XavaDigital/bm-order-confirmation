@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 vi.mock('@/db', async () => {
   const { createTestDb } = await import('@/db/test-helpers');
@@ -15,21 +15,55 @@ vi.mock('@/lib/storage', async (importOriginal) => {
     ...actual,
     uploadFile: vi.fn().mockResolvedValue('mock-storage-key'),
     getSignedUrl: vi.fn().mockResolvedValue('https://signed.example.com/mock'),
+    isStorageConfigured: vi.fn().mockReturnValue(true),
+  };
+});
+
+vi.mock('@/lib/session', () => {
+  const store: Record<string, unknown> = {};
+  const session = new Proxy(store, {
+    get(target, prop) {
+      if (prop === 'save') return async () => {};
+      if (prop === 'destroy') return () => { for (const k of Object.keys(target)) delete target[k]; };
+      return target[prop as string];
+    },
+    set(target, prop, value) {
+      target[prop as string] = value;
+      return true;
+    },
+  });
+  return {
+    getSession: vi.fn(async () => session),
+    requireAdmin: vi.fn(async () => {
+      if (!session.userId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
+      if (session.role !== 'admin') return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
+      return { session };
+    }),
   };
 });
 
 import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
+import { getSession } from '@/lib/session';
 import { createOrderSchema } from '@/server/orders/contract';
 import { createOrder } from '@/server/orders/service';
-import { uploadFile, getSignedUrl } from '@/lib/storage';
+import { uploadFile, getSignedUrl, isStorageConfigured } from '@/lib/storage';
 import { POST } from './route';
+
+beforeEach(async () => {
+  const session = (await getSession()) as unknown as Record<string, unknown>;
+  session.userId = 'staff-1';
+  session.role = 'sales';
+});
 
 afterEach(async () => {
   await resetTestDb(db);
   vi.mocked(uploadFile).mockClear();
   vi.mocked(getSignedUrl).mockClear();
+  vi.mocked(isStorageConfigured).mockReturnValue(true);
+  const session = (await getSession()) as unknown as Record<string, unknown>;
+  for (const key of Object.keys(session)) delete session[key];
 });
 
 function minimalOrderInput(overrides: Partial<Parameters<typeof createOrderSchema.parse>[0]> = {}) {
@@ -65,6 +99,21 @@ function jsonRequest(body: unknown) {
 }
 
 describe('POST /api/admin/orders/[id]/garments/[garmentId]/images', () => {
+  it('returns 503 with a clear message when storage is not configured', async () => {
+    const { orderId, garmentId } = await seedOrderWithGarment();
+    vi.mocked(isStorageConfigured).mockReturnValue(false);
+    const file = new File(['abc'], 'mockup.png', { type: 'image/png' });
+
+    const res = await POST(multipartRequest({ file }), {
+      params: Promise.resolve({ id: orderId, garmentId }),
+    });
+    const json = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(json.error).toMatch(/storage is not configured/i);
+    expect(uploadFile).not.toHaveBeenCalled();
+  });
+
   it('returns 400 when the body is not multipart/form-data', async () => {
     const { orderId, garmentId } = await seedOrderWithGarment();
 

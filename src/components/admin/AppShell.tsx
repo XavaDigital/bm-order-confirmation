@@ -3,21 +3,25 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Layout, Menu, ConfigProvider, App, Tooltip } from 'antd';
+import { Layout, Menu, ConfigProvider, App, Button, Tooltip } from 'antd';
 import {
   DashboardOutlined,
   FileTextOutlined,
   ProfileOutlined,
+  SkinOutlined,
   TeamOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
 } from '@ant-design/icons';
-import { darkTheme, lightTheme } from '@/lib/theme';
+import { darkTheme, lightTheme, BRAND } from '@/lib/theme';
 import { APP_NAME } from '@/lib/config';
 import { ThemeToggle } from './ThemeToggle';
 import { UserMenu } from './UserMenu';
 
-const { Sider, Content } = Layout;
+const { Header, Sider, Content } = Layout;
+
+const HEADER_HEIGHT = 64;
+const SIDER_WIDTH = 250;
 
 interface AppShellProps {
   user: { name: string; email: string; role: 'sales' | 'admin' };
@@ -35,6 +39,11 @@ function buildNavItems(role: 'sales' | 'admin') {
       key: '/admin/orders',
       icon: <FileTextOutlined />,
       label: <Link href="/admin/orders">Orders</Link>,
+    },
+    {
+      key: '/admin/garment-types',
+      icon: <SkinOutlined />,
+      label: <Link href="/admin/garment-types">Garment Types</Link>,
     },
     {
       key: '/admin/size-charts',
@@ -80,116 +89,110 @@ export function AppShell({ user, children }: AppShellProps) {
     '';
 
   const theme = isDark ? darkTheme : lightTheme;
+  const borderColor = isDark ? '#2a2a2a' : '#e2e8f0';
 
   if (!mounted) return null;
-
-  const collapseBtn = (
-    <Tooltip title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} placement="right">
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        style={{
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
-          fontSize: 15,
-          color: 'rgba(255,255,255,0.45)',
-          padding: 6,
-          display: 'flex',
-          alignItems: 'center',
-          borderRadius: 4,
-          transition: 'color 0.2s',
-        }}
-        onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.88)')}
-        onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.45)')}
-      >
-        {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-      </button>
-    </Tooltip>
-  );
 
   return (
     <ConfigProvider theme={theme}>
       <App>
         <Layout style={{ minHeight: '100vh' }}>
-        <Sider
-          collapsible
-          collapsed={collapsed}
-          onCollapse={setCollapsed}
-          trigger={null}
-          width={220}
-          style={{ position: 'sticky', top: 0, height: '100vh', overflow: 'hidden' }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            {/* Logo + collapse */}
-            <div
+          {/* Fixed full-width top bar (SalesFlow shell convention) */}
+          <Header
+            style={{
+              position: 'fixed',
+              top: 0,
+              insetInlineStart: 0,
+              width: '100%',
+              zIndex: 100,
+              height: HEADER_HEIGHT,
+              lineHeight: `${HEADER_HEIGHT}px`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0 20px',
+              borderBottom: `1px solid ${borderColor}`,
+            }}
+          >
+            <span
               style={{
-                height: 64,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: collapsed ? 'center' : 'space-between',
-                padding: collapsed ? '0 12px' : '0 12px 0 20px',
-                borderBottom: '1px solid rgba(255,255,255,0.1)',
-                flexShrink: 0,
+                color: isDark ? '#ffffff' : '#1e293b',
+                fontWeight: 700,
+                fontSize: 19,
+                whiteSpace: 'nowrap',
               }}
             >
-              {!collapsed && (
-                <span
+              {APP_NAME}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ThemeToggle isDark={isDark} onToggle={toggleTheme} />
+              <UserMenu name={user.name} email={user.email} role={user.role} />
+            </div>
+          </Header>
+
+          <Layout style={{ paddingTop: HEADER_HEIGHT }}>
+            <Sider
+              collapsible
+              collapsed={collapsed}
+              onCollapse={setCollapsed}
+              trigger={null}
+              width={SIDER_WIDTH}
+              theme={isDark ? 'dark' : 'light'}
+              style={{
+                position: 'sticky',
+                top: HEADER_HEIGHT,
+                height: `calc(100vh - ${HEADER_HEIGHT}px)`,
+                borderRight: `1px solid ${borderColor}`,
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <div style={{ flex: 1, overflowY: 'auto' }}>
+                  <Menu
+                    theme={isDark ? 'dark' : 'light'}
+                    mode="inline"
+                    selectedKeys={[selectedKey]}
+                    items={navItems}
+                    style={{ borderInlineEnd: 0, marginTop: 8 }}
+                  />
+                </div>
+                {/* Collapse chevron pinned to the sidebar foot (SalesFlow convention) */}
+                <div
                   style={{
-                    color: '#BF272D',
-                    fontWeight: 900,
-                    fontSize: 16,
-                    letterSpacing: 2,
-                    textTransform: 'uppercase',
-                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                    padding: '8px 12px',
+                    borderTop: `1px solid ${borderColor}`,
+                    display: 'flex',
+                    justifyContent: collapsed ? 'center' : 'flex-start',
                   }}
                 >
-                  {APP_NAME}
-                </span>
-              )}
-              {collapseBtn}
-            </div>
-
-            {/* Nav — scrollable */}
-            <div style={{ flex: 1, overflowY: 'auto' }}>
-              <Menu
-                theme="dark"
-                mode="inline"
-                selectedKeys={[selectedKey]}
-                items={navItems}
-                style={{ borderRight: 0, marginTop: 8 }}
-              />
-            </div>
-
-            {/* Bottom: theme + user */}
-            <div style={{ flexShrink: 0 }}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: collapsed ? 'center' : 'flex-start',
-                  padding: collapsed ? '4px 0' : '4px 8px',
-                }}
-              >
-                <ThemeToggle isDark={isDark} onToggle={toggleTheme} />
+                  <Tooltip title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} placement="right">
+                    <Button
+                      type="text"
+                      icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                      onClick={() => setCollapsed(!collapsed)}
+                    />
+                  </Tooltip>
+                </div>
               </div>
+            </Sider>
 
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                <UserMenu
-                  name={user.name}
-                  email={user.email}
-                  role={user.role}
-                  collapsed={collapsed}
-                />
-              </div>
-            </div>
-          </div>
-        </Sider>
-
-        <Layout>
-          <Content style={{ margin: 24, minHeight: 'calc(100vh - 48px)' }}>
-            {children}
-          </Content>
-        </Layout>
+            <Layout>
+              <Content style={{ margin: 16, minHeight: `calc(100vh - ${HEADER_HEIGHT + 32}px)` }}>
+                {/* Rounded content surface inset from the chrome (SalesFlow shell) */}
+                <div
+                  style={{
+                    background: isDark ? BRAND.pageDark : '#ffffff',
+                    border: `1px solid ${borderColor}`,
+                    borderRadius: 12,
+                    padding: 24,
+                    minHeight: '100%',
+                  }}
+                >
+                  {children}
+                </div>
+              </Content>
+            </Layout>
+          </Layout>
         </Layout>
       </App>
     </ConfigProvider>

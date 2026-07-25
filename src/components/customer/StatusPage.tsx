@@ -1,4 +1,4 @@
-import { BEASTMODE } from '@/lib/theme';
+import { BRAND } from '@/lib/theme';
 
 interface StatusPageProps {
   icon: React.ReactNode;
@@ -15,7 +15,7 @@ export function StatusPage({ icon, maxWidth = 480, children }: StatusPageProps) 
     <div
       style={{
         minHeight: '100vh',
-        background: BEASTMODE.navy,
+        background: BRAND.pageDark,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

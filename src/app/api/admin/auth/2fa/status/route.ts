@@ -2,27 +2,26 @@ import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { staffUsers } from '@/db/schema';
-import { getSession } from '@/lib/session';
+import { defineRoute } from '@/lib/route-handler';
 
-export async function GET() {
-  const session = await getSession();
-  if (!session.userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const GET = defineRoute({
+  auth: 'staff',
+  tag: 'admin/auth/2fa/status GET',
+  handler: async ({ session }) => {
+    const user = await db.query.staffUsers.findFirst({
+      where: eq(staffUsers.id, session!.userId),
+      columns: { totpEnabled: true, totpBackupCodes: true },
+    });
 
-  const user = await db.query.staffUsers.findFirst({
-    where: eq(staffUsers.id, session.userId),
-    columns: { totpEnabled: true, totpBackupCodes: true },
-  });
+    if (!user) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
 
-  if (!user) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
+    const backupCodesRemaining = ((user.totpBackupCodes as string[] | null) ?? []).length;
 
-  const backupCodesRemaining = ((user.totpBackupCodes as string[] | null) ?? []).length;
-
-  return NextResponse.json({
-    enabled: user.totpEnabled,
-    backupCodesRemaining,
-  });
-}
+    return NextResponse.json({
+      enabled: user.totpEnabled,
+      backupCodesRemaining,
+    });
+  },
+});

@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Timeline, Tag, Typography, Spin, Alert } from 'antd';
+import { useAdminResource } from '@/lib/use-admin-resource';
+import { SEMANTIC } from '@/lib/semantic-colors';
 import {
   BgColorsOutlined,
   LinkOutlined,
@@ -35,93 +37,111 @@ interface Props {
   orderId: string;
 }
 
+const EVENT_ICONS: Record<string, ReactNode> = {
+  'token.generated': <LinkOutlined style={{ color: SEMANTIC.info }} />,
+  'token.revoked':   <StopOutlined style={{ color: SEMANTIC.error }} />,
+  'link.emailed':    <MailOutlined style={{ color: SEMANTIC.success }} />,
+  'order.updated':   <EditOutlined style={{ color: SEMANTIC.warning }} />,
+  'order.viewed':    <EyeOutlined style={{ color: SEMANTIC.viewed }} />,
+  'order.confirmed': <CheckCircleOutlined style={{ color: SEMANTIC.success }} />,
+  'order.color_sample_requested': <BgColorsOutlined style={{ color: SEMANTIC.hold }} />,
+  'order.color_sample_resolved': <CheckCircleOutlined style={{ color: SEMANTIC.success }} />,
+  'order.changes_requested': <MessageOutlined style={{ color: SEMANTIC.warning }} />,
+  'order.duplicated': <CopyOutlined style={{ color: SEMANTIC.duplicate }} />,
+  'order.cancelled': <CloseCircleOutlined style={{ color: SEMANTIC.error }} />,
+  'access_code.enabled':  <KeyOutlined style={{ color: SEMANTIC.info }} />,
+  'access_code.disabled': <KeyOutlined style={{ color: SEMANTIC.error }} />,
+  'roster.member_added':   <UserAddOutlined style={{ color: SEMANTIC.info }} />,
+  'roster.member_removed': <UserDeleteOutlined style={{ color: SEMANTIC.error }} />,
+  'roster.token_generated': <LinkOutlined style={{ color: SEMANTIC.info }} />,
+  'roster.token_revoked':   <StopOutlined style={{ color: SEMANTIC.error }} />,
+  'roster.locked':   <LockOutlined style={{ color: SEMANTIC.warning }} />,
+  'roster.unlocked': <UnlockOutlined style={{ color: SEMANTIC.info }} />,
+  'roster.import_completed': <UploadOutlined style={{ color: SEMANTIC.info }} />,
+  'roster.link_emailed':    <MailOutlined style={{ color: SEMANTIC.success }} />,
+  'roster.reminder_sent':   <MailOutlined style={{ color: SEMANTIC.success }} />,
+  'roster.member_link_generated': <LinkOutlined style={{ color: SEMANTIC.info }} />,
+  'roster.member_link_emailed':   <MailOutlined style={{ color: SEMANTIC.success }} />,
+};
+
 function eventIcon(type: string) {
-  switch (type) {
-    case 'token.generated': return <LinkOutlined style={{ color: '#1677ff' }} />;
-    case 'token.revoked':   return <StopOutlined style={{ color: '#ff4d4f' }} />;
-    case 'link.emailed':    return <MailOutlined style={{ color: '#52c41a' }} />;
-    case 'order.updated':   return <EditOutlined style={{ color: '#faad14' }} />;
-    case 'order.viewed':    return <EyeOutlined style={{ color: '#722ed1' }} />;
-    case 'order.confirmed': return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
-    case 'order.color_sample_requested': return <BgColorsOutlined style={{ color: '#d46b08' }} />;
-    case 'order.color_sample_resolved': return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
-    case 'order.changes_requested': return <MessageOutlined style={{ color: '#faad14' }} />;
-    case 'order.duplicated': return <CopyOutlined style={{ color: '#13c2c2' }} />;
-    case 'order.cancelled': return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
-    case 'access_code.enabled':  return <KeyOutlined style={{ color: '#1677ff' }} />;
-    case 'access_code.disabled': return <KeyOutlined style={{ color: '#ff4d4f' }} />;
-    case 'roster.member_added':   return <UserAddOutlined style={{ color: '#1677ff' }} />;
-    case 'roster.member_removed': return <UserDeleteOutlined style={{ color: '#ff4d4f' }} />;
-    case 'roster.token_generated': return <LinkOutlined style={{ color: '#1677ff' }} />;
-    case 'roster.token_revoked':   return <StopOutlined style={{ color: '#ff4d4f' }} />;
-    case 'roster.locked':   return <LockOutlined style={{ color: '#faad14' }} />;
-    case 'roster.unlocked': return <UnlockOutlined style={{ color: '#1677ff' }} />;
-    case 'roster.import_completed': return <UploadOutlined style={{ color: '#1677ff' }} />;
-    case 'roster.link_emailed':    return <MailOutlined style={{ color: '#52c41a' }} />;
-    case 'roster.reminder_sent':   return <MailOutlined style={{ color: '#52c41a' }} />;
-    case 'roster.member_link_generated': return <LinkOutlined style={{ color: '#1677ff' }} />;
-    case 'roster.member_link_emailed':   return <MailOutlined style={{ color: '#52c41a' }} />;
-    default: return null;
-  }
+  return EVENT_ICONS[type] ?? null;
+}
+
+const EVENT_LABELS: Record<string, string> = {
+  'token.generated': 'Link generated',
+  'token.revoked':   'Link revoked',
+  'link.emailed':    'Link emailed to customer',
+  'order.updated':   'Order details updated',
+  'order.viewed':    'Customer viewed order',
+  'order.confirmed': 'Customer confirmed order',
+  'order.color_sample_requested': 'Colour book / sample requested',
+  'order.color_sample_resolved': 'Colour sample request resolved',
+  'order.changes_requested': 'Changes requested',
+  'order.duplicated': 'Duplicated from another order',
+  'order.cancelled': 'Order cancelled',
+  'order.deleted': 'Order deleted',
+  'garment.added':   'Garment added',
+  'garment.updated': 'Garment updated',
+  'garment.removed': 'Garment removed',
+  'sizing.updated':  'Sizing updated',
+  'mockup.added':    'Mock-up image added',
+  'mockup.removed':  'Mock-up image removed',
+  'chart_links.updated': 'Size chart links updated',
+  'access_code.enabled':  'Access code enabled',
+  'access_code.disabled': 'Access code removed',
+  'roster.member_added':   'Team member added',
+  'roster.member_updated': 'Team member updated',
+  'roster.member_removed': 'Team member removed',
+  'roster.token_generated': 'Roster link generated',
+  'roster.token_revoked':   'Roster link revoked',
+  'roster.locked':   'Roster locked',
+  'roster.unlocked': 'Roster unlocked',
+  'roster.import_completed': 'Roster imported from file',
+  'roster.link_emailed': 'Roster link emailed',
+  'roster.reminder_sent': 'Reminder sent',
+  'roster.member_link_generated': 'Individual link generated',
+  'roster.member_link_emailed': 'Individual link emailed',
+};
+
+/** "some.future_event" → "Some future event" — readable fallback for types without a curated label. */
+function prettifyEventType(type: string): string {
+  const words = type.replace(/[._]/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 function eventLabel(type: string): string {
-  const labels: Record<string, string> = {
-    'token.generated': 'Link generated',
-    'token.revoked':   'Link revoked',
-    'link.emailed':    'Link emailed to customer',
-    'order.updated':   'Order details updated',
-    'order.viewed':    'Customer viewed order',
-    'order.confirmed': 'Customer confirmed order',
-    'order.color_sample_requested': 'Colour book / sample requested',
-    'order.color_sample_resolved': 'Colour sample request resolved',
-    'order.changes_requested': 'Changes requested',
-    'order.duplicated': 'Duplicated from another order',
-    'order.cancelled': 'Order cancelled',
-    'access_code.enabled':  'Access code enabled',
-    'access_code.disabled': 'Access code removed',
-    'roster.member_added':   'Team member added',
-    'roster.member_removed': 'Team member removed',
-    'roster.token_generated': 'Roster link generated',
-    'roster.token_revoked':   'Roster link revoked',
-    'roster.locked':   'Roster locked',
-    'roster.unlocked': 'Roster unlocked',
-    'roster.import_completed': 'Roster imported from file',
-    'roster.link_emailed': 'Roster link emailed',
-    'roster.reminder_sent': 'Reminder sent',
-    'roster.member_link_generated': 'Individual link generated',
-    'roster.member_link_emailed': 'Individual link emailed',
-  };
-  return labels[type] ?? type;
+  return EVENT_LABELS[type] ?? prettifyEventType(type);
 }
 
+const EVENT_COLORS: Record<string, string> = {
+  'token.revoked':          'red',
+  'order.confirmed':        'green',
+  'order.color_sample_requested': 'volcano',
+  'order.color_sample_resolved': 'green',
+  'link.emailed':           'green',
+  'order.viewed':           'purple',
+  'token.generated':        'blue',
+  'order.changes_requested': 'orange',
+  'order.duplicated':       'cyan',
+  'order.cancelled':        'red',
+  'access_code.enabled':    'blue',
+  'access_code.disabled':   'red',
+  'roster.member_added':    'blue',
+  'roster.member_removed':  'red',
+  'roster.token_generated': 'blue',
+  'roster.token_revoked':   'red',
+  'roster.locked':          'orange',
+  'roster.unlocked':        'blue',
+  'roster.import_completed': 'blue',
+  'roster.link_emailed':    'green',
+  'roster.reminder_sent':   'green',
+  'roster.member_link_generated': 'blue',
+  'roster.member_link_emailed':   'green',
+};
+
 function eventColor(type: string): string {
-  switch (type) {
-    case 'token.revoked':          return 'red';
-    case 'order.confirmed':        return 'green';
-    case 'order.color_sample_requested': return 'volcano';
-    case 'order.color_sample_resolved': return 'green';
-    case 'link.emailed':           return 'green';
-    case 'order.viewed':           return 'purple';
-    case 'token.generated':        return 'blue';
-    case 'order.changes_requested': return 'orange';
-    case 'order.duplicated':       return 'cyan';
-    case 'order.cancelled':        return 'red';
-    case 'access_code.enabled':    return 'blue';
-    case 'access_code.disabled':   return 'red';
-    case 'roster.member_added':    return 'blue';
-    case 'roster.member_removed':  return 'red';
-    case 'roster.token_generated': return 'blue';
-    case 'roster.token_revoked':   return 'red';
-    case 'roster.locked':          return 'orange';
-    case 'roster.unlocked':        return 'blue';
-    case 'roster.import_completed': return 'blue';
-    case 'roster.link_emailed':    return 'green';
-    case 'roster.reminder_sent':   return 'green';
-    case 'roster.member_link_generated': return 'blue';
-    case 'roster.member_link_emailed':   return 'green';
-    default:                       return 'gray';
-  }
+  return EVENT_COLORS[type] ?? 'gray';
 }
 
 function EventDetail({ event }: { event: AuditEvent }) {
@@ -129,7 +149,7 @@ function EventDetail({ event }: { event: AuditEvent }) {
 
   if (event.eventType === 'order.changes_requested' && typeof p.comment === 'string') {
     return (
-      <div style={{ marginTop: 6, paddingLeft: 10, borderLeft: '2px solid #faad14' }}>
+      <div style={{ marginTop: 6, paddingLeft: 10, borderLeft: `2px solid ${SEMANTIC.warning}` }}>
         <Text style={{ fontSize: 12, whiteSpace: 'pre-wrap', color: 'rgba(255,255,255,0.75)' }}>
           {p.comment}
         </Text>
@@ -177,17 +197,11 @@ function EventDetail({ event }: { event: AuditEvent }) {
 }
 
 export function AuditLogTab({ orderId }: Props) {
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch(`/api/admin/orders/${orderId}/audit`)
-      .then((r) => r.json())
-      .then((data: { events: AuditEvent[] }) => setEvents(data.events ?? []))
-      .catch(() => setError('Failed to load audit log'))
-      .finally(() => setLoading(false));
-  }, [orderId]);
+  const { data, loading, error } = useAdminResource<{ events: AuditEvent[] }>(
+    `/api/admin/orders/${orderId}/audit`,
+    { errorMessage: 'Failed to load audit log', toast: false },
+  );
+  const events = data?.events ?? [];
 
   if (loading) return <Spin style={{ display: 'block', marginTop: 32 }} />;
   if (error) return <Alert type="error" message={error} />;

@@ -16,14 +16,26 @@ import {
   garmentSizing,
   mockupImages,
   garmentSizeChartLinks,
+  garmentTypes,
   orderAccess,
+  orderNotes,
   domainEvents,
 } from '@/db/schema';
-import { generateToken, hashToken, buildConfirmationUrl } from '@/lib/tokens';
+import type { Transaction } from '@/db';
+import { generateToken, buildConfirmationUrl } from '@/lib/tokens';
+import { isUniqueViolation } from '@/lib/db-errors';
+import { pickDefined } from '@/lib/patch';
+import {
+  computeAccessExpiry,
+  insertToken,
+  mintToken,
+  resolveActiveToken,
+  revokeActiveTokens,
+} from '@/server/access/tokens';
 import { generateAccessCode, hashAccessCode } from '@/lib/access-code';
 import { STALE_THRESHOLD_DAYS } from '@/lib/config';
 import { env } from '@/lib/env';
-import { emitDomainEvent, recordAuditEvent } from '@/server/events/outbox';
+import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
 import type { CreateOrderInput } from './contract';
 import type { UpdateOrderInput, AddGarmentInput, UpdateGarmentInput, UpsertSizingInput } from './admin-contract';
 
@@ -53,9 +65,148 @@ function generateOrderNumber(): string {
   return `OC-${randomBytes(4).toString('hex').toUpperCase()}`;
 }
 
-/** Null when `LINK_EXPIRY_DAYS` is unset — links never expire. */
-export function computeAccessExpiry(): Date | null {
-  return env.LINK_EXPIRY_DAYS ? new Date(Date.now() + env.LINK_EXPIRY_DAYS * 86_400_000) : null;
+/**
+ * Run `fn` with a freshly generated order number, retrying on an order-number
+ * unique violation. 32 bits of randomness makes collisions rare but
+ * inevitable at scale (~1.2% odds of one by 10k orders) — without the retry a
+ * collision surfaces as an unhandled 500 on a create path.
+ */
+async function withOrderNumberRetry<T>(
+  fn: (orderNumber: string) => Promise<T>,
+  attempts = 3,
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn(generateOrderNumber());
+    } catch (err) {
+      if (attempt < attempts && isUniqueViolation(err, 'orders_order_number_unique')) continue;
+      throw err;
+    }
+  }
+}
+
+// Re-exported for existing importers; canonical home is src/server/access/tokens.ts.
+export { computeAccessExpiry };
+
+async function loadOrderOrThrow(id: string) {
+  const order = await db.query.orders.findFirst({ where: eq(orders.id, id) });
+  if (!order) throw new NotFoundError('Order');
+  return order;
+}
+
+async function loadGarmentOrThrow(id: string) {
+  const garment = await db.query.garments.findFirst({ where: eq(garments.id, id) });
+  if (!garment) throw new NotFoundError('Garment');
+  return garment;
+}
+
+/** Next free sortOrder within a scope (0 for the first row). */
+async function nextSortOrder(
+  executor: Transaction | typeof db,
+  table: typeof garments | typeof mockupImages,
+  where: ReturnType<typeof eq>,
+): Promise<number> {
+  const [{ maxSort }] = await executor
+    .select({ maxSort: sql<number>`coalesce(max(${table.sortOrder}), -1)` })
+    .from(table)
+    .where(where);
+  return Number(maxSort) + 1;
+}
+
+/** Everything hanging off one garment row — shared by create and duplicate. */
+type GarmentTreeInput = {
+  name: string;
+  fabrics: string[];
+  notes?: string | null;
+  sortOrder: number;
+  garmentTypeId?: string | null;
+  selectedOptions?: Record<string, string> | null;
+  selectedFabrics?: Record<string, string> | null;
+  sizing: {
+    size?: string | null;
+    playerName?: string | null;
+    playerNumber?: string | null;
+    notes?: string | null;
+    sortOrder?: number;
+  }[];
+  mockupStorageKeys?: string[];
+  chartIds: string[];
+};
+
+/** Insert a garment plus its sizing rows, mock-up refs, and chart links. */
+async function insertGarmentTree(
+  tx: Transaction,
+  orderId: string,
+  g: GarmentTreeInput,
+): Promise<string> {
+  const [garment] = await tx
+    .insert(garments)
+    .values({
+      orderId,
+      name: g.name,
+      fabrics: g.fabrics,
+      notes: g.notes ?? null,
+      sortOrder: g.sortOrder,
+      garmentTypeId: g.garmentTypeId ?? null,
+      selectedOptions:
+        g.selectedOptions && Object.keys(g.selectedOptions).length > 0 ? g.selectedOptions : null,
+      selectedFabrics:
+        g.selectedFabrics && Object.keys(g.selectedFabrics).length > 0 ? g.selectedFabrics : null,
+    })
+    .returning({ id: garments.id });
+
+  if (g.sizing.length) {
+    await tx.insert(garmentSizing).values(
+      g.sizing.map((row, j) => ({
+        garmentId: garment.id,
+        size: row.size ?? null,
+        playerName: row.playerName ?? null,
+        playerNumber: row.playerNumber ?? null,
+        notes: row.notes ?? null,
+        sortOrder: row.sortOrder ?? j,
+      })),
+    );
+  }
+
+  if (g.mockupStorageKeys?.length) {
+    await tx.insert(mockupImages).values(
+      g.mockupStorageKeys.map((storageKey, j) => ({
+        garmentId: garment.id,
+        storageKey,
+        sortOrder: j,
+      })),
+    );
+  }
+
+  if (g.chartIds.length > 0) {
+    await tx.insert(garmentSizeChartLinks).values(
+      g.chartIds.map((sizeChartId) => ({ garmentId: garment.id, sizeChartId })),
+    );
+  }
+
+  return garment.id;
+}
+
+/**
+ * Resolve a garment-type preset for garment creation: the type's linked size
+ * charts (to auto-attach) and default option values ({label: value}).
+ */
+async function resolveGarmentTypePreset(
+  tx: Transaction | typeof db,
+  garmentTypeId: string,
+): Promise<{ chartIds: string[]; optionDefaults: Record<string, string> }> {
+  const type = await tx.query.garmentTypes.findFirst({
+    where: eq(garmentTypes.id, garmentTypeId),
+    with: { sizeChartLinks: { columns: { sizeChartId: true } } },
+  });
+  if (!type) throw new NotFoundError('Garment type');
+
+  const optionDefaults: Record<string, string> = {};
+  for (const opt of type.orderOptions ?? []) {
+    if (opt.type === 'select' && opt.defaultOption) optionDefaults[opt.label] = opt.defaultOption;
+    if (opt.type === 'text' && opt.defaultValue) optionDefaults[opt.label] = opt.defaultValue;
+  }
+  return { chartIds: type.sizeChartLinks.map((l) => l.sizeChartId), optionDefaults };
 }
 
 // ---------------------------------------------------------------------------
@@ -74,10 +225,10 @@ export async function createOrder(
   input: CreateOrderInput,
   createdBy?: string,
 ): Promise<CreateOrderResult> {
-  const orderNumber = generateOrderNumber();
   const rawToken = generateToken();
   let createdOrderId = '';
 
+  const orderNumber = await withOrderNumberRetry(async (orderNumber) => {
   await db.transaction(async (tx) => {
     const [order] = await tx
       .insert(orders)
@@ -99,6 +250,8 @@ export async function createOrder(
         shippingAddress: input.shipping?.address ?? null,
         status: 'draft',
         createdBy: createdBy ?? null,
+        hubCustomerId: input.hubCustomerId ?? null,
+        hubCustomerName: input.hubCustomerName ?? null,
       })
       .returning({ id: orders.id });
 
@@ -106,42 +259,33 @@ export async function createOrder(
     createdOrderId = orderId;
 
     for (const [i, g] of input.garments.entries()) {
-      const [garment] = await tx
-        .insert(garments)
-        .values({ orderId, name: g.name, fabrics: g.fabrics ?? [], notes: g.notes, sortOrder: i })
-        .returning({ id: garments.id });
+      // A garment-type preset auto-attaches the type's size charts and
+      // defaults option values for anything the caller didn't specify.
+      const preset = g.garmentTypeId
+        ? await resolveGarmentTypePreset(tx, g.garmentTypeId)
+        : null;
+      const selectedOptions = preset
+        ? { ...preset.optionDefaults, ...(g.selectedOptions ?? {}) }
+        : (g.selectedOptions ?? null);
+      const chartIds = [...new Set([...(g.sizeChartIds ?? []), ...(preset?.chartIds ?? [])])];
 
-      if (g.sizing?.length) {
-        await tx.insert(garmentSizing).values(
-          g.sizing.map((row, j) => ({
-            garmentId: garment.id,
-            size: row.size,
-            playerName: row.playerName,
-            playerNumber: row.playerNumber,
-            notes: row.notes,
-            sortOrder: j,
-          })),
-        );
-      }
-
-      if (g.mockupStorageKeys?.length) {
-        await tx.insert(mockupImages).values(
-          g.mockupStorageKeys.map((storageKey, j) => ({
-            garmentId: garment.id,
-            storageKey,
-            sortOrder: j,
-          })),
-        );
-      }
-
-      if (g.sizeChartIds?.length) {
-        await tx.insert(garmentSizeChartLinks).values(
-          g.sizeChartIds.map((sizeChartId) => ({ garmentId: garment.id, sizeChartId })),
-        );
-      }
+      await insertGarmentTree(tx, orderId, {
+        name: g.name,
+        fabrics: g.fabrics ?? [],
+        notes: g.notes,
+        sortOrder: i,
+        garmentTypeId: g.garmentTypeId,
+        selectedOptions,
+        selectedFabrics: g.selectedFabrics,
+        sizing: g.sizing ?? [],
+        mockupStorageKeys: g.mockupStorageKeys,
+        chartIds,
+      });
     }
 
-    await tx.insert(orderAccess).values({ orderId, tokenHash: hashToken(rawToken), expiresAt: computeAccessExpiry() });
+    await insertToken(tx, orderAccess, rawToken, { orderId });
+  });
+    return orderNumber;
   });
 
   return { orderId: createdOrderId, orderNumber, token: rawToken, url: buildConfirmationUrl(rawToken) };
@@ -358,6 +502,7 @@ export async function getOrderAdmin(id: string) {
           sizeChartLinks: true,
         },
       },
+      notes: { orderBy: (n, { desc }) => [desc(n.createdAt)] },
     },
   });
 
@@ -369,6 +514,11 @@ export async function getOrderAdmin(id: string) {
   });
 
   return { ...order, currentAccess: currentAccess ?? null };
+}
+
+/** Lookup for the capability surface's externalRef idempotency check. */
+export async function getOrderByExternalRef(externalRef: string) {
+  return db.query.orders.findFirst({ where: eq(orders.externalRef, externalRef) });
 }
 
 export async function getOrderById(id: string) {
@@ -412,10 +562,10 @@ export async function duplicateOrder(
   const source = await getOrderAdmin(id);
   if (!source) throw new NotFoundError('Order');
 
-  const orderNumber = generateOrderNumber();
   const rawToken = generateToken();
   let createdOrderId = '';
 
+  const orderNumber = await withOrderNumberRetry(async (orderNumber) => {
   await db.transaction(async (tx) => {
     const [order] = await tx
       .insert(orders)
@@ -437,6 +587,9 @@ export async function duplicateOrder(
         shippingAddress: source.shippingAddress,
         status: 'draft',
         createdBy: createdBy ?? null,
+        // Same customer, same hub association
+        hubCustomerId: source.hubCustomerId ?? null,
+        hubCustomerName: source.hubCustomerName ?? null,
       })
       .returning({ id: orders.id });
 
@@ -444,40 +597,24 @@ export async function duplicateOrder(
     createdOrderId = orderId;
 
     for (const g of source.garments) {
-      const [garment] = await tx
-        .insert(garments)
-        .values({
-          orderId,
-          name: g.name,
-          fabrics: Array.isArray(g.fabrics) ? g.fabrics : [],
-          notes: g.notes,
-          sortOrder: g.sortOrder,
-        })
-        .returning({ id: garments.id });
-
-      if (g.sizing.length) {
-        await tx.insert(garmentSizing).values(
-          g.sizing.map((row) => ({
-            garmentId: garment.id,
-            size: row.size,
-            playerName: row.playerName,
-            playerNumber: row.playerNumber,
-            notes: row.notes,
-            sortOrder: row.sortOrder,
-          })),
-        );
-      }
-
-      if (g.sizeChartLinks.length) {
-        await tx.insert(garmentSizeChartLinks).values(
-          g.sizeChartLinks.map((l) => ({ garmentId: garment.id, sizeChartId: l.sizeChartId })),
-        );
-      }
+      // No mockupStorageKeys: image storage keys are namespaced per-order (see
+      // the doc comment above) — the duplicate starts with no mock-ups.
+      await insertGarmentTree(tx, orderId, {
+        name: g.name,
+        fabrics: Array.isArray(g.fabrics) ? g.fabrics : [],
+        notes: g.notes,
+        sortOrder: g.sortOrder,
+        garmentTypeId: g.garmentTypeId,
+        selectedOptions: g.selectedOptions,
+        selectedFabrics: g.selectedFabrics,
+        sizing: g.sizing,
+        chartIds: g.sizeChartLinks.map((l) => l.sizeChartId),
+      });
     }
 
-    await tx.insert(orderAccess).values({ orderId, tokenHash: hashToken(rawToken), expiresAt: computeAccessExpiry() });
+    await insertToken(tx, orderAccess, rawToken, { orderId });
 
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: orderId,
       eventType: 'order.duplicated',
       payload: {
@@ -486,6 +623,8 @@ export async function duplicateOrder(
         actorEmail: meta?.actorEmail ?? null,
       },
     });
+  });
+    return orderNumber;
   });
 
   return { orderId: createdOrderId, orderNumber, token: rawToken, url: buildConfirmationUrl(rawToken) };
@@ -500,26 +639,14 @@ export async function updateOrder(
   patch: UpdateOrderInput,
   meta?: { actorEmail?: string },
 ) {
-  const existing = await db.query.orders.findFirst({ where: eq(orders.id, id) });
-  if (!existing) throw new NotFoundError('Order');
+  await loadOrderOrThrow(id);
 
+  const { orderValueAmount, ...rest } = patch;
   await db.update(orders).set({
-    ...(patch.customerName !== undefined && { customerName: patch.customerName }),
-    ...(patch.customerEmail !== undefined && { customerEmail: patch.customerEmail }),
-    ...(patch.customerContact !== undefined && { customerContact: patch.customerContact }),
-    ...(patch.clubName !== undefined && { clubName: patch.clubName }),
-    ...(patch.orderValueAmount !== undefined && {
-      orderValueAmount: patch.orderValueAmount != null ? String(patch.orderValueAmount) : null,
+    ...pickDefined(rest),
+    ...(orderValueAmount !== undefined && {
+      orderValueAmount: orderValueAmount != null ? String(orderValueAmount) : null,
     }),
-    ...(patch.orderValueCurrency !== undefined && { orderValueCurrency: patch.orderValueCurrency }),
-    ...(patch.invoiceUrl !== undefined && { invoiceUrl: patch.invoiceUrl }),
-    ...(patch.expectedShipDate !== undefined && { expectedShipDate: patch.expectedShipDate }),
-    ...(patch.deadlineDate !== undefined && { deadlineDate: patch.deadlineDate }),
-    ...(patch.generalNotes !== undefined && { generalNotes: patch.generalNotes }),
-    ...(patch.internalNotes !== undefined && { internalNotes: patch.internalNotes }),
-    ...(patch.shippingMode !== undefined && { shippingMode: patch.shippingMode }),
-    ...(patch.shippingAddress !== undefined && { shippingAddress: patch.shippingAddress }),
-    ...(patch.status !== undefined && { status: patch.status }),
     updatedAt: new Date(),
   }).where(eq(orders.id, id));
 
@@ -530,63 +657,157 @@ export async function updateOrder(
   });
 }
 
-export async function deleteOrder(id: string) {
-  const existing = await db.query.orders.findFirst({ where: eq(orders.id, id) });
-  if (!existing) throw new NotFoundError('Order');
+/**
+ * Add an attributed staff-only note to an order. Used by the admin UI and by
+ * Email Flow via the inbound capability surface (POST /api/capability/v1/
+ * orders/[id]/notes). Never exposed on the customer surface.
+ */
+export async function addOrderNote(
+  orderId: string,
+  data: { body: string; authorKind: 'staff' | 'email_flow' | 'system'; authorLabel?: string | null },
+) {
+  await loadOrderOrThrow(orderId);
+
+  return db.transaction(async (tx) => {
+    const [note] = await tx
+      .insert(orderNotes)
+      .values({
+        orderId,
+        body: data.body,
+        authorKind: data.authorKind,
+        authorLabel: data.authorLabel ?? null,
+      })
+      .returning();
+
+    await emitOrderEvent(tx, {
+      aggregateId: orderId,
+      eventType: 'order.note_added',
+      payload: { noteId: note.id, authorKind: data.authorKind, authorLabel: data.authorLabel ?? null },
+    });
+
+    return note;
+  });
+}
+
+export async function deleteOrder(id: string, meta?: { actorEmail?: string }) {
+  const existing = await loadOrderOrThrow(id);
   if (existing.status !== 'draft') {
     throw new ConflictError('Only draft orders can be deleted');
   }
   await db.delete(orders).where(eq(orders.id, id));
+
+  await recordAuditEvent({
+    aggregateId: id,
+    eventType: 'order.deleted',
+    payload: { orderNumber: existing.orderNumber },
+    actorEmail: meta?.actorEmail ?? null,
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Admin writes — garments
 // ---------------------------------------------------------------------------
 
-export async function addGarment(orderId: string, data: AddGarmentInput) {
-  const [{ maxSort }] = await db
-    .select({ maxSort: sql<number>`coalesce(max(${garments.sortOrder}), -1)` })
-    .from(garments)
-    .where(eq(garments.orderId, orderId));
+export async function addGarment(
+  orderId: string,
+  data: AddGarmentInput,
+  meta?: { actorEmail?: string },
+) {
+  return db.transaction(async (tx) => {
+    const preset = data.garmentTypeId
+      ? await resolveGarmentTypePreset(tx, data.garmentTypeId)
+      : null;
+    const selectedOptions = preset
+      ? { ...preset.optionDefaults, ...(data.selectedOptions ?? {}) }
+      : (data.selectedOptions ?? null);
 
-  const [garment] = await db
-    .insert(garments)
-    .values({
-      orderId,
+    const sortOrder =
+      data.sortOrder ?? (await nextSortOrder(tx, garments, eq(garments.orderId, orderId)));
+
+    const garmentId = await insertGarmentTree(tx, orderId, {
       name: data.name,
       fabrics: data.fabrics ?? [],
-      notes: data.notes ?? null,
-      sortOrder: data.sortOrder ?? (Number(maxSort) + 1),
-    })
-    .returning();
+      notes: data.notes,
+      sortOrder,
+      garmentTypeId: data.garmentTypeId,
+      selectedOptions,
+      selectedFabrics: data.selectedFabrics,
+      sizing: [],
+      chartIds: preset?.chartIds ?? [],
+    });
 
-  return garment;
+    await recordAuditEvent(
+      {
+        aggregateId: orderId,
+        eventType: 'garment.added',
+        payload: { garmentId, name: data.name },
+        actorEmail: meta?.actorEmail ?? null,
+      },
+      tx,
+    );
+
+    return (await tx.query.garments.findFirst({ where: eq(garments.id, garmentId) }))!;
+  });
 }
 
-export async function updateGarment(id: string, data: UpdateGarmentInput) {
-  const existing = await db.query.garments.findFirst({ where: eq(garments.id, id) });
-  if (!existing) throw new NotFoundError('Garment');
+export async function updateGarment(
+  id: string,
+  data: UpdateGarmentInput,
+  meta?: { actorEmail?: string },
+) {
+  const garment = await loadGarmentOrThrow(id);
 
+  // Clearing the type (garmentTypeId: null) reverts the garment to the
+  // free-text workflow — chosen options are cleared too unless the caller
+  // explicitly provides a replacement set.
+  const clearingType = data.garmentTypeId === null;
+  const { selectedOptions, selectedFabrics, sizeChartIds: _ignored, ...rest } = data;
   await db.update(garments).set({
-    ...(data.name !== undefined && { name: data.name }),
-    ...(data.fabrics !== undefined && { fabrics: data.fabrics }),
-    ...(data.notes !== undefined && { notes: data.notes }),
-    ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
+    ...pickDefined(rest),
+    ...(selectedOptions !== undefined
+      ? { selectedOptions }
+      : clearingType
+        ? { selectedOptions: null }
+        : {}),
+    ...(selectedFabrics !== undefined
+      ? { selectedFabrics }
+      : clearingType
+        ? { selectedFabrics: null }
+        : {}),
     updatedAt: new Date(),
   }).where(eq(garments.id, id));
+
+  await recordAuditEvent({
+    aggregateId: garment.orderId,
+    eventType: 'garment.updated',
+    payload: { garmentId: id, fields: Object.keys(data) },
+    actorEmail: meta?.actorEmail ?? null,
+  });
 }
 
-export async function deleteGarment(id: string) {
-  const existing = await db.query.garments.findFirst({ where: eq(garments.id, id) });
-  if (!existing) throw new NotFoundError('Garment');
+export async function deleteGarment(id: string, meta?: { actorEmail?: string }) {
+  const garment = await loadGarmentOrThrow(id);
   await db.delete(garments).where(eq(garments.id, id));
+
+  await recordAuditEvent({
+    aggregateId: garment.orderId,
+    eventType: 'garment.removed',
+    payload: { garmentId: id, name: garment.name },
+    actorEmail: meta?.actorEmail ?? null,
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Admin writes — sizing rows (bulk replace)
 // ---------------------------------------------------------------------------
 
-export async function upsertSizingRows(garmentId: string, rows: UpsertSizingInput) {
+export async function upsertSizingRows(
+  garmentId: string,
+  rows: UpsertSizingInput,
+  meta?: { actorEmail?: string },
+) {
+  const garment = await loadGarmentOrThrow(garmentId);
+
   await db.transaction(async (tx) => {
     await tx.delete(garmentSizing).where(eq(garmentSizing.garmentId, garmentId));
     if (rows.length > 0) {
@@ -601,6 +822,16 @@ export async function upsertSizingRows(garmentId: string, rows: UpsertSizingInpu
         })),
       );
     }
+
+    await recordAuditEvent(
+      {
+        aggregateId: garment.orderId,
+        eventType: 'sizing.updated',
+        payload: { garmentId, rowCount: rows.length },
+        actorEmail: meta?.actorEmail ?? null,
+      },
+      tx,
+    );
   });
 }
 
@@ -611,16 +842,22 @@ export async function upsertSizingRows(garmentId: string, rows: UpsertSizingInpu
 export async function addMockupImage(
   garmentId: string,
   data: { storageKey: string; caption?: string | null },
+  meta?: { actorEmail?: string },
 ) {
-  const [{ maxSort }] = await db
-    .select({ maxSort: sql<number>`coalesce(max(${mockupImages.sortOrder}), -1)` })
-    .from(mockupImages)
-    .where(eq(mockupImages.garmentId, garmentId));
+  const garment = await loadGarmentOrThrow(garmentId);
+  const sortOrder = await nextSortOrder(db, mockupImages, eq(mockupImages.garmentId, garmentId));
 
   const [image] = await db
     .insert(mockupImages)
-    .values({ garmentId, storageKey: data.storageKey, caption: data.caption ?? null, sortOrder: Number(maxSort) + 1 })
+    .values({ garmentId, storageKey: data.storageKey, caption: data.caption ?? null, sortOrder })
     .returning();
+
+  await recordAuditEvent({
+    aggregateId: garment.orderId,
+    eventType: 'mockup.added',
+    payload: { garmentId, imageId: image.id },
+    actorEmail: meta?.actorEmail ?? null,
+  });
 
   return image;
 }
@@ -632,7 +869,10 @@ export async function addMockupImage(
 export async function updateGarmentSizeChartLinks(
   garmentId: string,
   sizeChartIds: string[],
+  meta?: { actorEmail?: string },
 ): Promise<void> {
+  const garment = await loadGarmentOrThrow(garmentId);
+
   await db.transaction(async (tx) => {
     await tx
       .delete(garmentSizeChartLinks)
@@ -642,13 +882,35 @@ export async function updateGarmentSizeChartLinks(
         .insert(garmentSizeChartLinks)
         .values(sizeChartIds.map((sizeChartId) => ({ garmentId, sizeChartId })));
     }
+
+    await recordAuditEvent(
+      {
+        aggregateId: garment.orderId,
+        eventType: 'chart_links.updated',
+        payload: { garmentId, chartCount: sizeChartIds.length },
+        actorEmail: meta?.actorEmail ?? null,
+      },
+      tx,
+    );
   });
 }
 
-export async function deleteMockupImage(id: string): Promise<{ storageKey: string }> {
+export async function deleteMockupImage(
+  id: string,
+  meta?: { actorEmail?: string },
+): Promise<{ storageKey: string }> {
   const existing = await db.query.mockupImages.findFirst({ where: eq(mockupImages.id, id) });
   if (!existing) throw new NotFoundError('Image');
+  const garment = await loadGarmentOrThrow(existing.garmentId);
   await db.delete(mockupImages).where(eq(mockupImages.id, id));
+
+  await recordAuditEvent({
+    aggregateId: garment.orderId,
+    eventType: 'mockup.removed',
+    payload: { imageId: id },
+    actorEmail: meta?.actorEmail ?? null,
+  });
+
   return { storageKey: existing.storageKey };
 }
 
@@ -684,16 +946,9 @@ export async function generateAccessToken(
       orderBy: [desc(orderAccess.createdAt)],
     });
 
-    // Revoke any existing active tokens for this order.
-    await tx
-      .update(orderAccess)
-      .set({ revokedAt: new Date() })
-      .where(and(eq(orderAccess.orderId, orderId), isNull(orderAccess.revokedAt)));
-
-    await tx.insert(orderAccess).values({
+    // Revoke any existing active tokens for this order, then mint the new one.
+    await mintToken(tx, orderAccess, rawToken, eq(orderAccess.orderId, orderId), {
       orderId,
-      tokenHash: hashToken(rawToken),
-      expiresAt: computeAccessExpiry(),
       accessCodeHash: previous?.accessCodeHash ?? null,
     });
 
@@ -703,7 +958,7 @@ export async function generateAccessToken(
       .set({ status: 'sent', updatedAt: new Date() })
       .where(and(eq(orders.id, orderId), eq(orders.status, 'draft')));
 
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: orderId,
       eventType: 'token.generated',
       payload: { actorEmail: meta?.actorEmail ?? null },
@@ -718,12 +973,9 @@ export async function revokeAccessToken(
   meta?: { actorEmail?: string },
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    await tx
-      .update(orderAccess)
-      .set({ revokedAt: new Date() })
-      .where(and(eq(orderAccess.orderId, orderId), isNull(orderAccess.revokedAt)));
+    await revokeActiveTokens(tx, orderAccess, eq(orderAccess.orderId, orderId));
 
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: orderId,
       eventType: 'token.revoked',
       payload: { actorEmail: meta?.actorEmail ?? null },
@@ -757,7 +1009,7 @@ export async function setOrderAccessCode(
       .set({ accessCodeHash })
       .where(eq(orderAccess.id, access.id));
 
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: orderId,
       eventType: 'access_code.enabled',
       payload: { actorEmail: meta?.actorEmail ?? null },
@@ -788,7 +1040,7 @@ export async function clearOrderAccessCode(
     // Idempotent: no event when there was no code to clear.
     if (updated.length === 0) return;
 
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: orderId,
       eventType: 'access_code.disabled',
       payload: { actorEmail: meta?.actorEmail ?? null },
@@ -816,7 +1068,7 @@ export async function lockRoster(
       .set({ rosterLockedAt: new Date(), updatedAt: new Date() })
       .where(eq(orders.id, orderId));
 
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: orderId,
       eventType: 'roster.locked',
       payload: { actorEmail: meta?.actorEmail ?? null },
@@ -838,7 +1090,7 @@ export async function unlockRoster(
       .set({ rosterLockedAt: null, updatedAt: new Date() })
       .where(eq(orders.id, orderId));
 
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: orderId,
       eventType: 'roster.unlocked',
       payload: { actorEmail: meta?.actorEmail ?? null },
@@ -864,7 +1116,7 @@ export async function resolveColorSampleRequest(
     // Idempotent: nothing to resolve if it was never requested (or already resolved).
     if (updated.length === 0) return;
 
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: orderId,
       eventType: 'order.color_sample_resolved',
       payload: { actorEmail: meta?.actorEmail ?? null },
@@ -903,12 +1155,9 @@ export async function cancelOrder(
       throw new ConflictError('Order cannot be cancelled in its current state');
     }
 
-    await tx
-      .update(orderAccess)
-      .set({ revokedAt: new Date() })
-      .where(and(eq(orderAccess.orderId, id), isNull(orderAccess.revokedAt)));
+    await revokeActiveTokens(tx, orderAccess, eq(orderAccess.orderId, id));
 
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: id,
       eventType: 'order.cancelled',
       payload: { actorEmail: meta?.actorEmail ?? null },
@@ -921,11 +1170,8 @@ export async function cancelOrder(
 // ---------------------------------------------------------------------------
 
 export async function getOrderByToken(rawToken: string) {
-  const access = await db.query.orderAccess.findFirst({
-    where: eq(orderAccess.tokenHash, hashToken(rawToken)),
-  });
-  if (!access || access.revokedAt) return null;
-  if (access.expiresAt && access.expiresAt.getTime() < Date.now()) return null;
+  const access = await resolveActiveToken(orderAccess, rawToken);
+  if (!access) return null;
 
   return db.query.orders.findFirst({ where: eq(orders.id, access.orderId) });
 }

@@ -43,6 +43,21 @@ export interface RateLimitResult {
   retryAfterMs: number;
 }
 
+/**
+ * Named rate-limit presets — every limited route picks one of these instead
+ * of restating magic numbers. Add a preset rather than a one-off tuple.
+ */
+export const RATE_LIMITS = {
+  /** Unauthenticated customer-surface writes (and login per-IP): 10 / 15 min. */
+  customerWrite: { maxRequests: 10, windowMs: 15 * 60 * 1_000 },
+  /** Credential endpoints keyed per account/email: 5 / 15 min. */
+  credential: { maxRequests: 5, windowMs: 15 * 60 * 1_000 },
+  /** 2FA code verification: 5 / 5 min. */
+  twoFactor: { maxRequests: 5, windowMs: 5 * 60 * 1_000 },
+} as const;
+
+export type RateLimitPreset = { maxRequests: number; windowMs: number };
+
 export function checkRateLimit(
   key: string,
   maxRequests: number,
@@ -100,17 +115,35 @@ export async function checkRateLimitAsync(
 }
 
 /**
+ * Purge rate-limit rows whose window ended more than a day ago. Without this
+ * the table grows one permanent row per client IP per limited route, forever.
+ * Called from the process-outbox cron; best-effort (a failed purge never
+ * breaks event processing).
+ */
+export async function purgeExpiredRateLimits(): Promise<number> {
+  try {
+    const result = await db
+      .delete(rateLimits)
+      .where(sql`${rateLimits.windowStart} < now() - interval '1 day'`)
+      .returning({ key: rateLimits.key });
+    return result.length;
+  } catch (err) {
+    logger.error('[rate-limit] purge failed:', err);
+    return 0;
+  }
+}
+
+/**
  * Checks the rate limit and returns a ready-to-return 429 `NextResponse`
  * (with `Retry-After` set) when exceeded, or `null` when the request is
  * allowed through.
  */
 export async function rateLimitedResponse(
   key: string,
-  maxRequests: number,
-  windowMs: number,
+  preset: RateLimitPreset,
   message: string,
 ): Promise<NextResponse | null> {
-  const rl = await checkRateLimitAsync(key, maxRequests, windowMs);
+  const rl = await checkRateLimitAsync(key, preset.maxRequests, preset.windowMs);
   if (rl.allowed) return null;
   return NextResponse.json(
     { error: message },

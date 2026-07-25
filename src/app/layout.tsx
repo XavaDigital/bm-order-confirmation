@@ -1,17 +1,10 @@
 import type { Metadata } from 'next';
-import { Bebas_Neue, Inter } from 'next/font/google';
+import { Inter } from 'next/font/google';
 import { AntdRegistry } from '@ant-design/nextjs-registry';
 import { GoogleTagManagerHead, GoogleTagManagerBody } from '@/components/GoogleTagManager';
 import { APP_NAME, APP_TAGLINE } from '@/lib/config';
 import { Providers } from './providers';
 import './globals.css';
-
-const bebas = Bebas_Neue({
-  weight: '400',
-  subsets: ['latin'],
-  variable: '--font-heading',
-  display: 'swap',
-});
 
 const inter = Inter({
   subsets: ['latin'],
@@ -33,7 +26,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${bebas.variable} ${inter.variable}`} suppressHydrationWarning>
+    <html lang="en" className={inter.variable} suppressHydrationWarning>
       <head>
         {GTM_ID && <GoogleTagManagerHead gtmId={GTM_ID} />}
       </head>

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { sizingRowSchema as baseSizingRowSchema, selectedValuesSchema } from './contract';
 
 export const updateOrderSchema = z.object({
   customerName: z.string().min(1).optional(),
@@ -13,8 +14,11 @@ export const updateOrderSchema = z.object({
   generalNotes: z.string().nullable().optional(),
   internalNotes: z.string().nullable().optional(),
   shippingMode: z.enum(['prefilled', 'customer_entered', 'later']).optional(),
-  shippingAddress: z.unknown().nullable().optional(),
+  shippingAddress: z.record(z.unknown()).nullable().optional(),
   status: z.enum(['draft', 'sent', 'viewed', 'changes_requested']).optional(),
+  // Sales Hub CRM association — null unlinks
+  hubCustomerId: z.string().uuid().nullable().optional(),
+  hubCustomerName: z.string().min(1).nullable().optional(),
 });
 
 export const addGarmentSchema = z.object({
@@ -22,17 +26,22 @@ export const addGarmentSchema = z.object({
   fabrics: z.array(z.string()).optional(),
   notes: z.string().nullable().optional(),
   sortOrder: z.number().int().optional(),
+  garmentTypeId: z.string().uuid().optional(),
+  selectedOptions: selectedValuesSchema.optional(),
+  selectedFabrics: selectedValuesSchema.optional(),
 });
 
 export const updateGarmentSchema = addGarmentSchema
-  .extend({ sizeChartIds: z.array(z.string().uuid()).optional() })
+  .extend({
+    sizeChartIds: z.array(z.string().uuid()).optional(),
+    // null clears the type and reverts the garment to the free-text workflow
+    garmentTypeId: z.string().uuid().nullable().optional(),
+    selectedOptions: selectedValuesSchema.nullable().optional(),
+    selectedFabrics: selectedValuesSchema.nullable().optional(),
+  })
   .partial();
 
-export const sizingRowSchema = z.object({
-  size: z.string().nullable().optional(),
-  playerName: z.string().nullable().optional(),
-  playerNumber: z.string().nullable().optional(),
-  notes: z.string().nullable().optional(),
+export const sizingRowSchema = baseSizingRowSchema.extend({
   sortOrder: z.number().int().optional(),
 });
 

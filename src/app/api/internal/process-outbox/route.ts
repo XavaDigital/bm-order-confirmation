@@ -13,21 +13,23 @@
  * Response:
  *   { processed: number, delivered: number, failed: number }
  */
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { isInternalAuthorized, isCronAuthorized } from '@/lib/api-auth';
 import { processOutbox } from '@/server/events/processor';
-import { logger } from '@/lib/logger';
+import { purgeExpiredRateLimits } from '@/lib/rate-limit';
+import { defineRoute } from '@/lib/route-handler';
 
-export async function POST(request: NextRequest) {
-  if (!isInternalAuthorized(request) && !isCronAuthorized(request)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const POST = defineRoute({
+  auth: 'public',
+  tag: '/api/internal/process-outbox',
+  handler: async ({ request }) => {
+    if (!isInternalAuthorized(request) && !isCronAuthorized(request)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
-  try {
     const result = await processOutbox();
-    return NextResponse.json(result);
-  } catch (err) {
-    logger.error('[/api/internal/process-outbox]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
+    // Piggyback housekeeping on the cron tick — best-effort, never throws.
+    const purgedRateLimits = await purgeExpiredRateLimits();
+    return NextResponse.json({ ...result, purgedRateLimits });
+  },
+});

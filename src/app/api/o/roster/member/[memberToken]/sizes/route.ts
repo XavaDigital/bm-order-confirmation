@@ -1,50 +1,39 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { submitMemberSizesSchema } from '@/server/roster/contract';
+import { NextResponse } from 'next/server';
+import { submitMemberSizesSchema, ROSTER_LOCKED_MESSAGE } from '@/server/roster/contract';
 import { submitMemberSizesByMemberToken } from '@/server/roster/customer-service';
-import { badRequest } from '@/lib/api-responses';
-import { getClientIp, rateLimitedResponse } from '@/lib/rate-limit';
-import { logger } from '@/lib/logger';
+import { getClientIp, rateLimitedResponse, RATE_LIMITS } from '@/lib/rate-limit';
+import { defineRoute } from '@/lib/route-handler';
 
-type Params = { params: Promise<{ memberToken: string }> };
+export const POST = defineRoute<{ memberToken: string }, typeof submitMemberSizesSchema._type>({
+  auth: 'public',
+  tag: 'o/roster/member/[memberToken]/sizes POST',
+  schema: submitMemberSizesSchema,
+  handler: async ({ request, params, body }) => {
+    const ip = getClientIp(request.headers);
+    const rateLimited = await rateLimitedResponse(
+      `roster-member-submit-sizes:${ip}`,
+      RATE_LIMITS.customerWrite,
+      'Too many requests. Please try again later.',
+    );
+    if (rateLimited) return rateLimited;
 
-const LOCKED_MESSAGE =
-  'This team roster has been locked. Please contact your BeastMode sales representative for help.';
+    try {
+      const member = await submitMemberSizesByMemberToken(params.memberToken, body);
+      return NextResponse.json(member);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'error';
 
-export async function POST(request: NextRequest, { params }: Params) {
-  const ip = getClientIp(request.headers);
-  const rateLimited = await rateLimitedResponse(
-    `roster-member-submit-sizes:${ip}`,
-    10,
-    15 * 60 * 1_000,
-    'Too many requests. Please try again later.',
-  );
-  if (rateLimited) return rateLimited;
+      if (msg === 'invalid_token') {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      }
+      if (msg === 'roster_locked') {
+        return NextResponse.json({ error: ROSTER_LOCKED_MESSAGE, code: 'roster_locked' }, { status: 409 });
+      }
+      if (msg === 'invalid_sizes') {
+        return NextResponse.json({ error: 'Invalid sizing submission' }, { status: 400 });
+      }
 
-  const { memberToken } = await params;
-  const body = await request.json().catch(() => null);
-  const parsed = submitMemberSizesSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return badRequest(parsed.error);
-  }
-
-  try {
-    const member = await submitMemberSizesByMemberToken(memberToken, parsed.data);
-    return NextResponse.json(member);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'error';
-
-    if (msg === 'invalid_token') {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      throw err;
     }
-    if (msg === 'roster_locked') {
-      return NextResponse.json({ error: LOCKED_MESSAGE, code: 'roster_locked' }, { status: 409 });
-    }
-    if (msg === 'invalid_sizes') {
-      return NextResponse.json({ error: 'Invalid sizing submission' }, { status: 400 });
-    }
-
-    logger.error('[/api/o/roster/member/[memberToken]/sizes]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
+  },
+});

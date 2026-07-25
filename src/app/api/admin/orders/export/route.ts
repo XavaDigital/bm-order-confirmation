@@ -1,8 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/session';
+import { NextResponse } from 'next/server';
 import { listOrdersForExport } from '@/server/orders/service';
 import { csvCell, untrustedCsvCell, toCsv } from '@/lib/csv';
-import { logger } from '@/lib/logger';
+import { defineRoute } from '@/lib/route-handler';
 
 const HEADER = [
   'Order Number',
@@ -16,19 +15,16 @@ const HEADER = [
   'Confirmed At',
 ];
 
-export async function GET(request: NextRequest) {
-  const session = await getSession();
-  if (!session.userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const GET = defineRoute({
+  auth: 'staff',
+  tag: 'orders/export GET',
+  handler: async ({ request }) => {
+    const { searchParams } = request.nextUrl;
+    const status = searchParams.get('status') ?? undefined;
+    const search = searchParams.get('search') ?? undefined;
+    const sortBy = searchParams.get('sortBy') ?? undefined;
+    const sortDir = searchParams.get('sortDir') ?? undefined;
 
-  const { searchParams } = request.nextUrl;
-  const status = searchParams.get('status') ?? undefined;
-  const search = searchParams.get('search') ?? undefined;
-  const sortBy = searchParams.get('sortBy') ?? undefined;
-  const sortDir = searchParams.get('sortDir') ?? undefined;
-
-  try {
     const rows = await listOrdersForExport({ status, search, sortBy, sortDir });
 
     const csv = toCsv([
@@ -57,8 +53,5 @@ export async function GET(request: NextRequest) {
         'Cache-Control': 'no-store',
       },
     });
-  } catch (err) {
-    logger.error('[admin/orders/export GET]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
+  },
+});

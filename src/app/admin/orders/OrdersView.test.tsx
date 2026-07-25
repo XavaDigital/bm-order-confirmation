@@ -1,7 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { App as AntdApp } from 'antd';
 import { OrdersView } from './OrdersView';
+
+// OrdersView reports fetch failures via App.useApp().message, which needs the
+// AntdApp provider — without it message.error is not a function.
+function renderView() {
+  return render(
+    <AntdApp>
+      <OrdersView />
+    </AntdApp>,
+  );
+}
 
 const pushMock = vi.fn();
 let searchParamsValue = new URLSearchParams();
@@ -46,7 +57,7 @@ beforeEach(() => {
 describe('OrdersView', () => {
   it('fetches orders on mount and renders a row per order', async () => {
     mockOrdersResponse([order()], 1);
-    render(<OrdersView />);
+    renderView();
 
     expect(await screen.findByText('OC-1')).toBeInTheDocument();
     expect(screen.getByText('Jane Coach')).toBeInTheDocument();
@@ -62,7 +73,7 @@ describe('OrdersView', () => {
 
   it('shows a colour-sample tooltip icon on the status column when a hold is active', async () => {
     mockOrdersResponse([order({ colorSampleRequestedAt: '2026-06-15T10:00:00Z' })], 1);
-    render(<OrdersView />);
+    renderView();
 
     expect(await screen.findByText('OC-1')).toBeInTheDocument();
     expect(screen.getByLabelText('bg-colors')).toBeInTheDocument();
@@ -70,7 +81,7 @@ describe('OrdersView', () => {
 
   it('does not show the colour-sample icon when no hold is active', async () => {
     mockOrdersResponse([order()], 1);
-    render(<OrdersView />);
+    renderView();
 
     expect(await screen.findByText('OC-1')).toBeInTheDocument();
     expect(screen.queryByLabelText('bg-colors')).not.toBeInTheDocument();
@@ -78,7 +89,7 @@ describe('OrdersView', () => {
 
   it('shows a dash for a missing club and formats the order value', async () => {
     mockOrdersResponse([order({ clubName: null })], 1);
-    render(<OrdersView />);
+    renderView();
 
     await screen.findByText('OC-1');
     expect(screen.getByText('—')).toBeInTheDocument();
@@ -88,7 +99,7 @@ describe('OrdersView', () => {
   it('clicking a row navigates to the order detail page', async () => {
     const user = userEvent.setup();
     mockOrdersResponse([order()], 1);
-    render(<OrdersView />);
+    renderView();
 
     const row = (await screen.findByText('OC-1')).closest('tr')!;
     await user.click(row);
@@ -99,7 +110,7 @@ describe('OrdersView', () => {
   it('typing in the search box debounces and refetches with the search param', async () => {
     const user = userEvent.setup();
     mockOrdersResponse([order()], 1);
-    render(<OrdersView />);
+    renderView();
     await screen.findByText('OC-1');
 
     mockOrdersResponse([order({ customerName: 'Bob Smith' })], 1);
@@ -113,7 +124,7 @@ describe('OrdersView', () => {
   it('switching status tabs refetches with the status filter', async () => {
     const user = userEvent.setup();
     mockOrdersResponse([order({ status: 'sent' })], 1);
-    render(<OrdersView />);
+    renderView();
     await screen.findByText('OC-1');
 
     mockOrdersResponse([order({ status: 'confirmed' })], 1);
@@ -125,7 +136,7 @@ describe('OrdersView', () => {
   it('initializes the status tab from the "status" URL search param', () => {
     searchParamsValue = new URLSearchParams('status=confirmed');
     mockOrdersResponse([], 0);
-    render(<OrdersView />);
+    renderView();
 
     const confirmedTab = screen.getByRole('tab', { name: 'Confirmed' });
     expect(confirmedTab).toHaveAttribute('aria-selected', 'true');
@@ -134,7 +145,7 @@ describe('OrdersView', () => {
   it('clicking the "Created" column header sorts and refetches with sortBy/sortDir', async () => {
     const user = userEvent.setup();
     mockOrdersResponse([order()], 1);
-    render(<OrdersView />);
+    renderView();
     await screen.findByText('OC-1');
 
     mockOrdersResponse([order()], 1);
@@ -150,7 +161,7 @@ describe('OrdersView', () => {
   it('the Export CSV link reflects the current status filter', async () => {
     const user = userEvent.setup();
     mockOrdersResponse([order()], 1);
-    render(<OrdersView />);
+    renderView();
     await screen.findByText('OC-1');
 
     mockOrdersResponse([order()], 1);
@@ -163,7 +174,7 @@ describe('OrdersView', () => {
 
   it('the "New Order" link points to the new-order page', async () => {
     mockOrdersResponse([], 0);
-    render(<OrdersView />);
+    renderView();
     await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
 
     expect(screen.getByRole('link', { name: /new order/i })).toHaveAttribute('href', '/admin/orders/new');
@@ -172,7 +183,7 @@ describe('OrdersView', () => {
   it('keeps showing the previous rows and does not crash when a refetch fails', async () => {
     const user = userEvent.setup();
     mockOrdersResponse([order()], 1);
-    render(<OrdersView />);
+    renderView();
     await screen.findByText('OC-1');
 
     vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response);

@@ -14,7 +14,15 @@ function client(): S3Client {
       accessKeyId: env.AWS_S3_ACCESS_KEY ?? '',
       secretAccessKey: env.AWS_S3_SECRET_ACCESS_KEY ?? '',
     },
+    // Non-AWS providers (Supabase Storage) need an explicit endpoint and
+    // path-style addressing — their S3 compat layer doesn't do virtual hosts.
+    ...(env.AWS_S3_ENDPOINT && { endpoint: env.AWS_S3_ENDPOINT, forcePathStyle: true }),
   });
+}
+
+/** True when object storage is configured (uploads/signed URLs will work). */
+export function isStorageConfigured(): boolean {
+  return Boolean(env.AWS_S3_BUCKET);
 }
 
 function bucket(): string {

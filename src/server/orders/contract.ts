@@ -10,12 +10,18 @@
  */
 import { z } from 'zod';
 
+// The ONE sizing-row shape — the admin update contract derives from this
+// (nullable fields clear values; null and undefined both land as column NULL).
 export const sizingRowSchema = z.object({
-  size: z.string().optional(),
-  playerName: z.string().optional(),
-  playerNumber: z.string().optional(),
-  notes: z.string().optional(),
+  size: z.string().nullish(),
+  playerName: z.string().nullish(),
+  playerNumber: z.string().nullish(),
+  notes: z.string().nullish(),
 });
+
+// {label: chosenValue} maps for garment-type option picks and fabric-field
+// picks — shared with the admin garment contracts.
+export const selectedValuesSchema = z.record(z.string().max(300));
 
 export const garmentSchema = z.object({
   name: z.string().min(1),
@@ -26,6 +32,12 @@ export const garmentSchema = z.object({
   sizeChartIds: z.array(z.string().uuid()).optional().default([]),
   // storage keys of already-uploaded mock-ups (upload happens separately)
   mockupStorageKeys: z.array(z.string()).optional().default([]),
+  // optional garment-type preset: links the type, auto-attaches its size
+  // charts, and defaults selectedOptions ({optionLabel: chosenValue})
+  garmentTypeId: z.string().uuid().optional(),
+  selectedOptions: selectedValuesSchema.optional(),
+  // fabric picks per type fabric field ({fieldLabel: chosenFabric})
+  selectedFabrics: selectedValuesSchema.optional(),
 });
 
 export const createOrderSchema = z.object({
@@ -63,6 +75,11 @@ export const createOrderSchema = z.object({
 
   // optionally enable the per-order confirmation code (default off — link alone works)
   requireAccessCode: z.boolean().optional().default(false),
+
+  // Sales Hub CRM association (optional; see src/server/hub/client.ts).
+  // The id is a hint into the hub's core.customer — no cross-DB FK.
+  hubCustomerId: z.string().uuid().optional(),
+  hubCustomerName: z.string().min(1).optional(),
 });
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;

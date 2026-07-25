@@ -108,9 +108,9 @@ describe('checkRateLimitAsync (DB unreachable → in-memory fallback)', () => {
     const key = 'db-fallback-route-1';
 
     for (let i = 0; i < 5; i++) {
-      expect(await rateLimitedResponse(key, 5, 60_000, 'Too many requests.')).toBeNull();
+      expect(await rateLimitedResponse(key, { maxRequests: 5, windowMs: 60_000 }, 'Too many requests.')).toBeNull();
     }
-    const res = await rateLimitedResponse(key, 5, 60_000, 'Too many requests.');
+    const res = await rateLimitedResponse(key, { maxRequests: 5, windowMs: 60_000 }, 'Too many requests.');
     expect(res).not.toBeNull();
     expect(res!.status).toBe(429);
     expect(res!.headers.get('Retry-After')).not.toBeNull();

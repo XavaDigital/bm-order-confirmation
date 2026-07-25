@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { NextRequest } from 'next/server';
 
 vi.mock('@/db', async () => {
   const { createTestDb } = await import('@/db/test-helpers');
@@ -28,7 +29,7 @@ function minimalOrderInput(overrides: Partial<Parameters<typeof createOrderSchem
 }
 
 function getRequest(id: string, apiKey?: string) {
-  return new Request(`http://localhost/api/orders/${id}`, {
+  return new NextRequest(`http://localhost/api/orders/${id}`, {
     headers: apiKey ? { 'x-api-key': apiKey } : undefined,
   });
 }

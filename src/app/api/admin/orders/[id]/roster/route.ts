@@ -1,18 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getRoster } from '@/server/roster/service';
-import { NotFoundError } from '@/server/orders/service';
-import { logger } from '@/lib/logger';
+import { defineRoute } from '@/lib/route-handler';
 
-type Params = { params: Promise<{ id: string }> };
-
-export async function GET(_req: NextRequest, { params }: Params) {
-  const { id: orderId } = await params;
-  try {
-    const roster = await getRoster(orderId);
-    return NextResponse.json(roster);
-  } catch (err) {
-    if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
-    logger.error('[admin/roster GET]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
+export const GET = defineRoute<{ id: string }>({
+  auth: 'staff',
+  tag: 'admin/roster GET',
+  handler: async ({ params }) => NextResponse.json(await getRoster(params.id)),
+});

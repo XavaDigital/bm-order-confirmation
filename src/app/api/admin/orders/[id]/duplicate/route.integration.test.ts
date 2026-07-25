@@ -38,7 +38,13 @@ afterEach(async () => {
 });
 
 beforeEach(async () => {
+  // orders.created_by is a real FK to staff_users, so the session needs a seeded user id.
+  const [staff] = await db
+    .insert(schema.staffUsers)
+    .values({ email: 'staff@example.com', passwordHash: 'x', name: 'Staff' })
+    .returning();
   const session = (await getSession()) as unknown as Record<string, unknown>;
+  session.userId = staff.id;
   session.email = 'staff@example.com';
 });
 

@@ -2,22 +2,27 @@
 
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Dropdown, Avatar, Tooltip, Typography } from 'antd';
+import { Dropdown, Avatar, Typography } from 'antd';
 import { UserOutlined, LogoutOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
+import { BRAND } from '@/lib/theme';
+import { postJson } from '@/lib/api-fetch';
 
 interface UserMenuProps {
   name: string;
   email: string;
   role: 'sales' | 'admin';
-  collapsed?: boolean;
 }
 
-export function UserMenu({ name, email, role, collapsed }: UserMenuProps) {
+export function UserMenu({ name, email, role }: UserMenuProps) {
   const router = useRouter();
 
   async function handleLogout() {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    try {
+      await postJson('/api/auth/logout', undefined);
+    } catch {
+      // Session may already be gone — navigate to the login page regardless.
+    }
     router.push('/login');
     router.refresh();
   }
@@ -37,7 +42,7 @@ export function UserMenu({ name, email, role, collapsed }: UserMenuProps) {
                 fontSize: 11,
                 textTransform: 'uppercase',
                 letterSpacing: 1,
-                color: '#BF272D',
+                color: BRAND.primaryDark,
                 fontWeight: 600,
               }}
             >
@@ -64,65 +69,15 @@ export function UserMenu({ name, email, role, collapsed }: UserMenuProps) {
     },
   ];
 
-  const trigger = collapsed ? (
-    <Tooltip title={name} placement="right">
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          padding: '10px 0',
-          cursor: 'pointer',
-        }}
-      >
-        <Avatar icon={<UserOutlined />} size="small" style={{ backgroundColor: '#BF272D' }} />
-      </div>
-    </Tooltip>
-  ) : (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '10px 16px',
-        cursor: 'pointer',
-        borderRadius: 6,
-        transition: 'background 0.2s',
-      }}
-      onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.06)')}
-      onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.background = 'transparent')}
-    >
-      <Avatar icon={<UserOutlined />} size="small" style={{ backgroundColor: '#BF272D', flexShrink: 0 }} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontWeight: 600,
-            fontSize: 13,
-            color: 'rgba(255,255,255,0.88)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {name}
-        </div>
-        <div
-          style={{
-            fontSize: 11,
-            textTransform: 'uppercase',
-            letterSpacing: 1,
-            color: '#BF272D',
-            fontWeight: 600,
-          }}
-        >
-          {role}
-        </div>
-      </div>
-    </div>
-  );
-
   return (
-    <Dropdown menu={{ items }} trigger={['click']} placement="topRight">
-      {trigger}
+    <Dropdown menu={{ items }} trigger={['click']} placement="bottomRight">
+      <span
+        role="button"
+        aria-label="Account menu"
+        style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
+      >
+        <Avatar icon={<UserOutlined />} size="small" style={{ backgroundColor: BRAND.primary }} />
+      </span>
     </Dropdown>
   );
 }

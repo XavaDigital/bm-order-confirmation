@@ -28,6 +28,7 @@ import {
   requestColorSample,
   confirmOrder,
   verifyOrderAccessCode,
+  buildConfirmationSnapshot,
   REQUIRED_ACK_KEYS,
   ACK_TEXT_VERSION,
   type AckInput,
@@ -430,9 +431,9 @@ describe('confirmOrder', () => {
       .where(eq(schema.confirmations.orderId, created.orderId));
     expect(confirmationRows).toHaveLength(1);
     const snapshot = confirmationRows[0].confirmedSnapshot as {
-      garments: { size_chart_names: string[] }[];
+      garments: { sizeChartNames: string[] }[];
     };
-    expect(snapshot.garments[0].size_chart_names).toEqual(['Adult Unisex']);
+    expect(snapshot.garments[0].sizeChartNames).toEqual(['Adult Unisex']);
 
     const conversionRows = await db
       .select()
@@ -473,8 +474,8 @@ describe('confirmOrder', () => {
       .select()
       .from(schema.confirmations)
       .where(eq(schema.confirmations.orderId, created.orderId));
-    const snapshot = confirmationRows[0].confirmedSnapshot as { color_sample_requested: boolean };
-    expect(snapshot.color_sample_requested).toBe(true);
+    const snapshot = confirmationRows[0].confirmedSnapshot as { colorSampleRequested: boolean };
+    expect(snapshot.colorSampleRequested).toBe(true);
 
     const events = await db
       .select()
@@ -504,8 +505,8 @@ describe('confirmOrder', () => {
       .select()
       .from(schema.confirmations)
       .where(eq(schema.confirmations.orderId, created.orderId));
-    const snapshot = confirmationRows[0].confirmedSnapshot as { color_sample_requested: boolean };
-    expect(snapshot.color_sample_requested).toBe(false);
+    const snapshot = confirmationRows[0].confirmedSnapshot as { colorSampleRequested: boolean };
+    expect(snapshot.colorSampleRequested).toBe(false);
 
     const events = await db
       .select()
@@ -552,14 +553,14 @@ describe('confirmOrder', () => {
       .from(schema.confirmations)
       .where(eq(schema.confirmations.orderId, created.orderId));
     const snapshot = confirmationRows[0].confirmedSnapshot as {
-      garments: { sizing: { size: string | null; player_name: string | null; player_number: string | null }[] }[];
+      garments: { sizing: { size: string | null; playerName: string | null; playerNumber: string | null }[] }[];
     };
 
     expect(snapshot.garments[0].sizing).toEqual([
       {
         size: 'M',
-        player_name: 'Alex Player',
-        player_number: '7',
+        playerName: 'Alex Player',
+        playerNumber: '7',
         notes: null,
       },
     ]);
@@ -583,6 +584,7 @@ describe('confirmOrder', () => {
       .where(eq(schema.confirmations.orderId, created.orderId));
     const snapshot = confirmationRows[0].confirmedSnapshot as Record<string, unknown>;
 
+    expect(snapshot.internalNotes).toBeUndefined();
     expect(snapshot.internal_notes).toBeUndefined();
     expect(JSON.stringify(snapshot)).not.toContain('Discount approved by manager');
   });
@@ -751,5 +753,141 @@ describe('confirmOrder', () => {
       .from(schema.acknowledgments)
       .where(eq(schema.acknowledgments.orderId, created.orderId));
     expect(ackRows).toHaveLength(0);
+  });
+});
+
+describe('buildConfirmationSnapshot (pure)', () => {
+  const orderFixture = {
+    orderNumber: 'OC-1001',
+    customerName: 'Jane Coach',
+    clubName: 'Beasts FC',
+    orderValueAmount: '1240.00',
+    orderValueCurrency: 'NZD',
+    expectedShipDate: '2026-08-01',
+    deadlineDate: '2026-07-20',
+    invoiceUrl: 'https://example.com/inv',
+    generalNotes: 'general',
+    colorSampleRequestedAt: null as Date | null,
+    shippingAddress: { line1: 'Order St' } as Record<string, unknown> | null,
+    garments: [
+      {
+        name: 'Home Jersey',
+        fabrics: ['Dry-fit'],
+        notes: 'garment note',
+        selectedOptions: { 'Zip Type': 'pullover' },
+        selectedFabrics: { 'Outer Fabric': 'Cotton Fleece' },
+        garmentType: { name: 'Pullover Hoodie' },
+        sizing: [
+          { size: 'M', playerName: 'Alex', playerNumber: '7', notes: null, rosterMemberId: 'rm-1' },
+        ],
+        sizeChartLinks: [{ sizeChart: { name: 'Adult Unisex' } }, { sizeChart: null }],
+        images: [{ caption: 'front' }, { caption: null }],
+      },
+    ],
+  };
+
+  it('emits camelCase keys throughout (no snake_case)', () => {
+    const snapshot = buildConfirmationSnapshot(orderFixture, { concerns: 'colour worry' });
+
+    expect(snapshot).toMatchObject({
+      orderNumber: 'OC-1001',
+      customerName: 'Jane Coach',
+      clubName: 'Beasts FC',
+      orderValueAmount: '1240.00',
+      orderValueCurrency: 'NZD',
+      expectedShipDate: '2026-08-01',
+      deadlineDate: '2026-07-20',
+      invoiceUrl: 'https://example.com/inv',
+      generalNotes: 'general',
+      customerConcerns: 'colour worry',
+      colorSampleRequested: false,
+    });
+    expect(snapshot.garments[0]).toEqual({
+      name: 'Home Jersey',
+      fabrics: ['Dry-fit'],
+      notes: 'garment note',
+      garmentTypeName: 'Pullover Hoodie',
+      selectedOptions: { 'Zip Type': 'pullover' },
+      selectedFabrics: { 'Outer Fabric': 'Cotton Fleece' },
+      sizing: [{ size: 'M', playerName: 'Alex', playerNumber: '7', notes: null }],
+      sizeChartNames: ['Adult Unisex'],
+      mockupImageCaptions: ['front'],
+    });
+
+    // No legacy snake_case keys anywhere in a freshly built snapshot.
+    expect(Object.keys(snapshot).some((k) => k.includes('_'))).toBe(false);
+    expect(JSON.stringify(snapshot)).not.toMatch(/"[a-z0-9]+_[a-z0-9_]+":/);
+  });
+
+  it('prefers the customer-entered shipping address and flags a prior colour sample request', () => {
+    const snapshot = buildConfirmationSnapshot(
+      { ...orderFixture, colorSampleRequestedAt: new Date() },
+      { shippingAddress: { line1: 'Customer St' } },
+    );
+
+    expect(snapshot.shippingAddress).toEqual({ line1: 'Customer St' });
+    expect(snapshot.colorSampleRequested).toBe(true);
+    expect(snapshot.customerConcerns).toBeNull();
+  });
+
+  it('falls back to the order shipping address when the customer enters none', () => {
+    const snapshot = buildConfirmationSnapshot(orderFixture, {});
+    expect(snapshot.shippingAddress).toEqual({ line1: 'Order St' });
+  });
+});
+
+describe('garment type presets on the customer surface', () => {
+  it('confirmOrder snapshots the garment type name and selected options', async () => {
+    const { createGarmentType } = await import('@/server/garment-types/service');
+    const { createGarmentTypeSchema } = await import('@/server/garment-types/contract');
+
+    const type = await createGarmentType(
+      createGarmentTypeSchema.parse({
+        name: 'Pullover Hoodie',
+        orderOptions: [
+          { label: 'Zip Type', options: ['full-zip', 'pullover'], defaultOption: 'pullover' },
+        ],
+      }),
+    );
+
+    const created = await createOrder(
+      minimalInput({
+        garments: [
+          {
+            name: 'Team Hoodie',
+            garmentTypeId: type.id,
+            selectedOptions: { 'Cord Color': 'Red' },
+            selectedFabrics: { 'Outer Fabric': 'Cotton Fleece' },
+          },
+        ],
+      }),
+    );
+
+    // The customer read model exposes the type + options
+    const read = await getOrderForCustomer(created.token);
+    expect(read!.order.garments[0].garmentType?.name).toBe('Pullover Hoodie');
+    expect(read!.order.garments[0].selectedOptions).toEqual({
+      'Zip Type': 'pullover',
+      'Cord Color': 'Red',
+    });
+
+    await confirmOrder({ rawToken: created.token, acks: allAcks(), signatureType: 'none' });
+
+    const confirmation = await db.query.confirmations.findFirst({
+      where: eq(schema.confirmations.orderId, created.orderId),
+    });
+    const snapshot = confirmation!.confirmedSnapshot as {
+      garments: {
+        garmentTypeName: string | null;
+        selectedOptions: Record<string, string> | null;
+        selectedFabrics: Record<string, string> | null;
+      }[];
+    };
+    expect(snapshot.garments[0].garmentTypeName).toBe('Pullover Hoodie');
+    expect(snapshot.garments[0].selectedOptions).toEqual({
+      'Zip Type': 'pullover',
+      'Cord Color': 'Red',
+    });
+    expect(snapshot.garments[0].selectedFabrics).toEqual({ 'Outer Fabric': 'Cotton Fleece' });
   });
 });

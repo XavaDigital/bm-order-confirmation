@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   Table, Button, Tag, Modal, Form, Input, Select, App,
   Popconfirm, Switch, Space, Tooltip, Typography,
@@ -11,7 +11,8 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { formatDate } from '@/lib/format';
-import { getJson, postJson, patchJson, deleteJson } from '@/lib/api-fetch';
+import { postJson, patchJson, deleteJson } from '@/lib/api-fetch';
+import { useAdminResource } from '@/lib/use-admin-resource';
 
 const { Title, Text } = Typography;
 
@@ -32,25 +33,14 @@ interface UsersViewProps {
 
 export function UsersView({ currentUserId }: UsersViewProps) {
   const { message } = App.useApp();
-  const [users, setUsers] = useState<StaffUser[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: users, loading, reload, setData: setUsers } = useAdminResource<StaffUser[]>(
+    '/api/admin/users',
+    { errorMessage: 'Failed to load users' },
+  );
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [setupUrl, setSetupUrl] = useState<string | null>(null);
   const [form] = Form.useForm();
-
-  async function fetchUsers() {
-    setLoading(true);
-    try {
-      setUsers(await getJson<StaffUser[]>('/api/admin/users', 'Failed to load users'));
-    } catch {
-      message.error('Failed to load users');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { fetchUsers(); }, []);
 
   async function handleInvite(values: { name: string; email: string; role: 'sales' | 'admin' }) {
     setInviting(true);
@@ -59,7 +49,7 @@ export function UsersView({ currentUserId }: UsersViewProps) {
 
       form.resetFields();
       setInviteOpen(false);
-      await fetchUsers();
+      await reload();
 
       if (data.setupUrl) {
         // Email not configured — show the link manually.
@@ -77,7 +67,7 @@ export function UsersView({ currentUserId }: UsersViewProps) {
   async function handleRoleChange(id: string, role: 'sales' | 'admin') {
     try {
       await patchJson(`/api/admin/users/${id}`, { role }, 'Failed to update role');
-      setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, role } : u)));
+      setUsers((prev) => (prev ?? []).map((u) => (u.id === id ? { ...u, role } : u)));
       message.success('Role updated');
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Failed to update role');
@@ -87,7 +77,7 @@ export function UsersView({ currentUserId }: UsersViewProps) {
   async function handleToggleActive(id: string, isActive: boolean) {
     try {
       await patchJson(`/api/admin/users/${id}`, { isActive }, 'Failed to update status');
-      setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, isActive } : u)));
+      setUsers((prev) => (prev ?? []).map((u) => (u.id === id ? { ...u, isActive } : u)));
       message.success(isActive ? 'User activated' : 'User deactivated');
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Failed to update status');
@@ -97,7 +87,7 @@ export function UsersView({ currentUserId }: UsersViewProps) {
   async function handleDelete(id: string) {
     try {
       await deleteJson(`/api/admin/users/${id}`, undefined, 'Failed to delete user');
-      setUsers((prev) => prev.filter((u) => u.id !== id));
+      setUsers((prev) => (prev ?? []).filter((u) => u.id !== id));
       message.success('Invite cancelled');
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Failed to delete user');
@@ -231,7 +221,7 @@ export function UsersView({ currentUserId }: UsersViewProps) {
 
       <Table
         columns={columns}
-        dataSource={users}
+        dataSource={users ?? []}
         rowKey="id"
         loading={loading}
         pagination={{ pageSize: 20, hideOnSinglePage: true }}

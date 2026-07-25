@@ -163,7 +163,7 @@ describe('POST /api/o/confirm', () => {
 
     // Send 10 requests (each with an unknown token so they don't succeed/consume
     // an order, but they still count against the rate limit since the limiter
-    // runs before body parsing).
+    // runs before any token work).
     for (let i = 0; i < 10; i++) {
       const res = await POST(makeRequest({ token: 'unknown-token', acknowledgments: allAcks() }, ip));
       expect(res.status).toBe(404);

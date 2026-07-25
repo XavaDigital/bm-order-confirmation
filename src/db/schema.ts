@@ -5,6 +5,8 @@
  * coexist with the future shared sales-platform tables (BRIEF §15).
  */
 import { sql, relations } from 'drizzle-orm';
+// Type-only import — erased at runtime, so no module cycle with the outbox.
+import type { DomainEventType } from '@/server/events/outbox';
 import {
   pgSchema,
   uuid,
@@ -18,6 +20,7 @@ import {
   inet,
   uniqueIndex,
   index,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 
 export const confirmation = pgSchema('confirmation');
@@ -59,7 +62,9 @@ export const eventStatus = confirmation.enum('event_status', [
 ]);
 
 // --- staff users -----------------------------------------------------------
-export const staffUsers = confirmation.table('staff_users', {
+export const staffUsers = confirmation.table(
+  'staff_users',
+  {
   id: uuid('id').defaultRandom().primaryKey(),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
@@ -79,8 +84,16 @@ export const staffUsers = confirmation.table('staff_users', {
   // Stamped on successful password verification (loginStaff). Null = never logged in.
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index('staff_users_invite_token_idx').on(t.inviteTokenHash),
+    index('staff_users_reset_token_idx').on(t.resetTokenHash),
+  ],
+);
 
 // --- orders ----------------------------------------------------------------
 export const orders = confirmation.table(
@@ -99,7 +112,7 @@ export const orders = confirmation.table(
     clubName: text('club_name'), // shown on order page + internal; not required by conversion
 
     orderValueAmount: numeric('order_value_amount', { precision: 12, scale: 2 }),
-    orderValueCurrency: text('order_value_currency').default('NZD'),
+    orderValueCurrency: text('order_value_currency').notNull().default('NZD'),
     invoiceUrl: text('invoice_url'),
 
     expectedShipDate: date('expected_ship_date'),
@@ -108,7 +121,7 @@ export const orders = confirmation.table(
     generalNotes: text('general_notes'), // shown to the customer (confirmation page + PDF)
     internalNotes: text('internal_notes'), // staff-only; never shown to the customer
     shippingMode: shippingMode('shipping_mode').notNull().default('prefilled'),
-    shippingAddress: jsonb('shipping_address'),
+    shippingAddress: jsonb('shipping_address').$type<Record<string, unknown>>(),
 
     status: orderStatus('status').notNull().default('draft'),
     createdBy: uuid('created_by').references(() => staffUsers.id),
@@ -123,8 +136,19 @@ export const orders = confirmation.table(
     // §11). Production must hold until this is resolved with the customer.
     colorSampleRequestedAt: timestamp('color_sample_requested_at', { withTimezone: true }),
 
+    // Sales Hub (bm-sales) CRM association. A plain uuid HINT, not a FK —
+    // separate databases, and the hub merges duplicate customers (a stored id
+    // can become a tombstone; re-stamp to the survivor on read). Non-unique:
+    // one customer places many orders. Name is denormalized so the admin chip
+    // renders without a hub round-trip.
+    hubCustomerId: uuid('hub_customer_id'),
+    hubCustomerName: text('hub_customer_name'),
+
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
     confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
   },
   (t) => [
@@ -132,29 +156,72 @@ export const orders = confirmation.table(
       .on(t.externalRef)
       .where(sql`${t.externalRef} is not null`),
     index('orders_status_idx').on(t.status),
+    index('orders_hub_customer_idx').on(t.hubCustomerId),
+    // List default sort + dashboard reads
+    index('orders_created_at_idx').on(t.createdAt),
+    index('orders_deadline_idx').on(t.deadlineDate),
+    index('orders_created_by_idx').on(t.createdBy),
+    index('orders_color_sample_idx')
+      .on(t.colorSampleRequestedAt)
+      .where(sql`${t.colorSampleRequestedAt} is not null`),
   ],
 );
 
-// --- order access (magic link) --------------------------------------------
-export const orderAccess = confirmation.table(
-  'order_access',
+// --- order notes (staff-only, attributed) ----------------------------------
+// Written by staff or relayed in from Email Flow via the inbound capability
+// surface. Separate from orders.internalNotes because these need attribution
+// + timestamps, and from generalNotes because that field is customer-visible.
+// Never exposed on /o/**.
+export const orderNotes = confirmation.table(
+  'order_notes',
   {
     id: uuid('id').defaultRandom().primaryKey(),
     orderId: uuid('order_id')
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
-    // SHA-256 of the high-entropy token (+ pepper). We look up by hashing the
-    // incoming token, so a DB leak never exposes a live link. (BRIEF §7)
-    tokenHash: text('token_hash').notNull().unique(),
+    body: text('body').notNull(),
+    authorKind: text('author_kind').notNull().$type<'staff' | 'email_flow' | 'system'>(),
+    authorLabel: text('author_label'), // acting-user id / staff email
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('order_notes_order_idx').on(t.orderId)],
+);
+
+// --- shared access-token column set -----------------------------------------
+// Every magic-link table (order_access, roster_access, roster_member_access,
+// and any future portal link) spreads these alongside its own scope FK, so
+// the shapes cannot drift. tokenHash = SHA-256 of the high-entropy token
+// (+ pepper) — we look up by hashing the incoming token, so a DB leak never
+// exposes a live link (BRIEF §7).
+const accessTokenColumns = () => ({
+  id: uuid('id').defaultRandom().primaryKey(),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  lastViewedAt: timestamp('last_viewed_at', { withTimezone: true }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// --- order access (magic link) --------------------------------------------
+export const orderAccess = confirmation.table(
+  'order_access',
+  {
+    ...accessTokenColumns(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
     // only set when the optional per-order confirmation code is enabled (default off).
     // bcrypt hash (low-entropy code needs a slow KDF) — see src/lib/access-code.ts
     accessCodeHash: text('access_code_hash'),
-    expiresAt: timestamp('expires_at', { withTimezone: true }),
-    lastViewedAt: timestamp('last_viewed_at', { withTimezone: true }),
-    revokedAt: timestamp('revoked_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index('order_access_order_idx').on(t.orderId)],
+  (t) => [
+    index('order_access_order_idx').on(t.orderId),
+    // DB-level guarantee of the revoke-then-insert invariant: at most one
+    // active (unrevoked) link per order, even under concurrent regeneration.
+    uniqueIndex('order_access_one_active_uq')
+      .on(t.orderId)
+      .where(sql`${t.revokedAt} is null`),
+  ],
 );
 
 // --- team roster members ----------------------------------------------------
@@ -186,17 +253,17 @@ export const rosterMembers = confirmation.table(
 export const rosterAccess = confirmation.table(
   'roster_access',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
+    ...accessTokenColumns(),
     orderId: uuid('order_id')
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
-    tokenHash: text('token_hash').notNull().unique(),
-    expiresAt: timestamp('expires_at', { withTimezone: true }),
-    lastViewedAt: timestamp('last_viewed_at', { withTimezone: true }),
-    revokedAt: timestamp('revoked_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index('roster_access_order_idx').on(t.orderId)],
+  (t) => [
+    index('roster_access_order_idx').on(t.orderId),
+    uniqueIndex('roster_access_one_active_uq')
+      .on(t.orderId)
+      .where(sql`${t.revokedAt} is null`),
+  ],
 );
 
 // --- team roster per-member individual link access (v2, TEAM_ROSTER_PLAN.md Phase 9) --
@@ -207,20 +274,94 @@ export const rosterAccess = confirmation.table(
 export const rosterMemberAccess = confirmation.table(
   'roster_member_access',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
+    ...accessTokenColumns(),
     rosterMemberId: uuid('roster_member_id')
       .notNull()
       .references(() => rosterMembers.id, { onDelete: 'cascade' }),
-    tokenHash: text('token_hash').notNull().unique(),
-    expiresAt: timestamp('expires_at', { withTimezone: true }),
-    lastViewedAt: timestamp('last_viewed_at', { withTimezone: true }),
-    revokedAt: timestamp('revoked_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index('roster_member_access_member_idx').on(t.rosterMemberId)],
+  (t) => [
+    index('roster_member_access_member_idx').on(t.rosterMemberId),
+    uniqueIndex('roster_member_access_one_active_uq')
+      .on(t.rosterMemberId)
+      .where(sql`${t.revokedAt} is null`),
+  ],
 );
 
 // --- garments (line items) -------------------------------------------------
+// --- garment type presets (admin-managed catalog) --------------------------
+// Mirrors Sales Hub's products.orderOptions/sizes shapes (bm-sales
+// src/db/schema/sales.ts) for fleet parity, extended with free-text options.
+
+/** One configurable option on a garment type: a constrained pick-list or a free-text field. */
+export type GarmentTypeOption =
+  | { label: string; type: 'select'; options: string[]; defaultOption?: string }
+  | { label: string; type: 'text'; defaultValue?: string };
+
+/** An ordered list of sizes within a range (e.g. womens / mens / youth). LEGACY — see size_charts.sizes. */
+export interface GarmentTypeSizeRange {
+  sizeRange: string;
+  sizes: string[];
+}
+
+/** A labeled fabric slot on a garment type (e.g. "Outer Fabric", "Hood Lining") — staff pick ONE per field. */
+export interface GarmentTypeFabricField {
+  label: string;
+  options: string[];
+}
+
+/** One size entry on a size chart; tall=true offers an extra-long "<label> Tall" variant. */
+export interface SizeChartSize {
+  label: string;
+  tall: boolean;
+}
+
+export const garmentTypes = confirmation.table(
+  'garment_types',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    name: text('name').notNull(),
+    category: text('category'), // optional grouping, e.g. 'Hoodies'
+    // LEGACY single flat fabric list — superseded by fabricFields; still read
+    // via effectiveFabricFields() (src/lib/fabric-fields.ts) for old rows.
+    fabricOptions: jsonb('fabric_options').$type<string[]>().notNull().default([]),
+    // Labeled fabric slots, each with its own pick-list (one pick per slot).
+    fabricFields: jsonb('fabric_fields').$type<GarmentTypeFabricField[]>().notNull().default([]),
+    orderOptions: jsonb('order_options').$type<GarmentTypeOption[]>().notNull().default([]),
+    // LEGACY / write-dead — sizes now live on size_charts.sizes; kept per the
+    // additive-migrations rule, no longer written or read.
+    sizes: jsonb('sizes').$type<GarmentTypeSizeRange[]>().notNull().default([]),
+    // Deactivate-never-delete (Sales Hub dictionary convention): existing
+    // garments keep pointing at retired types.
+    isActive: boolean('is_active').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [index('garment_types_active_idx').on(t.isActive)],
+);
+
+// charts auto-attached to garments created with this type (many-to-many)
+export const garmentTypeSizeChartLinks = confirmation.table(
+  'garment_type_size_chart_links',
+  {
+    garmentTypeId: uuid('garment_type_id')
+      .notNull()
+      .references(() => garmentTypes.id, { onDelete: 'cascade' }),
+    sizeChartId: uuid('size_chart_id')
+      .notNull()
+      .references(() => sizeCharts.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    // Composite PK (not just a unique index): tables without a PK break
+    // logical replication / CDC, which the shared-platform DB will need.
+    primaryKey({ columns: [t.garmentTypeId, t.sizeChartId] }),
+    uniqueIndex('garment_type_size_chart_uq').on(t.garmentTypeId, t.sizeChartId),
+  ],
+);
+
 export const garments = confirmation.table(
   'garments',
   {
@@ -229,13 +370,27 @@ export const garments = confirmation.table(
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
-    fabrics: jsonb('fabrics'), // list of planned fabrics
+    // LEGACY free-text fabric list for typeless garments; typed garments use
+    // selectedFabrics. Resolve via effectiveFabrics() (src/lib/fabric-fields.ts).
+    fabrics: jsonb('fabrics').$type<string[]>(),
     notes: text('notes'),
     sortOrder: integer('sort_order').notNull().default(0),
+    // Preset link + the values chosen for the type's orderOptions ({label: value}).
+    // Both nullable — garments without a type keep the free-text workflow.
+    garmentTypeId: uuid('garment_type_id').references(() => garmentTypes.id, {
+      onDelete: 'set null',
+    }),
+    selectedOptions: jsonb('selected_options').$type<Record<string, string>>(),
+    // Fabric picks per type fabric field ({fieldLabel: chosenFabric}). Null
+    // for typeless garments, which keep the legacy free-text `fabrics` list.
+    selectedFabrics: jsonb('selected_fabrics').$type<Record<string, string>>(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
   },
-  (t) => [index('garments_order_idx').on(t.orderId)],
+  (t) => [index('garments_order_idx').on(t.orderId), index('garments_type_idx').on(t.garmentTypeId)],
 );
 
 // --- per-garment sizing rows ----------------------------------------------
@@ -256,8 +411,16 @@ export const garmentSizing = confirmation.table(
     rosterMemberId: uuid('roster_member_id').references(() => rosterMembers.id, {
       onDelete: 'cascade',
     }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
   },
-  (t) => [index('garment_sizing_garment_idx').on(t.garmentId)],
+  (t) => [
+    index('garment_sizing_garment_idx').on(t.garmentId),
+    index('garment_sizing_roster_member_idx').on(t.rosterMemberId),
+  ],
 );
 
 // --- mock-up images (garment-level) ---------------------------------------
@@ -282,8 +445,15 @@ export const sizeCharts = confirmation.table('size_charts', {
   name: text('name').notNull(),
   storageKey: text('storage_key'),
   description: text('description'),
+  // Ordered structured size list — drives the size dropdowns in the staff
+  // sizing table and the customer roster flow for garments linked to this
+  // chart. The uploaded file stays the visual reference.
+  sizes: jsonb('sizes').$type<SizeChartSize[]>().notNull().default([]),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date()),
 });
 
 // link a garment to one or more reference charts (many-to-many)
@@ -298,9 +468,23 @@ export const garmentSizeChartLinks = confirmation.table(
       .references(() => sizeCharts.id, { onDelete: 'cascade' }),
   },
   (t) => [
+    // Composite PK — see garment_type_size_chart_links note.
+    primaryKey({ columns: [t.garmentId, t.sizeChartId] }),
     uniqueIndex('garment_size_chart_uq').on(t.garmentId, t.sizeChartId),
   ],
 );
+
+/** Canonical acknowledgment keys — REQUIRED_ACK_KEYS (customer-service) must stay in sync. */
+export type AckKey =
+  | 'color_accuracy'
+  | 'color_matching'
+  | 'mockup_correct'
+  | 'sizing_correct'
+  | 'size_charts_used'
+  | 'no_refunds'
+  | 'womens_unisex_sizing'
+  | 'payment_terms'
+  | 'authorised';
 
 // --- acknowledgments (one row per checkbox, audit trail) ------------------
 export const acknowledgments = confirmation.table(
@@ -310,7 +494,7 @@ export const acknowledgments = confirmation.table(
     orderId: uuid('order_id')
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
-    ackKey: text('ack_key').notNull(), // 'color_matching' | 'mockup_correct' | ...
+    ackKey: text('ack_key').notNull().$type<AckKey>(),
     ackTextVersion: text('ack_text_version').notNull(),
     accepted: boolean('accepted').notNull().default(false),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),
@@ -331,34 +515,44 @@ export const confirmations = confirmation.table('confirmations', {
   // IMMUTABLE copy of the order as shown at confirmation — including the NAME of
   // each linked size chart. Live records may change/disappear later; this is the
   // record of what was actually agreed. (BRIEF §6, §8)
-  confirmedSnapshot: jsonb('confirmed_snapshot').notNull(),
+  // KEY CONVENTION: snapshots written from 2026-07-26 use camelCase keys;
+  // earlier rows are snake_case — readers must normalize (see orders/snapshot).
+  confirmedSnapshot: jsonb('confirmed_snapshot').notNull().$type<Record<string, unknown>>(),
   confirmedAt: timestamp('confirmed_at', { withTimezone: true }).defaultNow().notNull(),
   ipAddress: inet('ip_address'),
   userAgent: text('user_agent'),
 });
 
 // --- Google Ads conversion events -----------------------------------------
-export const conversionEvents = confirmation.table('conversion_events', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  orderId: uuid('order_id')
-    .notNull()
-    .references(() => orders.id, { onDelete: 'cascade' }),
-  valueAmount: numeric('value_amount', { precision: 12, scale: 2 }),
-  valueCurrency: text('value_currency'),
-  firedAt: timestamp('fired_at', { withTimezone: true }),
-  status: conversionStatus('status').notNull().default('pending'),
-  providerResponse: jsonb('provider_response'),
-});
+export const conversionEvents = confirmation.table(
+  'conversion_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    valueAmount: numeric('value_amount', { precision: 12, scale: 2 }),
+    valueCurrency: text('value_currency'),
+    firedAt: timestamp('fired_at', { withTimezone: true }),
+    status: conversionStatus('status').notNull().default('pending'),
+    providerResponse: jsonb('provider_response').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  // One conversion per order is the invariant confirmOrder relies on — the
+  // unique index both declares it and gives the lookup its index.
+  (t) => [uniqueIndex('conversion_events_order_uq').on(t.orderId)],
+);
 
 // --- domain events outbox (platform integration, BRIEF §15) ---------------
 export const domainEvents = confirmation.table(
   'domain_events',
   {
     id: uuid('id').defaultRandom().primaryKey(),
-    aggregateType: text('aggregate_type').notNull(), // 'order'
+    // 'staff_user' appears only on pre-split legacy audit rows (see audit_events)
+    aggregateType: text('aggregate_type').notNull().$type<'order' | 'staff_user'>(),
     aggregateId: uuid('aggregate_id').notNull(),
-    eventType: text('event_type').notNull(), // 'order.confirmed' | 'order.viewed' | ...
-    payload: jsonb('payload').notNull(),
+    eventType: text('event_type').notNull().$type<DomainEventType>(),
+    payload: jsonb('payload').notNull().$type<Record<string, unknown>>(),
     status: eventStatus('status').notNull().default('pending'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     deliveredAt: timestamp('delivered_at', { withTimezone: true }),
@@ -370,6 +564,37 @@ export const domainEvents = confirmation.table(
   (t) => [
     index('domain_events_status_idx').on(t.status),
     index('domain_events_aggregate_idx').on(t.aggregateType, t.aggregateId),
+    // Serves the aggregate-scoped reads that omit aggregateType
+    // (getChangesRequested*, getStaleOrders) — the composite above can't.
+    index('domain_events_aggregate_id_idx').on(t.aggregateId, t.eventType, t.createdAt),
+    // The outbox poller's working set: tiny live sliver of a growing table.
+    index('domain_events_outbox_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} in ('pending', 'failed')`),
+  ],
+);
+
+// --- audit events (staff/customer action history) ---------------------------
+// Split from domain_events (2026-07-26): audit rows are NOT outbox messages —
+// they have no delivery lifecycle, and they need actor attribution as a real
+// query dimension. domain_events stays a pure transactional outbox.
+// Legacy audit rows written to domain_events before the split remain there;
+// getOrderAuditLog merges both sources.
+export const auditEvents = confirmation.table(
+  'audit_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    aggregateType: text('aggregate_type').notNull().$type<'order' | 'staff_user' | 'garment_type' | 'purchase_order' | 'supplier' | 'shipment'>(),
+    aggregateId: uuid('aggregate_id').notNull(),
+    eventType: text('event_type').notNull(),
+    actorEmail: text('actor_email'),
+    actorStaffUserId: uuid('actor_staff_user_id').references(() => staffUsers.id),
+    payload: jsonb('payload').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('audit_events_aggregate_idx').on(t.aggregateId, t.createdAt),
+    index('audit_events_actor_idx').on(t.actorEmail),
   ],
 );
 
@@ -378,19 +603,62 @@ export const domainEvents = confirmation.table(
 // single atomic upsert (see checkRateLimitDb() in src/lib/rate-limit.ts).
 // The in-memory limiter in that same file remains the fallback when this
 // table is unreachable (and is what unit tests exercise).
-export const rateLimits = confirmation.table('rate_limits', {
-  key: text('key').primaryKey(),
-  windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
-  count: integer('count').notNull().default(1),
-});
+export const rateLimits = confirmation.table(
+  'rate_limits',
+  {
+    key: text('key').primaryKey(),
+    windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
+    count: integer('count').notNull().default(1),
+  },
+  // Lets the cron purge of expired windows run as an index scan.
+  (t) => [index('rate_limits_window_start_idx').on(t.windowStart)],
+);
 
 // --- relations (no DB migration needed — type-level only for db.query.* API) ---
 
-export const ordersRelations = relations(orders, ({ many }) => ({
+export const ordersRelations = relations(orders, ({ one, many }) => ({
   garments: many(garments),
   access: many(orderAccess),
   rosterMembers: many(rosterMembers),
   rosterAccess: many(rosterAccess),
+  notes: many(orderNotes),
+  confirmation: one(confirmations, {
+    fields: [orders.id],
+    references: [confirmations.orderId],
+  }),
+  acknowledgments: many(acknowledgments),
+  conversionEvents: many(conversionEvents),
+  createdByUser: one(staffUsers, {
+    fields: [orders.createdBy],
+    references: [staffUsers.id],
+  }),
+}));
+
+export const confirmationsRelations = relations(confirmations, ({ one }) => ({
+  order: one(orders, { fields: [confirmations.orderId], references: [orders.id] }),
+}));
+
+export const acknowledgmentsRelations = relations(acknowledgments, ({ one }) => ({
+  order: one(orders, { fields: [acknowledgments.orderId], references: [orders.id] }),
+}));
+
+export const conversionEventsRelations = relations(conversionEvents, ({ one }) => ({
+  order: one(orders, { fields: [conversionEvents.orderId], references: [orders.id] }),
+}));
+
+export const staffUsersRelations = relations(staffUsers, ({ many }) => ({
+  createdOrders: many(orders),
+}));
+
+export const auditEventsRelations = relations(auditEvents, ({ one }) => ({
+  actor: one(staffUsers, {
+    fields: [auditEvents.actorStaffUserId],
+    references: [staffUsers.id],
+  }),
+}));
+
+export const orderNotesRelations = relations(orderNotes, ({ one }) => ({
+  order: one(orders, { fields: [orderNotes.orderId], references: [orders.id] }),
 }));
 
 export const garmentsRelations = relations(garments, ({ one, many }) => ({
@@ -398,7 +666,30 @@ export const garmentsRelations = relations(garments, ({ one, many }) => ({
   sizing: many(garmentSizing),
   images: many(mockupImages),
   sizeChartLinks: many(garmentSizeChartLinks),
+  garmentType: one(garmentTypes, {
+    fields: [garments.garmentTypeId],
+    references: [garmentTypes.id],
+  }),
 }));
+
+export const garmentTypesRelations = relations(garmentTypes, ({ many }) => ({
+  garments: many(garments),
+  sizeChartLinks: many(garmentTypeSizeChartLinks),
+}));
+
+export const garmentTypeSizeChartLinksRelations = relations(
+  garmentTypeSizeChartLinks,
+  ({ one }) => ({
+    garmentType: one(garmentTypes, {
+      fields: [garmentTypeSizeChartLinks.garmentTypeId],
+      references: [garmentTypes.id],
+    }),
+    sizeChart: one(sizeCharts, {
+      fields: [garmentTypeSizeChartLinks.sizeChartId],
+      references: [sizeCharts.id],
+    }),
+  }),
+);
 
 export const garmentSizingRelations = relations(garmentSizing, ({ one }) => ({
   garment: one(garments, { fields: [garmentSizing.garmentId], references: [garments.id] }),
@@ -436,6 +727,7 @@ export const garmentSizeChartLinksRelations = relations(garmentSizeChartLinks, (
 
 export const sizeChartsRelations = relations(sizeCharts, ({ many }) => ({
   garmentLinks: many(garmentSizeChartLinks),
+  garmentTypeLinks: many(garmentTypeSizeChartLinks),
 }));
 
 export const orderAccessRelations = relations(orderAccess, ({ one }) => ({

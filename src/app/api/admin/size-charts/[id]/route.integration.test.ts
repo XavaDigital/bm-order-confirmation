@@ -145,6 +145,32 @@ describe('PATCH /api/admin/size-charts/[id]', () => {
     const row = await db.query.sizeCharts.findFirst({ where: eq(schema.sizeCharts.id, chart.id) });
     expect(row!.name).toBe('Youth Unisex');
   });
+
+  it('updates the structured size list', async () => {
+    await setSession('admin');
+    const chart = await seedChart();
+    const res = await PATCH(
+      patchRequest({ sizes: [{ label: 'M' }, { label: 'L', tall: true }] }),
+      { params: Promise.resolve({ id: chart.id }) },
+    );
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.sizes).toEqual([
+      { label: 'M', tall: false },
+      { label: 'L', tall: true },
+    ]);
+  });
+
+  it('rejects duplicate size labels in a PATCH', async () => {
+    await setSession('admin');
+    const chart = await seedChart();
+    const res = await PATCH(
+      patchRequest({ sizes: [{ label: 'M' }, { label: 'm' }] }),
+      { params: Promise.resolve({ id: chart.id }) },
+    );
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('DELETE /api/admin/size-charts/[id]', () => {

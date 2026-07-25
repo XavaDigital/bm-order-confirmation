@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { Modal, Upload, Button, Table, Select, App, Typography, Alert, Space, Tag } from 'antd';
 import { InboxOutlined } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
+import { postForm } from '@/lib/api-fetch';
 
 interface GuessedMapping {
   nameColumn: number | null;
@@ -110,12 +111,11 @@ export function RosterImportModal({ orderId, open, onClose, onImported }: Props)
     try {
       const fd = new FormData();
       fd.append('file', selected);
-      const res = await fetch(`/api/admin/orders/${orderId}/roster/import/preview`, {
-        method: 'POST',
-        body: fd,
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? 'Failed to read file');
+      const data = await postForm<PreviewData>(
+        `/api/admin/orders/${orderId}/roster/import/preview`,
+        fd,
+        'Failed to read file',
+      );
       setPreview(data);
       setMapping(data.guessedMapping);
     } catch (err) {
@@ -137,12 +137,14 @@ export function RosterImportModal({ orderId, open, onClose, onImported }: Props)
       fd.append('file', file);
       fd.append('mapping', JSON.stringify(mapping));
       if (resolution) fd.append('duplicateResolution', resolution);
-      const res = await fetch(`/api/admin/orders/${orderId}/roster/import/commit`, {
-        method: 'POST',
-        body: fd,
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? 'Import failed');
+      const data = await postForm<{
+        needsConfirmation?: boolean;
+        ambiguousDuplicates?: AmbiguousDuplicate[];
+        imported: number;
+        skippedDuplicate?: number;
+        skippedAmbiguous?: number;
+        skippedBlank?: number;
+      }>(`/api/admin/orders/${orderId}/roster/import/commit`, fd, 'Import failed');
 
       if (data.needsConfirmation) {
         setAmbiguous(data.ambiguousDuplicates ?? []);

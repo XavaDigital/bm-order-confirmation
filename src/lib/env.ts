@@ -21,11 +21,15 @@ const schema = z.object({
   // (today's behavior). Suggested value once enabled: 30.
   LINK_EXPIRY_DAYS: z.coerce.number().optional(),
 
-  // Object storage (AWS S3). Optional at boot — fails gracefully at upload time if absent.
+  // Object storage (S3-compatible). Optional at boot — fails gracefully at upload time if absent.
+  // AWS_S3_ENDPOINT: set for non-AWS providers (Supabase Storage:
+  // https://<project-ref>.storage.supabase.co/storage/v1/s3). Leave unset for real AWS S3.
+  // AWS_S3_REGION must match the provider's region setting or presigned URLs 403.
   AWS_S3_BUCKET: z.string().optional(),
   AWS_S3_REGION: z.string().optional(),
   AWS_S3_ACCESS_KEY: z.string().optional(),
   AWS_S3_SECRET_ACCESS_KEY: z.string().optional(),
+  AWS_S3_ENDPOINT: z.string().url().optional(),
 
   // Google Tag Manager container ID (e.g. "GTM-XXXXXXX").
   // NEXT_PUBLIC_ prefix makes it available in client bundles at build time.
@@ -66,6 +70,16 @@ const schema = z.object({
   // Error monitoring (src/lib/logger.ts). Leave unset to disable — logger.error()
   // still logs to stdout as usual, it just skips the Sentry delivery.
   SENTRY_DSN: z.string().optional(),
+
+  // --- Sales Hub (bm-sales) fleet integration. All optional — unset = dormant.
+  // Outbound: the hub's Capability API (docs: bm-sales/docs/capability-api.md).
+  // CAPABILITY_API_URL e.g. https://sales.beastmode.co.nz/api/capability/v1
+  // CAPABILITY_API_SECRET is the SHARED fleet capability bearer secret.
+  CAPABILITY_API_URL: z.string().url().optional(),
+  CAPABILITY_API_SECRET: z.string().optional(),
+  // Inbound: the per-app secret the hub/Email Flow presents when calling THIS
+  // app's /api/capability/v1/* routes. Distinct from the two above by design.
+  INBOUND_CAPABILITY_SECRET: z.string().optional(),
 });
 
 // Next.js sets NEXT_PHASE=phase-production-build only during `next build` — not

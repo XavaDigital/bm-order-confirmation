@@ -4,12 +4,11 @@ import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Form, Input, Button, Typography, Alert } from 'antd';
-import { LockOutlined, MailOutlined } from '@ant-design/icons';
-import { APP_NAME, APP_TAGLINE } from '@/lib/config';
+import { APP_NAME } from '@/lib/config';
 import { AuthCard } from '@/components/auth/AuthCard';
 import { postJson, ApiError } from '@/lib/api-fetch';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 interface LoginFormValues {
   email: string;
@@ -47,21 +46,14 @@ export function LoginForm() {
   return (
     <AuthCard>
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
-        <Title
-          level={3}
-          style={{
-            color: '#fff',
-            letterSpacing: 2,
-            textTransform: 'uppercase',
-            marginBottom: 4,
-          }}
-        >
+        <Title level={2} style={{ marginBottom: 4 }}>
           {APP_NAME}
         </Title>
-        <Typography.Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
-          {APP_TAGLINE} Portal
-        </Typography.Text>
+        <Text type="secondary">Sign in to your account</Text>
       </div>
+
+      {/* bm-identity SSO button slot — gate on an /api/auth/config check when
+          the fleet SSO integration lands (mirrors SalesFlow's Google button). */}
 
       {error && (
         <Alert
@@ -79,60 +71,33 @@ export function LoginForm() {
         size="large"
       >
         <Form.Item
+          label="Email"
           name="email"
           rules={[
             { required: true, message: 'Enter your email' },
             { type: 'email', message: 'Enter a valid email' },
           ]}
         >
-          <Input
-            prefix={<MailOutlined style={{ color: 'rgba(255,255,255,0.3)' }} />}
-            placeholder="Email"
-            autoComplete="email"
-            style={{
-              background: 'rgba(255,255,255,0.07)',
-              border: '1px solid rgba(255,255,255,0.15)',
-              color: '#fff',
-            }}
-          />
+          <Input placeholder="you@company.com" autoComplete="email" />
         </Form.Item>
 
         <Form.Item
+          label="Password"
           name="password"
           rules={[{ required: true, message: 'Enter your password' }]}
         >
-          <Input.Password
-            prefix={<LockOutlined style={{ color: 'rgba(255,255,255,0.3)' }} />}
-            placeholder="Password"
-            autoComplete="current-password"
-            style={{
-              background: 'rgba(255,255,255,0.07)',
-              border: '1px solid rgba(255,255,255,0.15)',
-              color: '#fff',
-            }}
-          />
+          <Input.Password placeholder="Password" autoComplete="current-password" />
         </Form.Item>
 
         <div style={{ textAlign: 'right', marginBottom: 8, marginTop: -8 }}>
-          <Link href="/forgot-password" style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
+          <Link href="/forgot-password" style={{ fontSize: 13 }}>
             Forgot password?
           </Link>
         </div>
 
         <Form.Item style={{ marginBottom: 0, marginTop: 8 }}>
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={loading}
-            block
-            style={{
-              height: 44,
-              fontWeight: 600,
-              letterSpacing: 1,
-              textTransform: 'uppercase',
-            }}
-          >
-            Sign In
+          <Button type="primary" htmlType="submit" loading={loading} block style={{ height: 44, fontWeight: 600 }}>
+            Sign in
           </Button>
         </Form.Item>
       </Form>

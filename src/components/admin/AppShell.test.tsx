@@ -47,7 +47,7 @@ describe('AppShell nav', () => {
     expect(await screen.findByText('Order list goes here')).toBeInTheDocument();
   });
 
-  it('collapsing the sidebar hides the logo text and switches the trigger icon', async () => {
+  it('collapsing the sidebar switches the trigger icon; brand stays in the header', async () => {
     const user = userEvent.setup();
     render(
       <AppShell user={{ name: 'Sales Rep', email: 'sales@example.com', role: 'sales' }}>
@@ -59,7 +59,8 @@ describe('AppShell nav', () => {
     expect(screen.getByText('BeastMode')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'menu-fold' }));
 
-    expect(screen.queryByText('BeastMode')).not.toBeInTheDocument();
+    // Brand lives in the fixed header now — collapsing the sider keeps it visible.
+    expect(screen.getByText('BeastMode')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'menu-unfold' })).toBeInTheDocument();
   });
 

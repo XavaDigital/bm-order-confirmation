@@ -44,7 +44,7 @@ function baseRoster(overrides: Partial<Roster> = {}): Roster {
     orderNumber: 'OC-1',
     clubName: 'Wildcats',
     locked: false,
-    garments: [{ id: 'garment-1', name: 'Home Jersey', notes: null, sizeCharts: [] }],
+    garments: [{ id: 'garment-1', name: 'Home Jersey', notes: null, sizes: [], sizeCharts: [] }],
     members: [],
     ...overrides,
   };
@@ -210,8 +210,8 @@ describe('RosterCustomerView', () => {
     renderView(
       baseRoster({
         garments: [
-          { id: 'garment-1', name: 'Home Jersey', notes: null, sizeCharts: [] },
-          { id: 'garment-2', name: 'Shorts', notes: null, sizeCharts: [] },
+          { id: 'garment-1', name: 'Home Jersey', notes: null, sizes: [], sizeCharts: [] },
+          { id: 'garment-2', name: 'Shorts', notes: null, sizes: [], sizeCharts: [] },
         ],
         members: [member()],
       }),
@@ -322,7 +322,7 @@ describe('RosterCustomerView', () => {
             id: 'garment-1',
             name: 'Home Jersey',
             notes: null,
-            sizeCharts: [
+            sizes: [], sizeCharts: [
               {
                 name: 'Adult Chart',
                 storageKey: 'charts/adult.pdf',
@@ -359,7 +359,7 @@ describe('RosterCustomerView', () => {
             id: 'garment-1',
             name: 'Home Jersey',
             notes: null,
-            sizeCharts: [
+            sizes: [], sizeCharts: [
               {
                 name: 'Kids Chart',
                 storageKey: 'charts/kids.png',
@@ -388,7 +388,7 @@ describe('RosterCustomerView', () => {
             id: 'garment-1',
             name: 'Home Jersey',
             notes: null,
-            sizeCharts: [{ name: 'Unavailable Chart', storageKey: null, url: null, downloadUrl: null }],
+            sizes: [], sizeCharts: [{ name: 'Unavailable Chart', storageKey: null, url: null, downloadUrl: null }],
           },
         ],
         members: [member()],

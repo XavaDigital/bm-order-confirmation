@@ -14,6 +14,7 @@ vi.mock('@/lib/storage', async (importOriginal) => {
     ...actual,
     uploadFile: vi.fn().mockResolvedValue('mock-storage-key'),
     getSignedUrl: vi.fn().mockResolvedValue('https://signed.example.com/mock'),
+    isStorageConfigured: vi.fn().mockReturnValue(true),
   };
 });
 
@@ -63,17 +64,28 @@ async function setSession(role: 'sales' | 'admin') {
   session.role = role;
 }
 
-function multipartRequest(fields: { name?: string; description?: string; file?: File }) {
+function multipartRequest(fields: { name?: string; description?: string; file?: File; sizes?: string }) {
   const formData = new FormData();
   if (fields.name !== undefined) formData.set('name', fields.name);
   if (fields.description !== undefined) formData.set('description', fields.description);
+  if (fields.sizes !== undefined) formData.set('sizes', fields.sizes);
   if (fields.file) formData.set('file', fields.file);
   return new NextRequest('http://localhost/api/admin/size-charts', { method: 'POST', body: formData });
 }
 
+function getRequest() {
+  return new NextRequest('http://localhost/api/admin/size-charts', { method: 'GET' });
+}
+
 describe('GET /api/admin/size-charts', () => {
+  it('returns 401 when there is no session', async () => {
+    const res = await GET(getRequest());
+    expect(res.status).toBe(401);
+  });
+
   it('returns an empty array when there are none', async () => {
-    const res = await GET();
+    await setSession('sales');
+    const res = await GET(getRequest());
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -81,12 +93,13 @@ describe('GET /api/admin/size-charts', () => {
   });
 
   it('returns charts ordered by name with a signed url', async () => {
+    await setSession('sales');
     await db.insert(schema.sizeCharts).values([
       { name: 'Zebra Chart', storageKey: 'size-charts/z.pdf' },
       { name: 'Alpha Chart', storageKey: 'size-charts/a.pdf' },
     ]);
 
-    const res = await GET();
+    const res = await GET(getRequest());
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -169,5 +182,32 @@ describe('POST /api/admin/size-charts', () => {
 
     const rows = await db.select().from(schema.sizeCharts);
     expect(rows).toHaveLength(1);
+  });
+
+  it('persists a structured size list sent as a JSON form field', async () => {
+    await setSession('admin');
+    const file = new File(['abc'], 'chart.pdf', { type: 'application/pdf' });
+    const res = await POST(
+      multipartRequest({
+        name: 'Adult Unisex',
+        file,
+        sizes: JSON.stringify([{ label: 'M' }, { label: 'L', tall: true }]),
+      }),
+    );
+    const json = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(json.sizes).toEqual([
+      { label: 'M', tall: false },
+      { label: 'L', tall: true },
+    ]);
+  });
+
+  it('returns 400 for a malformed sizes form field', async () => {
+    await setSession('admin');
+    const file = new File(['abc'], 'chart.pdf', { type: 'application/pdf' });
+    const res = await POST(multipartRequest({ name: 'Adult Unisex', file, sizes: '{nope' }));
+    expect(res.status).toBe(400);
+    expect(uploadFile).not.toHaveBeenCalled();
   });
 });

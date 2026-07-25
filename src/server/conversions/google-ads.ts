@@ -103,7 +103,7 @@ export async function fireGoogleAdsConversion(orderId: string): Promise<void> {
   const apiUrl = `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${customerId}/conversionUploads:uploadClickConversions`;
 
   let res: Response;
-  let responseBody: unknown;
+  let responseBody: Record<string, unknown> | null = null;
   try {
     res = await fetch(apiUrl, {
       method: 'POST',
@@ -114,7 +114,7 @@ export async function fireGoogleAdsConversion(orderId: string): Promise<void> {
       },
       body: JSON.stringify(payload),
     });
-    responseBody = await res.json();
+    responseBody = (await res.json()) as Record<string, unknown>;
   } catch (err) {
     await persistResult(convEvent.id, 'failed', { error: String(err), stage: 'api_fetch' });
     throw err;
@@ -126,10 +126,9 @@ export async function fireGoogleAdsConversion(orderId: string): Promise<void> {
   }
 
   // partialFailure:true means HTTP 200 can still contain per-item errors.
-  const body = responseBody as Record<string, unknown>;
-  if (body.partialFailureError) {
+  if (responseBody?.partialFailureError) {
     await persistResult(convEvent.id, 'failed', responseBody);
-    throw new Error(`[google-ads] partial failure: ${JSON.stringify(body.partialFailureError)}`);
+    throw new Error(`[google-ads] partial failure: ${JSON.stringify(responseBody?.partialFailureError)}`);
   }
 
   await persistResult(convEvent.id, 'sent', responseBody);
@@ -176,7 +175,7 @@ function toGoogleAdsDateTime(date: Date): string {
 async function persistResult(
   eventId: string,
   status: 'sent' | 'failed',
-  providerResponse: unknown,
+  providerResponse: Record<string, unknown> | null,
 ): Promise<void> {
   await db
     .update(conversionEvents)

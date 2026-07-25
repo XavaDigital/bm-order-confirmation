@@ -17,11 +17,20 @@
 import { count, and, eq } from 'drizzle-orm';
 import type { Transaction } from '@/db';
 import { db } from '@/db';
-import { domainEvents } from '@/db/schema';
+import { domainEvents, auditEvents } from '@/db/schema';
 
 export type DomainEventType =
   | 'order.viewed'
   | 'order.confirmed'
+  | 'order.deleted'
+  | 'garment.added'
+  | 'garment.updated'
+  | 'garment.removed'
+  | 'sizing.updated'
+  | 'mockup.added'
+  | 'mockup.removed'
+  | 'chart_links.updated'
+  | 'roster.member_updated'
   | 'order.color_sample_requested'
   | 'order.color_sample_resolved'
   | 'order.changes_requested'
@@ -31,6 +40,7 @@ export type DomainEventType =
   | 'link.emailed'
   | 'order.updated'
   | 'order.duplicated'
+  | 'order.note_added'
   | 'access_code.enabled'
   | 'access_code.disabled'
   | 'roster.member_added'
@@ -52,8 +62,8 @@ export async function emitDomainEvent(
   params: {
     aggregateId: string;
     eventType: DomainEventType;
-    payload: unknown;
-    aggregateType?: string;
+    payload: Record<string, unknown>;
+    aggregateType?: 'order';
   },
 ): Promise<void> {
   await tx.insert(domainEvents).values({
@@ -65,23 +75,57 @@ export async function emitDomainEvent(
 }
 
 /**
- * Record an admin audit event outside any transaction.
- * Status is set to 'delivered' immediately — these events are for the audit
- * log only and have no downstream consumer to deliver to.
+ * Build an emitter bound to one aggregate type, so call sites can't fat-finger
+ * (or forget) the aggregateType on every emit.
  */
-export async function recordAuditEvent(params: {
-  aggregateId: string;
-  eventType: DomainEventType;
-  payload: unknown;
-  aggregateType?: string;
-}): Promise<void> {
-  await db.insert(domainEvents).values({
+export function makeEmitter(aggregateType: 'order') {
+  return async (
+    tx: Transaction,
+    params: {
+      aggregateId: string;
+      eventType: DomainEventType;
+      payload: Record<string, unknown>;
+    },
+  ): Promise<void> => {
+    await tx.insert(domainEvents).values({
+      aggregateType,
+      aggregateId: params.aggregateId,
+      eventType: params.eventType,
+      payload: params.payload,
+    });
+  };
+}
+
+/** Outbox emitter for the `order` aggregate — the standard emitter for this app. */
+export const emitOrderEvent = makeEmitter('order');
+
+/**
+ * Record an audit event (staff/customer action history).
+ *
+ * Writes to `audit_events` — NOT the outbox. Audit rows have no delivery
+ * lifecycle and carry actor attribution as a real column. Pass `tx` when the
+ * mutation runs in a transaction so the audit entry can't be lost between the
+ * write and the record. Actor is lifted from params.actorEmail, falling back
+ * to payload.actorEmail (the legacy call convention).
+ */
+export async function recordAuditEvent(
+  params: {
+    aggregateId: string;
+    eventType: DomainEventType;
+    payload: Record<string, unknown>;
+    aggregateType?: 'order' | 'staff_user' | 'garment_type' | 'purchase_order' | 'supplier' | 'shipment';
+    actorEmail?: string | null;
+  },
+  tx?: Transaction,
+): Promise<void> {
+  await (tx ?? db).insert(auditEvents).values({
     aggregateType: params.aggregateType ?? 'order',
     aggregateId: params.aggregateId,
     eventType: params.eventType,
+    actorEmail:
+      params.actorEmail ??
+      (typeof params.payload.actorEmail === 'string' ? params.payload.actorEmail : null),
     payload: params.payload,
-    status: 'delivered',
-    deliveredAt: new Date(),
   });
 }
 
@@ -121,13 +165,39 @@ export async function getChangesRequestedCount(orderId: string): Promise<number>
 
 /**
  * Fetch the audit log for a given order, newest first.
+ *
+ * Merges two sources: `audit_events` (all audit rows since the 2026-07-26
+ * split) and `domain_events` (outbox rows — which ARE part of the order's
+ * history — plus legacy audit rows written before the split).
  */
 export async function getOrderAuditLog(orderId: string) {
-  return db.query.domainEvents.findMany({
-    where: (e, { and, eq }) => and(
-      eq(e.aggregateType, 'order'),
-      eq(e.aggregateId, orderId),
-    ),
-    orderBy: (e, { desc }) => [desc(e.createdAt)],
-  });
+  const [outboxRows, auditRows] = await Promise.all([
+    db.query.domainEvents.findMany({
+      where: (e, { and, eq }) => and(
+        eq(e.aggregateType, 'order'),
+        eq(e.aggregateId, orderId),
+      ),
+    }),
+    db.query.auditEvents.findMany({
+      where: (e, { and, eq }) => and(
+        eq(e.aggregateType, 'order'),
+        eq(e.aggregateId, orderId),
+      ),
+    }),
+  ]);
+
+  return [
+    ...outboxRows.map((e) => ({
+      id: e.id,
+      eventType: e.eventType,
+      payload: e.payload,
+      createdAt: e.createdAt,
+    })),
+    ...auditRows.map((e) => ({
+      id: e.id,
+      eventType: e.eventType,
+      payload: e.payload,
+      createdAt: e.createdAt,
+    })),
+  ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }

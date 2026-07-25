@@ -2,7 +2,7 @@
 
 import { StopOutlined } from '@ant-design/icons';
 import { ConfigProvider, Typography } from 'antd';
-import { darkTheme, BEASTMODE, headingFont } from '@/lib/theme';
+import { darkTheme, BRAND } from '@/lib/theme';
 import { SALES_REP_LABEL } from '@/lib/config';
 import { StatusPage } from '@/components/customer/StatusPage';
 
@@ -11,15 +11,12 @@ const { Title, Text, Paragraph } = Typography;
 export default function TokenNotFound() {
   return (
     <ConfigProvider theme={darkTheme}>
-      <StatusPage icon={<StopOutlined style={{ fontSize: 64, color: BEASTMODE.accent, marginBottom: 24 }} />}>
+      <StatusPage icon={<StopOutlined style={{ fontSize: 64, color: BRAND.primaryDark, marginBottom: 24 }} />}>
         <Title
           style={{
             color: '#fff',
-            fontSize: 42,
-            fontFamily: headingFont,
-            fontWeight: 400,
-            letterSpacing: 5,
-            textTransform: 'uppercase',
+            fontSize: 34,
+            fontWeight: 700,
             marginBottom: 12,
           }}
         >

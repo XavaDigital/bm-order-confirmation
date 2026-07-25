@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Button, Space, Typography, Alert, Popconfirm, App, Divider, Tooltip, Switch, Progress } from 'antd';
 import { LinkOutlined, CopyOutlined, ReloadOutlined, StopOutlined, LockOutlined, MailOutlined } from '@ant-design/icons';
+import { ApiError, deleteJson, postJson } from '@/lib/api-fetch';
 
 const { Text, Paragraph } = Typography;
 
@@ -28,9 +29,11 @@ export function RosterLinkPanel({ orderId, customerEmail, hasActiveToken, locked
   async function generate() {
     setLoading('generate');
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/roster/token`, { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? 'Failed to generate roster link');
+      const data = await postJson<{ url: string }>(
+        `/api/admin/orders/${orderId}/roster/token`,
+        undefined,
+        'Failed to generate roster link',
+      );
       setActiveUrl(data.url);
       setHasToken(true);
       message.success('Roster link generated');
@@ -44,17 +47,19 @@ export function RosterLinkPanel({ orderId, customerEmail, hasActiveToken, locked
   async function emailLink() {
     setLoading('email');
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/roster/send-link`, { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 503) {
-        message.error('Email delivery is not configured on this server.');
-        return;
-      }
-      if (!res.ok) throw new Error(data.error ?? 'Failed to send email');
+      const data = await postJson<{ url: string }>(
+        `/api/admin/orders/${orderId}/roster/send-link`,
+        undefined,
+        'Failed to send email',
+      );
       setActiveUrl(data.url);
       setHasToken(true);
       message.success(`Roster link emailed to ${customerEmail}`);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 503) {
+        message.error('Email delivery is not configured on this server.');
+        return;
+      }
       message.error(err instanceof Error ? err.message : 'Failed to send email');
     } finally {
       setLoading(null);
@@ -64,8 +69,7 @@ export function RosterLinkPanel({ orderId, customerEmail, hasActiveToken, locked
   async function revoke() {
     setLoading('revoke');
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/roster/token`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to revoke roster link');
+      await deleteJson(`/api/admin/orders/${orderId}/roster/token`, undefined, 'Failed to revoke roster link');
       setActiveUrl(null);
       setHasToken(false);
       message.success('Roster link revoked — the old URL no longer works');
@@ -89,15 +93,17 @@ export function RosterLinkPanel({ orderId, customerEmail, hasActiveToken, locked
   async function toggleLock(checked: boolean) {
     setLoading('lock');
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/roster/lock`, {
-        method: checked ? 'POST' : 'DELETE',
-      });
-      if (!res.ok) throw new Error(checked ? 'Failed to lock roster' : 'Failed to unlock roster');
+      if (checked) {
+        await postJson(`/api/admin/orders/${orderId}/roster/lock`, undefined, 'Failed to lock roster');
+      } else {
+        await deleteJson(`/api/admin/orders/${orderId}/roster/lock`, undefined, 'Failed to unlock roster');
+      }
       setIsLocked(checked);
       onLockChange?.(checked);
       message.success(checked ? 'Roster locked' : 'Roster unlocked');
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : 'Failed to update roster lock');
+    } catch {
+      // Match the pre-helper behavior: always the generic per-direction message.
+      message.error(checked ? 'Failed to lock roster' : 'Failed to unlock roster');
     } finally {
       setLoading(null);
     }

@@ -1,10 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Table, Input, Button, Space, App, Popconfirm, Typography } from 'antd';
+import { Table, Input, Select, Button, Space, App, Popconfirm, Typography } from 'antd';
 import { PlusOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons';
 import type { ColumnType } from 'antd/es/table';
 import { postJson } from '@/lib/api-fetch';
+import { buildSizeSelectOptions } from '@/lib/sizes';
+import type { SizeChartSize } from '@/db/schema';
 
 interface SizingRow {
   key: string; // local key for React, not stored in DB
@@ -24,6 +26,9 @@ interface Props {
     playerNumber?: string | null;
     notes?: string | null;
   }[];
+  /** Chart-defined sizes (from the garment's linked size charts) — when
+   * non-empty, the Size cell becomes a select incl. "<size> Tall" variants. */
+  allowedSizes?: SizeChartSize[];
 }
 
 function toLocal(rows: Props['initialRows']): SizingRow[] {
@@ -36,10 +41,12 @@ function toLocal(rows: Props['initialRows']): SizingRow[] {
   }));
 }
 
-export function SizingTable({ orderId, garmentId, initialRows }: Props) {
+export function SizingTable({ orderId, garmentId, initialRows, allowedSizes }: Props) {
   const { message } = App.useApp();
   const [rows, setRows] = useState<SizingRow[]>(() => toLocal(initialRows));
   const [saving, setSaving] = useState(false);
+  const constrained = allowedSizes !== undefined && allowedSizes.length > 0;
+  const sizeOptions = constrained ? buildSizeSelectOptions(allowedSizes) : [];
 
   function updateCell(key: string, field: keyof SizingRow, value: string) {
     setRows((prev) =>
@@ -81,8 +88,31 @@ export function SizingTable({ orderId, garmentId, initialRows }: Props) {
     {
       title: 'Size',
       dataIndex: 'size',
-      width: 90,
+      width: constrained ? 140 : 90,
       render(_: unknown, record: SizingRow) {
+        if (constrained) {
+          return (
+            <Select
+              size="small"
+              value={record.size || undefined}
+              placeholder="Size"
+              onChange={(v) => updateCell(record.key, 'size', v ?? '')}
+              options={sizeOptions}
+              variant="borderless"
+              style={{ minWidth: 110, width: '100%' }}
+              showSearch
+              allowClear
+              // Escape hatch: free-typing stays possible for one-off sizes
+              // (custom value committed on Enter via search text).
+              onInputKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const typed = (e.target as HTMLInputElement).value.trim();
+                  if (typed) updateCell(record.key, 'size', typed);
+                }
+              }}
+            />
+          );
+        }
         return (
           <Input size="small" value={record.size} placeholder="S / M / L…"
             onChange={(e) => updateCell(record.key, 'size', e.target.value)}

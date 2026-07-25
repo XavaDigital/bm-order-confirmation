@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Table, Input, Button, Space, Tag, Popconfirm, App, Typography, Spin, Alert } from 'antd';
 import {
   PlusOutlined,
@@ -15,6 +15,8 @@ import {
   LinkOutlined,
 } from '@ant-design/icons';
 import type { ColumnType } from 'antd/es/table';
+import { ApiError, deleteJson, patchJson, postJson } from '@/lib/api-fetch';
+import { useAdminResource } from '@/lib/use-admin-resource';
 import { RosterLinkPanel } from './RosterLinkPanel';
 import { RosterImportModal } from './RosterImportModal';
 
@@ -48,9 +50,10 @@ const EMPTY_DRAFT: Draft = { name: '', playerNumber: '', email: '' };
 
 export function RosterPanel({ orderId, customerEmail }: Props) {
   const { message } = App.useApp();
-  const [data, setData] = useState<RosterData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, loading, error, reload, setData } = useAdminResource<RosterData>(
+    `/api/admin/orders/${orderId}/roster`,
+    { errorMessage: 'Failed to load team roster', toast: false },
+  );
   const [addDraft, setAddDraft] = useState<Draft>(EMPTY_DRAFT);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -62,20 +65,6 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
   const [emailingAll, setEmailingAll] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
-  function loadRoster() {
-    setLoading(true);
-    setError(null);
-    return fetch(`/api/admin/orders/${orderId}/roster`)
-      .then((r) => r.json())
-      .then((json: RosterData) => setData(json))
-      .catch(() => setError('Failed to load team roster'))
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(() => {
-    loadRoster();
-  }, [orderId]);
-
   async function addMember() {
     const name = addDraft.name.trim();
     if (!name) {
@@ -84,17 +73,15 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
     }
     setAdding(true);
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/roster/members`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const json = await postJson<RosterMember>(
+        `/api/admin/orders/${orderId}/roster/members`,
+        {
           name,
           playerNumber: addDraft.playerNumber.trim() || undefined,
           email: addDraft.email.trim() || undefined,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error ?? 'Failed to add member');
+        },
+        'Failed to add member',
+      );
       setData((prev) =>
         prev && {
           ...prev,
@@ -138,12 +125,7 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
         playerNumber: editDraft.playerNumber.trim() || null,
         email: editDraft.email.trim() || null,
       };
-      const res = await fetch(`/api/admin/orders/${orderId}/roster/members/${memberId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
-      });
-      if (!res.ok) throw new Error('Failed to save member');
+      await patchJson(`/api/admin/orders/${orderId}/roster/members/${memberId}`, patch, 'Failed to save member');
       setData(
         (prev) =>
           prev && {
@@ -163,10 +145,11 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
   async function removeMember(member: RosterMember) {
     setRemovingId(member.id);
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/roster/members/${member.id}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) throw new Error('Failed to remove member');
+      await deleteJson(
+        `/api/admin/orders/${orderId}/roster/members/${member.id}`,
+        undefined,
+        'Failed to remove member',
+      );
       setData(
         (prev) =>
           prev && {
@@ -189,17 +172,17 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
   async function remindMember(member: RosterMember) {
     setRemindingId(member.id);
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/roster/members/${member.id}/remind`, {
-        method: 'POST',
-      });
-      const json = await res.json().catch(() => ({}));
-      if (res.status === 503) {
+      await postJson(
+        `/api/admin/orders/${orderId}/roster/members/${member.id}/remind`,
+        undefined,
+        'Failed to send reminder',
+      );
+      message.success(`Reminder sent to ${member.email}`);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 503) {
         message.error('Email delivery is not configured on this server.');
         return;
       }
-      if (!res.ok) throw new Error(json.error ?? 'Failed to send reminder');
-      message.success(`Reminder sent to ${member.email}`);
-    } catch (err) {
       message.error(err instanceof Error ? err.message : 'Failed to send reminder');
     } finally {
       setRemindingId(null);
@@ -209,11 +192,11 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
   async function copyMemberLink(member: RosterMember) {
     setCopyingId(member.id);
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/roster/members/${member.id}/link`, {
-        method: 'POST',
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error ?? 'Failed to generate link');
+      const json = await postJson<{ url: string }>(
+        `/api/admin/orders/${orderId}/roster/members/${member.id}/link`,
+        undefined,
+        'Failed to generate link',
+      );
       await navigator.clipboard.writeText(json.url);
       message.success(`${member.name}'s individual link copied to clipboard`);
     } catch (err) {
@@ -226,13 +209,11 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
   async function emailAllLinks() {
     setEmailingAll(true);
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/roster/email-links`, { method: 'POST' });
-      const json = await res.json().catch(() => ({}));
-      if (res.status === 503) {
-        message.error('Email delivery is not configured on this server.');
-        return;
-      }
-      if (!res.ok) throw new Error(json.error ?? 'Failed to email individual links');
+      const json = await postJson<{ sent: number; total: number; skippedNoEmail: number }>(
+        `/api/admin/orders/${orderId}/roster/email-links`,
+        undefined,
+        'Failed to email individual links',
+      );
       message.success(
         json.sent > 0
           ? `Individual links emailed to ${json.sent} of ${json.total} members` +
@@ -240,6 +221,10 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
           : 'No members have an email on file yet',
       );
     } catch (err) {
+      if (err instanceof ApiError && err.status === 503) {
+        message.error('Email delivery is not configured on this server.');
+        return;
+      }
       message.error(err instanceof Error ? err.message : 'Failed to email individual links');
     } finally {
       setEmailingAll(false);
@@ -457,7 +442,7 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
         orderId={orderId}
         open={importOpen}
         onClose={() => setImportOpen(false)}
-        onImported={loadRoster}
+        onImported={reload}
       />
     </Space>
   );

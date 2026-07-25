@@ -80,22 +80,49 @@ describe('emitDomainEvent', () => {
 });
 
 describe('recordAuditEvent', () => {
-  it('inserts directly with status=delivered', async () => {
+  it('writes to audit_events (not the outbox) and lifts the actor into a column', async () => {
     const order = await seedOrder();
 
     await recordAuditEvent({
       aggregateId: order.id,
       eventType: 'token.generated',
-      payload: {},
+      payload: { actorEmail: 'staff@example.com' },
     });
 
-    const rows = await db
+    // Nothing lands in the outbox — audit rows have no delivery lifecycle.
+    const outboxRows = await db
       .select()
       .from(schema.domainEvents)
       .where(eq(schema.domainEvents.aggregateId, order.id));
-    expect(rows).toHaveLength(1);
-    expect(rows[0].status).toBe('delivered');
-    expect(rows[0].deliveredAt).not.toBeNull();
+    expect(outboxRows).toHaveLength(0);
+
+    const auditRows = await db
+      .select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.aggregateId, order.id));
+    expect(auditRows).toHaveLength(1);
+    expect(auditRows[0].eventType).toBe('token.generated');
+    expect(auditRows[0].actorEmail).toBe('staff@example.com');
+  });
+
+  it('accepts a transaction so the audit row commits atomically with the change', async () => {
+    const order = await seedOrder();
+
+    await expect(
+      db.transaction(async (tx) => {
+        await recordAuditEvent(
+          { aggregateId: order.id, eventType: 'order.updated', payload: {} },
+          tx,
+        );
+        throw new Error('rollback');
+      }),
+    ).rejects.toThrow('rollback');
+
+    const auditRows = await db
+      .select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.aggregateId, order.id));
+    expect(auditRows).toHaveLength(0);
   });
 });
 
@@ -136,17 +163,21 @@ describe('getChangesRequestedCount', () => {
 
     expect(await getChangesRequestedCount(order.id)).toBe(0);
 
-    await recordAuditEvent({
+    await db.insert(schema.domainEvents).values({
+      aggregateType: 'order',
       aggregateId: order.id,
       eventType: 'order.changes_requested',
       payload: { comment: 'a' },
+      status: 'delivered',
     });
     expect(await getChangesRequestedCount(order.id)).toBe(1);
 
-    await recordAuditEvent({
+    await db.insert(schema.domainEvents).values({
+      aggregateType: 'order',
       aggregateId: order.id,
       eventType: 'order.changes_requested',
       payload: { comment: 'b' },
+      status: 'delivered',
     });
     expect(await getChangesRequestedCount(order.id)).toBe(2);
 
@@ -159,10 +190,12 @@ describe('getChangesRequestedCount', () => {
     expect(await getChangesRequestedCount(order.id)).toBe(2);
 
     // events on a different order should not leak in
-    await recordAuditEvent({
+    await db.insert(schema.domainEvents).values({
+      aggregateType: 'order',
       aggregateId: otherOrder.id,
       eventType: 'order.changes_requested',
       payload: { comment: 'other' },
+      status: 'delivered',
     });
     expect(await getChangesRequestedCount(order.id)).toBe(2);
     expect(await getChangesRequestedCount(otherOrder.id)).toBe(1);
@@ -192,7 +225,7 @@ describe('getOrderAuditLog', () => {
     });
     // different aggregateType on the same aggregateId should not appear
     await db.insert(schema.domainEvents).values({
-      aggregateType: 'garment',
+      aggregateType: 'staff_user',
       aggregateId: order.id,
       eventType: 'order.updated',
       payload: {},
@@ -212,7 +245,34 @@ describe('getOrderAuditLog', () => {
     expect(log).toHaveLength(2);
     expect(log[0].eventType).toBe('order.confirmed');
     expect(log[1].eventType).toBe('order.viewed');
-    expect(log.every((e) => e.aggregateType === 'order')).toBe(true);
-    expect(log.every((e) => e.aggregateId === order.id)).toBe(true);
+    // getOrderAuditLog now returns a merged projection without aggregate
+    // columns — scoping is verified by the length + type assertions above.
+  });
+
+  it('merges audit_events rows into the order audit log, newest first', async () => {
+    const order = await seedOrder();
+
+    await db.insert(schema.domainEvents).values({
+      aggregateType: 'order',
+      aggregateId: order.id,
+      eventType: 'order.viewed',
+      payload: {},
+      status: 'delivered',
+      createdAt: new Date(Date.now() - 10_000),
+    });
+    await recordAuditEvent({
+      aggregateId: order.id,
+      eventType: 'order.updated',
+      payload: { fields: ['customerName'], actorEmail: 'staff@example.com' },
+    });
+
+    const log = await getOrderAuditLog(order.id);
+
+    expect(log.map((e) => e.eventType)).toEqual(['order.updated', 'order.viewed']);
+
+    const auditRow = await db.query.auditEvents.findFirst({
+      where: eq(schema.auditEvents.aggregateId, order.id),
+    });
+    expect(auditRow!.actorEmail).toBe('staff@example.com');
   });
 });

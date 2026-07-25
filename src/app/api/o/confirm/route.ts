@@ -1,10 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { confirmOrder, REQUIRED_ACK_KEYS } from '@/server/orders/customer-service';
-import { getClientIp, rateLimitedResponse } from '@/lib/rate-limit';
+import { getClientIp, rateLimitedResponse, RATE_LIMITS } from '@/lib/rate-limit';
 import { ACCESS_CODE_COOKIE } from '@/lib/access-code';
-import { badRequest } from '@/lib/api-responses';
-import { logger } from '@/lib/logger';
+import { defineRoute } from '@/lib/route-handler';
 
 const ackSchema = z.object({
   key: z.enum(REQUIRED_ACK_KEYS),
@@ -20,61 +19,60 @@ const bodySchema = z.object({
   signatureType: z.enum(['drawn', 'uploaded', 'none']).default('none'),
 });
 
-export async function POST(request: NextRequest) {
-  const ip = getClientIp(request.headers);
-  const rateLimited = await rateLimitedResponse(`confirm:${ip}`, 10, 15 * 60 * 1_000, 'Too many requests. Please try again later.');
-  if (rateLimited) return rateLimited;
+export const POST = defineRoute<Record<string, never>, typeof bodySchema._type>({
+  auth: 'public',
+  tag: 'o/confirm POST',
+  schema: bodySchema,
+  handler: async ({ request, body }) => {
+    const ip = getClientIp(request.headers);
+    const rateLimited = await rateLimitedResponse(
+      `confirm:${ip}`,
+      RATE_LIMITS.customerWrite, 'Too many requests. Please try again later.');
+    if (rateLimited) return rateLimited;
 
-  const body = await request.json().catch(() => null);
-  const parsed = bodySchema.safeParse(body);
+    const ua = request.headers.get('user-agent') ?? null;
 
-  if (!parsed.success) {
-    return badRequest(parsed.error);
-  }
+    try {
+      const result = await confirmOrder({
+        rawToken: body.token,
+        acks: body.acknowledgments,
+        concerns: body.concerns ?? null,
+        shippingAddress: body.shippingAddress ?? null,
+        signatureBase64: body.signatureBase64 ?? null,
+        signatureType: body.signatureType,
+        ipAddress: ip === 'unknown' ? null : ip,
+        userAgent: ua,
+        codeCookie: request.cookies.get(ACCESS_CODE_COOKIE)?.value ?? null,
+      });
 
-  const ua = request.headers.get('user-agent') ?? null;
+      return NextResponse.json({
+        success: true,
+        orderNumber: result.orderNumber,
+        confirmedAt: result.confirmedAt.toISOString(),
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'error';
 
-  try {
-    const result = await confirmOrder({
-      rawToken: parsed.data.token,
-      acks: parsed.data.acknowledgments,
-      concerns: parsed.data.concerns ?? null,
-      shippingAddress: parsed.data.shippingAddress ?? null,
-      signatureBase64: parsed.data.signatureBase64 ?? null,
-      signatureType: parsed.data.signatureType,
-      ipAddress: ip === 'unknown' ? null : ip,
-      userAgent: ua,
-      codeCookie: request.cookies.get(ACCESS_CODE_COOKIE)?.value ?? null,
-    });
+      if (msg === 'invalid_token') {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      }
+      if (msg === 'code_required') {
+        return NextResponse.json(
+          { error: 'Access code verification expired. Please reload the page and re-enter your access code.', code: 'code_required' },
+          { status: 403 },
+        );
+      }
+      if (msg === 'already_confirmed') {
+        return NextResponse.json(
+          { error: 'Order already confirmed', code: 'already_confirmed' },
+          { status: 409 },
+        );
+      }
+      if (msg.startsWith('missing_ack:')) {
+        return NextResponse.json({ error: 'Missing acknowledgment', code: msg }, { status: 400 });
+      }
 
-    return NextResponse.json({
-      success: true,
-      orderNumber: result.orderNumber,
-      confirmedAt: result.confirmedAt.toISOString(),
-    });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'error';
-
-    if (msg === 'invalid_token') {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      throw err;
     }
-    if (msg === 'code_required') {
-      return NextResponse.json(
-        { error: 'Access code verification expired. Please reload the page and re-enter your access code.', code: 'code_required' },
-        { status: 403 },
-      );
-    }
-    if (msg === 'already_confirmed') {
-      return NextResponse.json(
-        { error: 'Order already confirmed', code: 'already_confirmed' },
-        { status: 409 },
-      );
-    }
-    if (msg.startsWith('missing_ack:')) {
-      return NextResponse.json({ error: 'Missing acknowledgment', code: msg }, { status: 400 });
-    }
-
-    logger.error('[/api/o/confirm]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
+  },
+});

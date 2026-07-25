@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getOrderAdmin } from '@/server/orders/service';
-import { getSignedUrl } from '@/lib/storage';
+import { signImageRefs } from '@/lib/signed-urls';
 import { getChangesRequestedComment, getChangesRequestedCount } from '@/server/events/outbox';
 import { OrderDetailView, type AdminOrderData } from './OrderDetailView';
 
@@ -14,17 +14,7 @@ async function withSignedUrls(
     garments.map(async (g) => ({
       ...g,
       fabrics: Array.isArray(g.fabrics) ? (g.fabrics as string[]) : [],
-      images: await Promise.all(
-        g.images.map(async (img) => {
-          let url = '';
-          try {
-            url = await getSignedUrl(img.storageKey, 4 * 3600);
-          } catch {
-            // Storage not configured — leave URL empty; image won't render but won't crash.
-          }
-          return { ...img, url };
-        }),
-      ),
+      images: await signImageRefs(g.images, 4 * 3600),
     })),
   );
 }
@@ -65,6 +55,15 @@ export default async function OrderDetailPage({ params }: Props) {
       : null,
     changesRequestedComment,
     changesRequestedCount,
+    hubCustomerId: order.hubCustomerId ?? null,
+    hubCustomerName: order.hubCustomerName ?? null,
+    notes: order.notes.map((n) => ({
+      id: n.id,
+      body: n.body,
+      authorKind: n.authorKind,
+      authorLabel: n.authorLabel ?? null,
+      createdAt: n.createdAt.toISOString(),
+    })),
     garments: garments.map((g) => ({
       id: g.id,
       name: g.name,
@@ -87,6 +86,9 @@ export default async function OrderDetailPage({ params }: Props) {
         url: img.url,
       })),
       sizeChartIds: g.sizeChartLinks.map((l) => l.sizeChartId),
+      garmentTypeId: g.garmentTypeId ?? null,
+      selectedOptions: g.selectedOptions ?? null,
+      selectedFabrics: g.selectedFabrics ?? null,
     })),
     currentAccess: order.currentAccess
       ? {

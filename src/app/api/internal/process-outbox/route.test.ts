@@ -50,7 +50,7 @@ describe('POST /api/internal/process-outbox', () => {
     const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(json).toEqual({ processed: 3, delivered: 2, failed: 1 });
+    expect(json).toEqual({ processed: 3, delivered: 2, failed: 1, purgedRateLimits: expect.any(Number) });
     expect(processOutbox).toHaveBeenCalledTimes(1);
   });
 
@@ -67,7 +67,7 @@ describe('POST /api/internal/process-outbox', () => {
     const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(json).toEqual({ processed: 1, delivered: 1, failed: 0 });
+    expect(json).toEqual({ processed: 1, delivered: 1, failed: 0, purgedRateLimits: expect.any(Number) });
     expect(processOutbox).toHaveBeenCalledTimes(1);
   });
 

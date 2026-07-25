@@ -40,22 +40,13 @@ export function AcceptInviteView() {
   return (
     <AuthCard>
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
-        <div
-          style={{
-            fontSize: 22,
-            fontWeight: 900,
-            color: '#BF272D',
-            letterSpacing: 2,
-            textTransform: 'uppercase',
-            marginBottom: 8,
-          }}
-        >
-          {APP_NAME.toUpperCase()}
-        </div>
-        <Title level={4} style={{ margin: 0, color: '#fff' }}>
-          Set Up Your Account
+        <Title level={2} style={{ marginBottom: 4 }}>
+          {APP_NAME}
         </Title>
-        <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
+        <Title level={5} style={{ margin: 0 }}>
+          Set up your account
+        </Title>
+        <Text type="secondary" style={{ fontSize: 13 }}>
           Choose a password to activate your account.
         </Text>
       </div>
@@ -93,7 +84,7 @@ export function AcceptInviteView() {
 
           <Form.Item
             name="password"
-            label={<span style={{ color: 'rgba(255,255,255,0.8)' }}>Password</span>}
+            label="Password"
             rules={[
               { required: true, message: 'Password is required' },
               { min: 8, message: 'Password must be at least 8 characters' },
@@ -104,7 +95,7 @@ export function AcceptInviteView() {
 
           <Form.Item
             name="confirm"
-            label={<span style={{ color: 'rgba(255,255,255,0.8)' }}>Confirm Password</span>}
+            label="Confirm Password"
             dependencies={['password']}
             rules={[
               { required: true, message: 'Please confirm your password' },

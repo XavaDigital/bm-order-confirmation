@@ -160,8 +160,8 @@ describe('requestPasswordReset', () => {
     expect(updated!.resetTokenHash).toBe(hashToken(result!.rawToken));
     expect(updated!.resetTokenExpiresAt).not.toBeNull();
 
-    const events = await db.query.domainEvents.findMany({
-      where: eq(schema.domainEvents.aggregateId, user.id),
+    const events = await db.query.auditEvents.findMany({
+      where: eq(schema.auditEvents.aggregateId, user.id),
     });
     expect(events).toHaveLength(1);
     expect(events[0].eventType).toBe('staff.password_reset_requested');
@@ -227,8 +227,8 @@ describe('resetPassword', () => {
     expect(updated!.totpEnabled).toBe(true);
     expect(updated!.totpSecret).toBe('SOMESECRET');
 
-    const events = await db.query.domainEvents.findMany({
-      where: eq(schema.domainEvents.aggregateId, user.id),
+    const events = await db.query.auditEvents.findMany({
+      where: eq(schema.auditEvents.aggregateId, user.id),
     });
     expect(events.map((e) => e.eventType)).toContain('staff.password_reset_completed');
   });

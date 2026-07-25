@@ -89,13 +89,13 @@ describe('AuditLogTab', () => {
     expect(await screen.findByText('Colour sample request resolved')).toBeInTheDocument();
   });
 
-  it('falls back to the raw event type string for an unrecognized event', async () => {
+  it('falls back to a prettified label for an unrecognized event type', async () => {
     mockFetchOnce([
       { id: 'evt-1', eventType: 'some.future_event', payload: {}, status: 'delivered', createdAt: '2026-06-26T10:30:00Z' },
     ]);
     render(<AuditLogTab orderId="order-1" />);
 
-    expect(await screen.findByText('some.future_event')).toBeInTheDocument();
+    expect(await screen.findByText('Some future event')).toBeInTheDocument();
   });
 
   it('renders the customer comment for a changes_requested event', async () => {

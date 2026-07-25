@@ -1,22 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { generateMemberToken, getRosterMember } from '@/server/roster/service';
-import { NotFoundError } from '@/server/orders/service';
-import { getSession } from '@/lib/session';
-import { logger } from '@/lib/logger';
-
-type Params = { params: Promise<{ id: string; memberId: string }> };
+import { defineRoute } from '@/lib/route-handler';
 
 /** Generate (or regenerate) this team member's individual roster link. */
-export async function POST(_req: NextRequest, { params }: Params) {
-  const { id: orderId, memberId } = await params;
-  try {
-    const session = await getSession();
-    await getRosterMember(orderId, memberId);
-    const result = await generateMemberToken(memberId, { actorEmail: session.email });
+export const POST = defineRoute<{ id: string; memberId: string }>({
+  auth: 'staff',
+  tag: 'admin/roster/members/link POST',
+  handler: async ({ params, session }) => {
+    await getRosterMember(params.id, params.memberId);
+    const result = await generateMemberToken(params.memberId, { actorEmail: session!.email });
     return NextResponse.json(result, { status: 201 });
-  } catch (err) {
-    if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
-    logger.error('[admin/roster/members/link POST]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
+  },
+});

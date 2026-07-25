@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { NextRequest, NextResponse } from 'next/server';
 
 vi.mock('@/lib/session', () => {
   const store: Record<string, unknown> = {};
@@ -13,7 +14,14 @@ vi.mock('@/lib/session', () => {
       return true;
     },
   });
-  return { getSession: vi.fn(async () => session) };
+  return {
+    getSession: vi.fn(async () => session),
+    requireAdmin: vi.fn(async () => {
+      if (!session.userId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
+      if (session.role !== 'admin') return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
+      return { session };
+    }),
+  };
 });
 
 import { getSession } from '@/lib/session';
@@ -26,7 +34,7 @@ afterEach(async () => {
 
 describe('GET /api/auth/me', () => {
   it('returns 401 when there is no session', async () => {
-    const res = await GET();
+    const res = await GET(new NextRequest('http://localhost/api/auth/me'));
     const json = await res.json();
 
     expect(res.status).toBe(401);
@@ -40,7 +48,7 @@ describe('GET /api/auth/me', () => {
     session.name = 'Staff One';
     session.role = 'sales';
 
-    const res = await GET();
+    const res = await GET(new NextRequest('http://localhost/api/auth/me'));
     const json = await res.json();
 
     expect(res.status).toBe(200);

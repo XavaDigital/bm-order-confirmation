@@ -60,8 +60,8 @@ describe('addRosterMember', () => {
 
     const events = await db
       .select()
-      .from(schema.domainEvents)
-      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.aggregateId, created.orderId));
     const addedEvents = events.filter((e) => e.eventType === 'roster.member_added');
     expect(addedEvents).toHaveLength(2);
     expect(addedEvents[0].payload).toMatchObject({ name: 'Alex' });
@@ -121,8 +121,8 @@ describe('removeRosterMember', () => {
 
     const events = await db
       .select()
-      .from(schema.domainEvents)
-      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.aggregateId, created.orderId));
     const removedEvent = events.find((e) => e.eventType === 'roster.member_removed');
     expect(removedEvent).toBeDefined();
     expect(removedEvent!.payload).toMatchObject({ name: 'Alex' });
@@ -513,8 +513,8 @@ describe('importRosterMembers', () => {
 
     const events = await db
       .select()
-      .from(schema.domainEvents)
-      .where(eq(schema.domainEvents.aggregateId, created.orderId));
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.aggregateId, created.orderId));
     const importEvent = events.find((e) => e.eventType === 'roster.import_completed');
     expect(importEvent).toBeDefined();
     expect(importEvent!.payload).toMatchObject({ imported: 1, skippedBlank: 1, skippedDuplicate: 0 });

@@ -251,9 +251,9 @@ describe('notifyCustomerOfConfirmation', () => {
         { name: 'Home Jersey', sizing: [{ size: 'M' }, { size: 'L' }] },
         { name: 'Away Jersey', sizing: [{ size: 'S' }] },
       ],
-      order_value_amount: '1240.00',
-      order_value_currency: 'NZD',
-      expected_ship_date: '2026-08-01',
+      orderValueAmount: '1240.00',
+      orderValueCurrency: 'NZD',
+      expectedShipDate: '2026-08-01',
     });
     const confirmedAt = new Date('2026-01-15T10:30:00Z');
 
@@ -272,6 +272,28 @@ describe('notifyCustomerOfConfirmation', () => {
       orderValueCurrency: 'NZD',
       expectedShipDate: '2026-08-01',
     });
+  });
+
+  it('still resolves order value and ship date from a legacy snake_case snapshot (pre-camelCase rows)', async () => {
+    const order = await seedOrder();
+    await seedConfirmation(order.id, {
+      garments: [{ name: 'Home Jersey', sizing: [{ size: 'M' }, { size: 'L' }] }],
+      order_value_amount: '1240.00',
+      order_value_currency: 'NZD',
+      expected_ship_date: '2026-08-01',
+    });
+    const confirmedAt = new Date('2026-01-15T10:30:00Z');
+
+    await notifyCustomerOfConfirmation(order.id, order.orderNumber, confirmedAt);
+
+    expect(sendCustomerReceiptEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        garments: [{ name: 'Home Jersey', quantity: 2 }],
+        orderValueAmount: '1240.00',
+        orderValueCurrency: 'NZD',
+        expectedShipDate: '2026-08-01',
+      }),
+    );
   });
 
   it('sends an empty garment list and null order value/ship date when there is no confirmation snapshot yet', async () => {

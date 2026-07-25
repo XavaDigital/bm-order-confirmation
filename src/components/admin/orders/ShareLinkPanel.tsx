@@ -10,6 +10,8 @@ import {
   MailOutlined,
   KeyOutlined,
 } from '@ant-design/icons';
+import { formatDateTime } from '@/lib/format';
+import { ApiError, deleteJson, postJson } from '@/lib/api-fetch';
 
 const { Text, Paragraph } = Typography;
 
@@ -59,9 +61,11 @@ export function ShareLinkPanel({
   async function generate() {
     setLoading('generate');
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/token`, { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? 'Failed to generate link');
+      const data = await postJson<{ url: string }>(
+        `/api/admin/orders/${orderId}/token`,
+        undefined,
+        'Failed to generate link',
+      );
       setActiveUrl(data.url);
       setHasToken(true);
       setTokenDate(new Date().toISOString());
@@ -76,8 +80,7 @@ export function ShareLinkPanel({
   async function revoke() {
     setLoading('revoke');
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/token`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to revoke link');
+      await deleteJson(`/api/admin/orders/${orderId}/token`, undefined, 'Failed to revoke link');
       setActiveUrl(null);
       setHasToken(false);
       setTokenDate(null);
@@ -95,19 +98,21 @@ export function ShareLinkPanel({
   async function emailLink() {
     setLoading('email');
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/send-link`, { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 503) {
-        message.error('Email delivery is not configured on this server.');
-        return;
-      }
-      if (!res.ok) throw new Error(data.error ?? 'Failed to send email');
+      const data = await postJson<{ url: string }>(
+        `/api/admin/orders/${orderId}/send-link`,
+        undefined,
+        'Failed to send email',
+      );
       // A new token was generated; update the displayed URL
       setActiveUrl(data.url);
       setHasToken(true);
       setTokenDate(new Date().toISOString());
       message.success(`Link emailed to ${customerEmail}`);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 503) {
+        message.error('Email delivery is not configured on this server.');
+        return;
+      }
       message.error(err instanceof Error ? err.message : 'Failed to send email');
     } finally {
       setLoading(null);
@@ -128,9 +133,11 @@ export function ShareLinkPanel({
   async function enableOrRotateCode() {
     setLoading('code');
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/access-code`, { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? 'Failed to set access code');
+      const data = await postJson<{ code: string }>(
+        `/api/admin/orders/${orderId}/access-code`,
+        undefined,
+        'Failed to set access code',
+      );
       setActiveCode(data.code);
       setCodeEnabled(true);
       message.success('Access code set — relay it to the customer by phone or text');
@@ -144,13 +151,13 @@ export function ShareLinkPanel({
   async function disableCode() {
     setLoading('code');
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/access-code`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to remove access code');
+      await deleteJson(`/api/admin/orders/${orderId}/access-code`, undefined, 'Failed to remove access code');
       setActiveCode(null);
       setCodeEnabled(false);
       message.success('Access code removed — the link alone opens the order');
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : 'Failed to remove access code');
+    } catch {
+      // Match the pre-helper behavior: always the generic message.
+      message.error('Failed to remove access code');
     } finally {
       setLoading(null);
     }
@@ -214,7 +221,7 @@ export function ShareLinkPanel({
               Active link exists — URL not shown
               {tokenDate && (
                 <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-                  (generated {new Date(tokenDate).toLocaleString()})
+                  (generated {formatDateTime(tokenDate)})
                 </Text>
               )}
             </span>

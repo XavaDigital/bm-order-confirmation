@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
+import { installMockFetch } from '@/test/mockFetch';
 import { ShareLinkPanel } from './ShareLinkPanel';
 
 function renderPanel(props: Partial<React.ComponentProps<typeof ShareLinkPanel>> = {}) {
@@ -18,7 +19,8 @@ function renderPanel(props: Partial<React.ComponentProps<typeof ShareLinkPanel>>
 }
 
 beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn());
+  // Default: any request throws loudly; tests that fetch install their own routes.
+  installMockFetch();
 });
 
 afterEach(() => {
@@ -44,40 +46,51 @@ describe('ShareLinkPanel', () => {
 
   it('generating a link POSTs to the token endpoint and displays the returned url', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ token: 'raw-token', url: 'http://localhost/o/raw-token' }),
-    } as Response);
+    const { fetchMock } = installMockFetch([
+      {
+        match: '/api/admin/orders/order-1/token',
+        method: 'POST',
+        response: { token: 'raw-token', url: 'http://localhost/o/raw-token' },
+      },
+    ]);
     renderPanel({ hasActiveToken: false });
 
     await user.click(screen.getByRole('button', { name: /generate link/i }));
 
     expect(await screen.findByText('http://localhost/o/raw-token')).toBeInTheDocument();
-    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/token', { method: 'POST' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/admin/orders/order-1/token',
+      expect.objectContaining({ method: 'POST' }),
+    );
     expect(await screen.findByText(/customer link generated/i)).toBeInTheDocument();
   });
 
   it('revoking a link DELETEs the token endpoint after confirming, and hides the Revoke button', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response);
+    const { fetchMock } = installMockFetch([
+      { match: '/api/admin/orders/order-1/token', method: 'DELETE', response: {} },
+    ]);
     renderPanel({ hasActiveToken: true });
 
     await user.click(screen.getByRole('button', { name: /revoke link/i }));
     const confirmButton = await screen.findByRole('button', { name: 'Revoke' });
     await user.click(confirmButton);
 
-    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/token', { method: 'DELETE' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/orders/order-1/token', { method: 'DELETE' });
     expect(await screen.findByText(/link revoked/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /revoke link/i })).not.toBeInTheDocument();
   });
 
   it('emailing the link shows a "not configured" message on a 503 without changing hasToken', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: false,
-      status: 503,
-      json: async () => ({ error: 'Email delivery is not configured on this server.' }),
-    } as Response);
+    installMockFetch([
+      {
+        match: '/api/admin/orders/order-1/send-link',
+        method: 'POST',
+        status: 503,
+        response: { error: 'Email delivery is not configured on this server.' },
+      },
+    ]);
     renderPanel({ hasActiveToken: false });
 
     await user.click(screen.getByRole('button', { name: /email to customer/i }));
@@ -88,11 +101,13 @@ describe('ShareLinkPanel', () => {
 
   it('emailing the link on success shows the emailed confirmation and reveals the url', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({ ok: true, url: 'http://localhost/o/fresh-token' }),
-    } as Response);
+    installMockFetch([
+      {
+        match: '/api/admin/orders/order-1/send-link',
+        method: 'POST',
+        response: { ok: true, url: 'http://localhost/o/fresh-token' },
+      },
+    ]);
     renderPanel({ hasActiveToken: false });
 
     await user.click(screen.getByRole('button', { name: /email to customer/i }));
@@ -110,15 +125,17 @@ describe('ShareLinkPanel', () => {
 
   it('enabling the access code POSTs and shows the code once with a copy warning', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ code: '483920' }),
-    } as Response);
+    const { fetchMock } = installMockFetch([
+      { match: '/api/admin/orders/order-1/access-code', method: 'POST', response: { code: '483920' } },
+    ]);
     renderPanel({ hasActiveToken: true, hasAccessCode: false });
 
     await user.click(screen.getByRole('switch'));
 
-    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/access-code', { method: 'POST' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/admin/orders/order-1/access-code',
+      expect.objectContaining({ method: 'POST' }),
+    );
     expect(await screen.findByText('483920')).toBeInTheDocument();
     expect(await screen.findByText(/access code set/i)).toBeInTheDocument();
   });
@@ -133,12 +150,14 @@ describe('ShareLinkPanel', () => {
 
   it('disabling the access code DELETEs and clears the code state', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response);
+    const { fetchMock } = installMockFetch([
+      { match: '/api/admin/orders/order-1/access-code', method: 'DELETE', response: { ok: true } },
+    ]);
     renderPanel({ hasActiveToken: true, hasAccessCode: true });
 
     await user.click(screen.getByRole('switch'));
 
-    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/access-code', { method: 'DELETE' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/orders/order-1/access-code', { method: 'DELETE' });
     expect(await screen.findByText(/access code removed/i)).toBeInTheDocument();
     expect(screen.queryByText(/access code active/i)).not.toBeInTheDocument();
   });
@@ -165,11 +184,14 @@ describe('ShareLinkPanel', () => {
 
   it('shows the server error message when generating a link fails', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: false,
-      status: 409,
-      json: async () => ({ error: 'Add at least one garment before generating a customer link' }),
-    } as Response);
+    installMockFetch([
+      {
+        match: '/api/admin/orders/order-1/token',
+        method: 'POST',
+        status: 409,
+        response: { error: 'Add at least one garment before generating a customer link' },
+      },
+    ]);
     renderPanel({ hasActiveToken: false });
 
     await user.click(screen.getByRole('button', { name: /generate link/i }));
@@ -183,10 +205,13 @@ describe('ShareLinkPanel', () => {
     // must be defined after that (and after render, which also runs before the
     // click) or user-event's stub silently wins.
     const writeText = vi.fn().mockResolvedValue(undefined);
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ token: 'raw-token', url: 'http://localhost/o/raw-token' }),
-    } as Response);
+    installMockFetch([
+      {
+        match: '/api/admin/orders/order-1/token',
+        method: 'POST',
+        response: { token: 'raw-token', url: 'http://localhost/o/raw-token' },
+      },
+    ]);
     renderPanel({ hasActiveToken: false });
 
     await user.click(screen.getByRole('button', { name: /generate link/i }));

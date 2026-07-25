@@ -23,7 +23,7 @@ import {
   LockOutlined,
 } from '@ant-design/icons';
 import Image from 'next/image';
-import { postJson, deleteJson } from '@/lib/api-fetch';
+import { getJson, postJson, deleteJson } from '@/lib/api-fetch';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -59,9 +59,10 @@ export function ProfileView({ user }: Props) {
   }, []);
 
   async function fetchStatus() {
-    const res = await fetch('/api/admin/auth/2fa/status');
-    if (res.ok) {
-      setStatus(await res.json());
+    try {
+      setStatus(await getJson<TwoFAStatus>('/api/admin/auth/2fa/status'));
+    } catch {
+      // Silently ignore — the card keeps showing its loading state.
     }
   }
 

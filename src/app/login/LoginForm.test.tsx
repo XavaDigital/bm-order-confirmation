@@ -12,8 +12,8 @@ vi.mock('next/navigation', () => ({
 }));
 
 async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>, email = 'jane@example.com', password = 'hunter2') {
-  await user.type(screen.getByPlaceholderText('Email'), email);
-  await user.type(screen.getByPlaceholderText('Password'), password);
+  await user.type(screen.getByLabelText('Email'), email);
+  await user.type(screen.getByLabelText('Password'), password);
   await user.click(screen.getByRole('button', { name: /sign in/i }));
 }
 
@@ -25,13 +25,13 @@ beforeEach(() => {
 });
 
 describe('LoginForm', () => {
-  it('renders the app name, tagline, and both fields', () => {
+  it('renders the app name, subtitle, and both fields', () => {
     render(<LoginForm />);
 
     expect(screen.getByText('BeastMode')).toBeInTheDocument();
-    expect(screen.getByText('Order Confirmation Portal')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Email')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Password')).toBeInTheDocument();
+    expect(screen.getByText('Sign in to your account')).toBeInTheDocument();
+    expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    expect(screen.getByLabelText('Password')).toBeInTheDocument();
   });
 
   it('shows validation errors when submitting an empty form', async () => {

@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { eq, and, isNull, ne } from 'drizzle-orm';
 import { db } from '@/db';
 import {
+  type AckKey,
   orders,
   orderAccess,
   acknowledgments,
@@ -13,25 +14,19 @@ import {
   conversionEvents,
   rosterMembers,
 } from '@/db/schema';
-import { hashToken } from '@/lib/tokens';
+import { resolveActiveToken } from '@/server/access/tokens';
 import { accessCodeMatches, isAccessCodeCookieValid } from '@/lib/access-code';
 import { uploadFile, signatureKey } from '@/lib/storage';
 import { emitDomainEvent } from '@/server/events/outbox';
+import { toGarmentDto } from './mappers';
 
 // ---------------------------------------------------------------------------
 // Full order read for customer page
 // ---------------------------------------------------------------------------
 
 export async function getOrderForCustomer(rawToken: string) {
-  const access = await db.query.orderAccess.findFirst({
-    where: and(
-      eq(orderAccess.tokenHash, hashToken(rawToken)),
-      isNull(orderAccess.revokedAt),
-    ),
-  });
-
+  const access = await resolveActiveToken(orderAccess, rawToken);
   if (!access) return null;
-  if (access.expiresAt && access.expiresAt.getTime() < Date.now()) return null;
 
   const order = await db.query.orders.findFirst({
     where: eq(orders.id, access.orderId),
@@ -42,6 +37,7 @@ export async function getOrderForCustomer(rawToken: string) {
           sizing: { orderBy: (s, { asc }) => [asc(s.sortOrder)] },
           images: { orderBy: (img, { asc }) => [asc(img.sortOrder)] },
           sizeChartLinks: { with: { sizeChart: true } },
+          garmentType: { columns: { name: true } },
         },
       },
       rosterMembers: {
@@ -87,17 +83,8 @@ export async function verifyOrderAccessCode(params: {
   | { status: 'invalid_token' }
   | { status: 'wrong_code' }
 > {
-  const access = await db.query.orderAccess.findFirst({
-    where: and(
-      eq(orderAccess.tokenHash, hashToken(params.rawToken)),
-      isNull(orderAccess.revokedAt),
-    ),
-  });
-
+  const access = await resolveActiveToken(orderAccess, params.rawToken);
   if (!access) return { status: 'invalid_token' };
-  if (access.expiresAt && access.expiresAt.getTime() < Date.now()) {
-    return { status: 'invalid_token' };
-  }
 
   // No code enabled on this link — nothing to verify.
   if (!access.accessCodeHash) {
@@ -184,17 +171,8 @@ export async function requestOrderChanges(params: {
   /** Signed verification cookie value — required when the link has an access code. */
   codeCookie?: string | null;
 }): Promise<{ orderNumber: string; orderId: string }> {
-  const access = await db.query.orderAccess.findFirst({
-    where: and(
-      eq(orderAccess.tokenHash, hashToken(params.rawToken)),
-      isNull(orderAccess.revokedAt),
-    ),
-  });
-
+  const access = await resolveActiveToken(orderAccess, params.rawToken);
   if (!access) throw new Error('invalid_token');
-  if (access.expiresAt && access.expiresAt.getTime() < Date.now()) {
-    throw new Error('invalid_token');
-  }
   assertAccessCodeSatisfied(access, params.codeCookie);
 
   const order = await db.query.orders.findFirst({
@@ -239,17 +217,8 @@ export async function requestColorSample(params: {
   /** Signed verification cookie value — required when the link has an access code. */
   codeCookie?: string | null;
 }): Promise<{ orderNumber: string; orderId: string; alreadyRequested: boolean }> {
-  const access = await db.query.orderAccess.findFirst({
-    where: and(
-      eq(orderAccess.tokenHash, hashToken(params.rawToken)),
-      isNull(orderAccess.revokedAt),
-    ),
-  });
-
+  const access = await resolveActiveToken(orderAccess, params.rawToken);
   if (!access) throw new Error('invalid_token');
-  if (access.expiresAt && access.expiresAt.getTime() < Date.now()) {
-    throw new Error('invalid_token');
-  }
   assertAccessCodeSatisfied(access, params.codeCookie);
 
   const order = await db.query.orders.findFirst({
@@ -294,6 +263,87 @@ export async function requestColorSample(params: {
 // Confirmation
 // ---------------------------------------------------------------------------
 
+/** The order shape (with garment relations) the snapshot builder needs. */
+interface ConfirmableOrder {
+  orderNumber: string;
+  customerName: string;
+  clubName: string | null;
+  orderValueAmount: string | null;
+  orderValueCurrency: string | null;
+  expectedShipDate: string | null;
+  deadlineDate: string | null;
+  invoiceUrl: string | null;
+  generalNotes: string | null;
+  colorSampleRequestedAt: Date | null;
+  shippingAddress: Record<string, unknown> | null;
+  garments: Array<
+    Parameters<typeof toGarmentDto>[0] & {
+      sizeChartLinks: { sizeChart: { name: string } | null }[];
+      images: { caption: string | null }[];
+    }
+  >;
+}
+
+/**
+ * Build the immutable `confirmed_snapshot` jsonb — the durable record of what
+ * the customer actually agreed to. Pure (no I/O); exported for tests.
+ *
+ * Keys are camelCase. Existing DB rows written before the camelCase migration
+ * keep their legacy snake_case keys, so snapshot READERS must accept both —
+ * use `snap()` from `./mappers` when reading.
+ */
+export function buildConfirmationSnapshot(
+  order: ConfirmableOrder,
+  params: {
+    concerns?: string | null;
+    shippingAddress?: Record<string, unknown> | null;
+  },
+) {
+  return {
+    orderNumber: order.orderNumber,
+    customerName: order.customerName,
+    clubName: order.clubName,
+    orderValueAmount: order.orderValueAmount,
+    orderValueCurrency: order.orderValueCurrency,
+    expectedShipDate: order.expectedShipDate,
+    deadlineDate: order.deadlineDate,
+    invoiceUrl: order.invoiceUrl,
+    generalNotes: order.generalNotes,
+    customerConcerns: params.concerns ?? null,
+    // Reflects a request already made via the standalone requestColorSample()
+    // action (not something confirmOrder() itself can set).
+    colorSampleRequested: order.colorSampleRequestedAt !== null,
+    garments: order.garments.map((g) => ({
+      // The snapshot is the agreed record — toGarmentDto captures the preset
+      // context (garmentTypeName, selectedOptions/Fabrics) alongside sizing.
+      ...toGarmentDto(g),
+      sizeChartNames: g.sizeChartLinks
+        .map((l) => l.sizeChart?.name)
+        .filter(Boolean),
+      mockupImageCaptions: g.images.map((i) => i.caption).filter(Boolean),
+    })),
+    shippingAddress: params.shippingAddress ?? order.shippingAddress ?? null,
+  };
+}
+
+/**
+ * Upload the customer's signature image (S3 side effect — call OUTSIDE the
+ * confirmation transaction). Returns the storage key, or null when there is
+ * nothing to upload.
+ */
+export async function uploadSignature(
+  orderId: string,
+  signatureBase64: string | null | undefined,
+  signatureType: 'drawn' | 'uploaded' | 'none',
+): Promise<string | null> {
+  if (!signatureBase64 || signatureType === 'none') return null;
+  const b64 = signatureBase64.replace(/^data:image\/\w+;base64,/, '');
+  const buffer = Buffer.from(b64, 'base64');
+  const sigKey = signatureKey(orderId, `${randomUUID()}.png`);
+  await uploadFile(sigKey, buffer, 'image/png');
+  return sigKey;
+}
+
 export async function confirmOrder(params: {
   rawToken: string;
   acks: AckInput[];
@@ -306,17 +356,8 @@ export async function confirmOrder(params: {
   /** Signed verification cookie value — required when the link has an access code. */
   codeCookie?: string | null;
 }): Promise<{ orderNumber: string; confirmedAt: Date; orderId: string }> {
-  const access = await db.query.orderAccess.findFirst({
-    where: and(
-      eq(orderAccess.tokenHash, hashToken(params.rawToken)),
-      isNull(orderAccess.revokedAt),
-    ),
-  });
-
+  const access = await resolveActiveToken(orderAccess, params.rawToken);
   if (!access) throw new Error('invalid_token');
-  if (access.expiresAt && access.expiresAt.getTime() < Date.now()) {
-    throw new Error('invalid_token');
-  }
   assertAccessCodeSatisfied(access, params.codeCookie);
 
   const order = await db.query.orders.findFirst({
@@ -328,6 +369,7 @@ export async function confirmOrder(params: {
           sizing: { orderBy: (s, { asc }) => [asc(s.sortOrder)] },
           images: true,
           sizeChartLinks: { with: { sizeChart: true } },
+          garmentType: { columns: { name: true } },
         },
       },
     },
@@ -343,48 +385,14 @@ export async function confirmOrder(params: {
   }
 
   // Upload signature outside transaction (S3 side effect)
-  let sigKey: string | null = null;
-  if (params.signatureBase64 && params.signatureType !== 'none') {
-    const b64 = params.signatureBase64.replace(/^data:image\/\w+;base64,/, '');
-    const buffer = Buffer.from(b64, 'base64');
-    sigKey = signatureKey(order.id, `${randomUUID()}.png`);
-    await uploadFile(sigKey, buffer, 'image/png');
-  }
+  const sigKey = await uploadSignature(order.id, params.signatureBase64, params.signatureType);
 
   const confirmedAt = new Date();
 
-  const snapshot = {
-    order_number: order.orderNumber,
-    customer_name: order.customerName,
-    club_name: order.clubName,
-    order_value_amount: order.orderValueAmount,
-    order_value_currency: order.orderValueCurrency,
-    expected_ship_date: order.expectedShipDate,
-    deadline_date: order.deadlineDate,
-    invoice_url: order.invoiceUrl,
-    general_notes: order.generalNotes,
-    customer_concerns: params.concerns ?? null,
-    // Reflects a request already made via the standalone requestColorSample()
-    // action (not something confirmOrder() itself can set).
-    color_sample_requested: order.colorSampleRequestedAt !== null,
-    garments: order.garments.map((g) => ({
-      name: g.name,
-      fabrics: g.fabrics,
-      notes: g.notes,
-      sizing: g.sizing.map((s) => ({
-        size: s.size,
-        player_name: s.playerName,
-        player_number: s.playerNumber,
-        notes: s.notes,
-      })),
-      size_chart_names: g.sizeChartLinks
-        .map((l) => l.sizeChart?.name)
-        .filter(Boolean),
-      mockup_image_captions: g.images.map((i) => i.caption).filter(Boolean),
-    })),
-    shipping_address:
-      params.shippingAddress ?? order.shippingAddress ?? null,
-  };
+  const snapshot = buildConfirmationSnapshot(order, {
+    concerns: params.concerns,
+    shippingAddress: params.shippingAddress,
+  });
 
   await db.transaction(async (tx) => {
     // Guard against a concurrent double-confirmation (double-click, retried
@@ -406,7 +414,8 @@ export async function confirmOrder(params: {
       .values(
         params.acks.map((a) => ({
           orderId: order.id,
-          ackKey: a.key,
+          // Validated against REQUIRED_ACK_KEYS above; extra keys are stored as-is.
+          ackKey: a.key as AckKey,
           ackTextVersion: ACK_TEXT_VERSION,
           accepted: true,
           acceptedAt: confirmedAt,

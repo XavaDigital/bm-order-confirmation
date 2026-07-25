@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { staffUsers } from '@/db/schema';
-import { getSession } from '@/lib/session';
 import { verifyPassword } from '@/lib/password';
+import { defineRoute } from '@/lib/route-handler';
 
 const bodySchema = z.object({
   password: z.string().min(1),
@@ -14,40 +14,34 @@ const bodySchema = z.object({
  * DELETE /api/admin/auth/2fa/disable
  * Disables 2FA. Requires the user's current password to prevent CSRF abuse.
  */
-export async function DELETE(request: NextRequest) {
-  const session = await getSession();
-  if (!session.userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const DELETE = defineRoute<Record<string, never>, typeof bodySchema._type>({
+  auth: 'staff',
+  tag: 'admin/auth/2fa/disable DELETE',
+  schema: bodySchema,
+  handler: async ({ body, session }) => {
+    const user = await db.query.staffUsers.findFirst({
+      where: eq(staffUsers.id, session!.userId),
+      columns: { passwordHash: true, totpEnabled: true },
+    });
 
-  const body = await request.json().catch(() => null);
-  const parsed = bodySchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: 'Password required' }, { status: 400 });
-  }
+    if (!user) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
 
-  const user = await db.query.staffUsers.findFirst({
-    where: eq(staffUsers.id, session.userId),
-    columns: { passwordHash: true, totpEnabled: true },
-  });
+    if (!user.totpEnabled) {
+      return NextResponse.json({ error: '2FA is not enabled' }, { status: 400 });
+    }
 
-  if (!user) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
+    const valid = await verifyPassword(body.password, user.passwordHash);
+    if (!valid) {
+      return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
+    }
 
-  if (!user.totpEnabled) {
-    return NextResponse.json({ error: '2FA is not enabled' }, { status: 400 });
-  }
+    await db
+      .update(staffUsers)
+      .set({ totpEnabled: false, totpSecret: null, totpBackupCodes: null, updatedAt: new Date() })
+      .where(eq(staffUsers.id, session!.userId));
 
-  const valid = await verifyPassword(parsed.data.password, user.passwordHash);
-  if (!valid) {
-    return NextResponse.json({ error: 'Incorrect password' }, { status: 401 });
-  }
-
-  await db
-    .update(staffUsers)
-    .set({ totpEnabled: false, totpSecret: null, totpBackupCodes: null, updatedAt: new Date() })
-    .where(eq(staffUsers.id, session.userId));
-
-  return NextResponse.json({ ok: true });
-}
+    return NextResponse.json({ ok: true });
+  },
+});

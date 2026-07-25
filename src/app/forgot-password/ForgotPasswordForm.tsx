@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Form, Input, Button, Typography, Alert } from 'antd';
-import { MailOutlined } from '@ant-design/icons';
 import { APP_NAME } from '@/lib/config';
 import { AuthCard } from '@/components/auth/AuthCard';
 import { postJson, ApiError } from '@/lib/api-fetch';
@@ -38,29 +37,17 @@ export function ForgotPasswordForm() {
   return (
     <AuthCard>
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
-        <Title
-          level={3}
-          style={{
-            color: '#fff',
-            letterSpacing: 2,
-            textTransform: 'uppercase',
-            marginBottom: 4,
-          }}
-        >
+        <Title level={2} style={{ marginBottom: 4 }}>
           {APP_NAME}
         </Title>
-        <Typography.Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
-          Forgot your password?
-        </Typography.Text>
+        <Typography.Text type="secondary">Forgot your password?</Typography.Text>
       </div>
 
       {done ? (
         <>
           <Alert message={GENERIC_MESSAGE} type="success" showIcon style={{ marginBottom: 24 }} />
-          <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
-            <Link href="/login" style={{ color: 'rgba(255,255,255,0.7)' }}>
-              Back to sign in
-            </Link>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            <Link href="/login">Back to sign in</Link>
           </Text>
         </>
       ) : (
@@ -81,22 +68,14 @@ export function ForgotPasswordForm() {
             size="large"
           >
             <Form.Item
+              label="Email"
               name="email"
               rules={[
                 { required: true, message: 'Enter your email' },
                 { type: 'email', message: 'Enter a valid email' },
               ]}
             >
-              <Input
-                prefix={<MailOutlined style={{ color: 'rgba(255,255,255,0.3)' }} />}
-                placeholder="Email"
-                autoComplete="email"
-                style={{
-                  background: 'rgba(255,255,255,0.07)',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  color: '#fff',
-                }}
-              />
+              <Input placeholder="you@company.com" autoComplete="email" />
             </Form.Item>
 
             <Form.Item style={{ marginBottom: 16, marginTop: 8 }}>
@@ -105,19 +84,14 @@ export function ForgotPasswordForm() {
                 htmlType="submit"
                 loading={loading}
                 block
-                style={{
-                  height: 44,
-                  fontWeight: 600,
-                  letterSpacing: 1,
-                  textTransform: 'uppercase',
-                }}
+                style={{ height: 44, fontWeight: 600 }}
               >
-                Send Reset Link
+                Send reset link
               </Button>
             </Form.Item>
 
             <div style={{ textAlign: 'center' }}>
-              <Link href="/login" style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
+              <Link href="/login" style={{ fontSize: 13 }}>
                 Back to sign in
               </Link>
             </div>

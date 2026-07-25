@@ -110,11 +110,11 @@ describe('roster lifecycle', () => {
       .from(schema.confirmations)
       .where(eq(schema.confirmations.orderId, created.orderId));
     const snapshot = confirmation.confirmedSnapshot as {
-      garments: { name: string; sizing: { player_name: string | null; size: string | null }[] }[];
+      garments: { name: string; sizing: { playerName: string | null; size: string | null }[] }[];
     };
     const jerseySnapshot = snapshot.garments.find((g) => g.name === jersey.name)!;
     expect(jerseySnapshot.sizing).toHaveLength(3);
-    expect(jerseySnapshot.sizing.map((row) => row.player_name).sort()).toEqual(
+    expect(jerseySnapshot.sizing.map((row) => row.playerName).sort()).toEqual(
       ['Alex Player', 'Jamie Walkon', 'Sam Player'].sort(),
     );
   });

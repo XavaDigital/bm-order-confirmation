@@ -14,8 +14,9 @@ import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { orders, rosterMembers, rosterAccess, rosterMemberAccess } from '@/db/schema';
 import { generateToken, hashToken, buildRosterUrl, buildMemberRosterUrl } from '@/lib/tokens';
-import { computeAccessExpiry, NotFoundError } from '@/server/orders/service';
-import { emitDomainEvent, recordAuditEvent } from '@/server/events/outbox';
+import { NotFoundError } from '@/server/orders/service';
+import { mintToken, revokeActiveTokens } from '@/server/access/tokens';
+import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
 import type { AddRosterMemberInput, UpdateRosterMemberInput, RosterImportMapping } from './contract';
 
 // Loose check only — imported spreadsheet cells are messy free text, not a trust
@@ -106,7 +107,11 @@ export async function getRosterMember(orderId: string, memberId: string) {
   return member;
 }
 
-export async function updateRosterMember(memberId: string, patch: UpdateRosterMemberInput) {
+export async function updateRosterMember(
+  memberId: string,
+  patch: UpdateRosterMemberInput,
+  meta?: { actorEmail?: string },
+) {
   const existing = await db.query.rosterMembers.findFirst({ where: eq(rosterMembers.id, memberId) });
   if (!existing) throw new NotFoundError('Roster member');
 
@@ -115,6 +120,13 @@ export async function updateRosterMember(memberId: string, patch: UpdateRosterMe
     ...(patch.playerNumber !== undefined && { playerNumber: patch.playerNumber }),
     ...(patch.email !== undefined && { email: patch.email }),
   }).where(eq(rosterMembers.id, memberId));
+
+  await recordAuditEvent({
+    aggregateId: existing.orderId,
+    eventType: 'roster.member_updated',
+    payload: { memberId, fields: Object.keys(patch) },
+    actorEmail: meta?.actorEmail ?? null,
+  });
 }
 
 export async function removeRosterMember(memberId: string) {
@@ -311,18 +323,9 @@ export async function generateRosterToken(
 
   await db.transaction(async (tx) => {
     // Revoke any existing active roster link — never touches order_access.
-    await tx
-      .update(rosterAccess)
-      .set({ revokedAt: new Date() })
-      .where(and(eq(rosterAccess.orderId, orderId), isNull(rosterAccess.revokedAt)));
+    await mintToken(tx, rosterAccess, rawToken, eq(rosterAccess.orderId, orderId), { orderId });
 
-    await tx.insert(rosterAccess).values({
-      orderId,
-      tokenHash: hashToken(rawToken),
-      expiresAt: computeAccessExpiry(),
-    });
-
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: orderId,
       eventType: 'roster.token_generated',
       payload: { actorEmail: meta?.actorEmail ?? null },
@@ -337,12 +340,9 @@ export async function revokeRosterToken(
   meta?: { actorEmail?: string },
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    await tx
-      .update(rosterAccess)
-      .set({ revokedAt: new Date() })
-      .where(and(eq(rosterAccess.orderId, orderId), isNull(rosterAccess.revokedAt)));
+    await revokeActiveTokens(tx, rosterAccess, eq(rosterAccess.orderId, orderId));
 
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: orderId,
       eventType: 'roster.token_revoked',
       payload: { actorEmail: meta?.actorEmail ?? null },
@@ -373,18 +373,11 @@ export async function generateMemberToken(
   await db.transaction(async (tx) => {
     // Revoke any existing active link for this member only — never touches
     // the shared roster_access link or other members' tokens.
-    await tx
-      .update(rosterMemberAccess)
-      .set({ revokedAt: new Date() })
-      .where(and(eq(rosterMemberAccess.rosterMemberId, memberId), isNull(rosterMemberAccess.revokedAt)));
-
-    await tx.insert(rosterMemberAccess).values({
+    await mintToken(tx, rosterMemberAccess, rawToken, eq(rosterMemberAccess.rosterMemberId, memberId), {
       rosterMemberId: memberId,
-      tokenHash: hashToken(rawToken),
-      expiresAt: computeAccessExpiry(),
     });
 
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: member.orderId,
       eventType: 'roster.member_link_generated',
       payload: { memberId, name: member.name, actorEmail: meta?.actorEmail ?? null },

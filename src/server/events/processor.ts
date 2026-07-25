@@ -20,7 +20,7 @@
  * can resend an email that already went out).
  */
 import { and, asc, count, desc, eq, inArray, isNull, lt, lte, or } from 'drizzle-orm';
-import { db } from '@/db';
+import { db, type Transaction } from '@/db';
 import { domainEvents } from '@/db/schema';
 import { fireGoogleAdsConversion } from '@/server/conversions/google-ads';
 import {
@@ -106,70 +106,77 @@ export interface OutboxResult {
 }
 
 export async function processOutbox(): Promise<OutboxResult> {
-  const now = new Date();
-  const due = await db
-    .select()
-    .from(domainEvents)
-    .where(
-      or(
-        eq(domainEvents.status, 'pending'),
-        and(
-          eq(domainEvents.status, 'failed'),
-          lt(domainEvents.attempts, MAX_ATTEMPTS),
-          or(isNull(domainEvents.nextAttemptAt), lte(domainEvents.nextAttemptAt, now)),
+  // The whole batch runs inside one transaction with FOR UPDATE SKIP LOCKED:
+  // a concurrent cron invocation simply skips the rows this one has claimed,
+  // so overlapping runs can never execute the same event's handlers twice
+  // (previously a select-then-update race caused duplicate emails).
+  return db.transaction(async (tx) => {
+    const now = new Date();
+    const due = await tx
+      .select()
+      .from(domainEvents)
+      .where(
+        or(
+          eq(domainEvents.status, 'pending'),
+          and(
+            eq(domainEvents.status, 'failed'),
+            lt(domainEvents.attempts, MAX_ATTEMPTS),
+            or(isNull(domainEvents.nextAttemptAt), lte(domainEvents.nextAttemptAt, now)),
+          ),
         ),
-      ),
-    )
-    .orderBy(asc(domainEvents.createdAt))
-    .limit(BATCH_SIZE);
+      )
+      .orderBy(asc(domainEvents.createdAt))
+      .limit(BATCH_SIZE)
+      .for('update', { skipLocked: true });
 
-  let delivered = 0;
-  let failed = 0;
+    let delivered = 0;
+    let failed = 0;
 
-  for (const event of due) {
-    const handlers = EVENT_HANDLERS[event.eventType];
+    for (const event of due) {
+      const handlers = EVENT_HANDLERS[event.eventType];
 
-    if (!handlers || handlers.length === 0) {
-      // No handlers — mark delivered so it doesn't stall the queue.
-      await markDelivered(event.id, event.status);
-      delivered++;
-      continue;
-    }
+      if (!handlers || handlers.length === 0) {
+        // No handlers — mark delivered so it doesn't stall the queue.
+        await markDelivered(tx, event.id, event.status);
+        delivered++;
+        continue;
+      }
 
-    let anyFailed = false;
-    for (const handler of handlers) {
-      try {
-        await handler(event);
-      } catch (err) {
-        logger.error(
-          `[outbox] handler failed for event ${event.id} (${event.eventType}):`,
-          err,
-        );
-        anyFailed = true;
+      let anyFailed = false;
+      for (const handler of handlers) {
+        try {
+          await handler(event);
+        } catch (err) {
+          logger.error(
+            `[outbox] handler failed for event ${event.id} (${event.eventType}):`,
+            err,
+          );
+          anyFailed = true;
+        }
+      }
+
+      if (anyFailed) {
+        const wentDead = await markFailedOrDead(tx, event.id, event.status, event.attempts);
+        if (wentDead) {
+          // Alert-worthy signal (roadmap 3.4): a dead-lettered event has exhausted
+          // all retries and needs human attention — routed through logger.error()
+          // so it reaches Sentry (when configured), not just the dashboard tile.
+          logger.error('[outbox] event dead-lettered after max attempts', {
+            eventId: event.id,
+            eventType: event.eventType,
+            aggregateId: event.aggregateId,
+            attempts: event.attempts + 1,
+          });
+        }
+        failed++;
+      } else {
+        await markDelivered(tx, event.id, event.status);
+        delivered++;
       }
     }
 
-    if (anyFailed) {
-      const wentDead = await markFailedOrDead(event.id, event.status, event.attempts);
-      if (wentDead) {
-        // Alert-worthy signal (roadmap 3.4): a dead-lettered event has exhausted
-        // all retries and needs human attention — routed through logger.error()
-        // so it reaches Sentry (when configured), not just the dashboard tile.
-        logger.error('[outbox] event dead-lettered after max attempts', {
-          eventId: event.id,
-          eventType: event.eventType,
-          aggregateId: event.aggregateId,
-          attempts: event.attempts + 1,
-        });
-      }
-      failed++;
-    } else {
-      await markDelivered(event.id, event.status);
-      delivered++;
-    }
-  }
-
-  return { processed: due.length, delivered, failed };
+    return { processed: due.length, delivered, failed };
+  });
 }
 
 /**
@@ -232,8 +239,12 @@ export async function countFailedEvents(): Promise<{ failed: number; dead: numbe
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function markDelivered(id: string, fromStatus: DomainEvent['status']): Promise<void> {
-  await db
+async function markDelivered(
+  tx: Transaction,
+  id: string,
+  fromStatus: DomainEvent['status'],
+): Promise<void> {
+  await tx
     .update(domainEvents)
     .set({ status: 'delivered', deliveredAt: new Date(), nextAttemptAt: null })
     .where(and(eq(domainEvents.id, id), eq(domainEvents.status, fromStatus)));
@@ -241,6 +252,7 @@ async function markDelivered(id: string, fromStatus: DomainEvent['status']): Pro
 
 /** Returns true when this failure exhausted retries and the event went 'dead'. */
 async function markFailedOrDead(
+  tx: Transaction,
   id: string,
   fromStatus: DomainEvent['status'],
   priorAttempts: number,
@@ -248,7 +260,7 @@ async function markFailedOrDead(
   const attempts = priorAttempts + 1;
 
   if (attempts >= MAX_ATTEMPTS) {
-    await db
+    await tx
       .update(domainEvents)
       .set({ status: 'dead', attempts, nextAttemptAt: null })
       .where(and(eq(domainEvents.id, id), eq(domainEvents.status, fromStatus)));
@@ -256,7 +268,7 @@ async function markFailedOrDead(
   }
 
   const nextAttemptAt = new Date(Date.now() + BACKOFF_MINUTES[attempts - 1] * 60_000);
-  await db
+  await tx
     .update(domainEvents)
     .set({ status: 'failed', attempts, nextAttemptAt })
     .where(and(eq(domainEvents.id, id), eq(domainEvents.status, fromStatus)));

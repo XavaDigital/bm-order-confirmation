@@ -8,6 +8,8 @@ import {
   PictureOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
+import { deleteJson, postForm } from '@/lib/api-fetch';
+import { SEMANTIC } from '@/lib/semantic-colors';
 
 export interface MockupImage {
   id: string;
@@ -41,15 +43,11 @@ export function MockupUploader({ orderId, garmentId, initialImages }: Props) {
         const form = new FormData();
         form.append('file', file);
         if (caption) form.append('caption', caption);
-        const res = await fetch(
+        return postForm<MockupImage & { url: string }>(
           `/api/admin/orders/${orderId}/garments/${garmentId}/images`,
-          { method: 'POST', body: form },
+          form,
+          'Upload failed',
         );
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error ?? 'Upload failed');
-        }
-        return res.json() as Promise<MockupImage & { url: string }>;
       }),
     );
 
@@ -62,7 +60,15 @@ export function MockupUploader({ orderId, garmentId, initialImages }: Props) {
       message.success(succeeded.length === 1 ? 'Image uploaded' : `${succeeded.length} images uploaded`);
     }
     if (failedCount > 0) {
-      message.error(failedCount === 1 ? 'Failed to upload 1 image' : `Failed to upload ${failedCount} images`);
+      const firstError = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      const reason =
+        firstError?.reason instanceof Error && firstError.reason.message !== 'Upload failed'
+          ? ` — ${firstError.reason.message}`
+          : '';
+      message.error(
+        (failedCount === 1 ? 'Failed to upload 1 image' : `Failed to upload ${failedCount} images`) +
+          reason,
+      );
     }
 
     setUploadingCount((c) => c - files.length);
@@ -71,11 +77,11 @@ export function MockupUploader({ orderId, garmentId, initialImages }: Props) {
   async function deleteImage(img: MockupImage) {
     setDeletingId(img.id);
     try {
-      const res = await fetch(
+      await deleteJson(
         `/api/admin/orders/${orderId}/garments/${garmentId}/images/${img.id}`,
-        { method: 'DELETE' },
+        undefined,
+        'Delete failed',
       );
-      if (!res.ok) throw new Error('Delete failed');
       setImages((prev) => prev.filter((i) => i.id !== img.id));
       message.success('Image removed');
     } catch {
@@ -151,7 +157,7 @@ export function MockupUploader({ orderId, garmentId, initialImages }: Props) {
                       top: 2,
                       right: 2,
                       background: 'rgba(0,0,0,0.55)',
-                      color: '#ff4d4f',
+                      color: SEMANTIC.error,
                     }}
                   />
                 </Popconfirm>

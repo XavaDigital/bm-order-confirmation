@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Select, App, Typography } from 'antd';
-import { getJson, patchJson } from '@/lib/api-fetch';
+import { patchJson } from '@/lib/api-fetch';
 
-interface SizeChart {
+interface SizeChartOption {
   id: string;
   name: string;
   description: string | null;
@@ -13,36 +13,35 @@ interface SizeChart {
 interface Props {
   orderId: string;
   garmentId: string;
-  initialIds: string[];
+  /** Currently linked chart ids (parent-owned state). */
+  value: string[];
+  /** The chart library — supplied by the parent (single fetch for all garments). */
+  charts: SizeChartOption[];
+  /** Called after a successful save so the parent can keep garment state fresh. */
+  onSaved: (ids: string[]) => void;
 }
 
-export function SizeChartLinker({ orderId, garmentId, initialIds }: Props) {
+export function SizeChartLinker({ orderId, garmentId, value, charts, onSaved }: Props) {
   const { message } = App.useApp();
-  const [allCharts, setAllCharts] = useState<SizeChart[]>([]);
-  const [selectedIds, setSelectedIds] = useState<string[]>(initialIds);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    getJson<SizeChart[]>('/api/admin/size-charts', 'Failed to load size charts')
-      .then(setAllCharts)
-      .catch(() => message.error('Failed to load size charts'))
-      .finally(() => setLoading(false));
-  }, []);
+  // Local echo so the Select feels instant; parent state wins after save/revert.
+  const [pendingIds, setPendingIds] = useState<string[] | null>(null);
 
   async function handleChange(ids: string[]) {
-    setSelectedIds(ids);
+    setPendingIds(ids);
     setSaving(true);
     try {
       await patchJson(`/api/admin/orders/${orderId}/garments/${garmentId}`, { sizeChartIds: ids }, 'Save failed');
+      onSaved(ids);
     } catch {
       message.error('Failed to save size chart links');
     } finally {
+      setPendingIds(null);
       setSaving(false);
     }
   }
 
-  if (!loading && allCharts.length === 0) {
+  if (charts.length === 0) {
     return (
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
         No size charts in library yet.{' '}
@@ -56,10 +55,10 @@ export function SizeChartLinker({ orderId, garmentId, initialIds }: Props) {
   return (
     <Select
       mode="multiple"
-      loading={loading || saving}
-      value={selectedIds}
+      loading={saving}
+      value={pendingIds ?? value}
       onChange={handleChange}
-      options={allCharts.map((c) => ({
+      options={charts.map((c) => ({
         value: c.id,
         label: c.name,
         title: c.description ?? undefined,

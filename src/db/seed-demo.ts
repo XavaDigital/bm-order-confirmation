@@ -454,7 +454,7 @@ async function seed() {
   ]);
 
   // Acknowledgments
-  const ACK_KEYS = [
+  const ACK_KEYS: import('./schema').AckKey[] = [
     'color_accuracy', 'color_matching', 'mockup_correct', 'sizing_correct',
     'size_charts_used', 'no_refunds', 'womens_unisex_sizing',
     'payment_terms', 'authorised',

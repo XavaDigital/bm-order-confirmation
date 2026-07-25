@@ -1,34 +1,23 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { generateAccessToken, revokeAccessToken, NotFoundError, ConflictError } from '@/server/orders/service';
-import { getSession } from '@/lib/session';
-import { logger } from '@/lib/logger';
-
-type Params = { params: Promise<{ id: string }> };
+import { NextResponse } from 'next/server';
+import { generateAccessToken, revokeAccessToken } from '@/server/orders/service';
+import { defineRoute } from '@/lib/route-handler';
 
 /** Generate (or regenerate) the customer magic link for this order. */
-export async function POST(_req: NextRequest, { params }: Params) {
-  const { id: orderId } = await params;
-  try {
-    const session = await getSession();
-    const result = await generateAccessToken(orderId, { actorEmail: session.email });
+export const POST = defineRoute<{ id: string }>({
+  auth: 'staff',
+  tag: 'orders/[id]/token POST',
+  handler: async ({ params, session }) => {
+    const result = await generateAccessToken(params.id, { actorEmail: session!.email });
     return NextResponse.json(result, { status: 201 });
-  } catch (err) {
-    if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
-    if (err instanceof ConflictError) return NextResponse.json({ error: err.message }, { status: 409 });
-    logger.error('[admin/token POST]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
+  },
+});
 
 /** Revoke the current customer magic link. */
-export async function DELETE(_req: NextRequest, { params }: Params) {
-  const { id: orderId } = await params;
-  try {
-    const session = await getSession();
-    await revokeAccessToken(orderId, { actorEmail: session.email });
+export const DELETE = defineRoute<{ id: string }>({
+  auth: 'staff',
+  tag: 'orders/[id]/token DELETE',
+  handler: async ({ params, session }) => {
+    await revokeAccessToken(params.id, { actorEmail: session!.email });
     return NextResponse.json({ ok: true });
-  } catch (err) {
-    logger.error('[admin/token DELETE]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
+  },
+});

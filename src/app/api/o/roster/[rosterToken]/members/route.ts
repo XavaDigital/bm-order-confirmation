@@ -1,54 +1,43 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { addRosterMemberSchema } from '@/server/roster/contract';
+import { NextResponse } from 'next/server';
+import { addRosterMemberSchema, ROSTER_LOCKED_MESSAGE } from '@/server/roster/contract';
 import { addSelf } from '@/server/roster/customer-service';
 import { MAX_ROSTER_MEMBERS } from '@/server/roster/service';
-import { badRequest } from '@/lib/api-responses';
-import { getClientIp, rateLimitedResponse } from '@/lib/rate-limit';
-import { logger } from '@/lib/logger';
+import { getClientIp, rateLimitedResponse, RATE_LIMITS } from '@/lib/rate-limit';
+import { defineRoute } from '@/lib/route-handler';
 
-type Params = { params: Promise<{ rosterToken: string }> };
+export const POST = defineRoute<{ rosterToken: string }, typeof addRosterMemberSchema._type>({
+  auth: 'public',
+  tag: 'o/roster/[rosterToken]/members POST',
+  schema: addRosterMemberSchema,
+  handler: async ({ request, params, body }) => {
+    const ip = getClientIp(request.headers);
+    const rateLimited = await rateLimitedResponse(
+      `roster-add-self:${ip}`,
+      RATE_LIMITS.customerWrite,
+      'Too many requests. Please try again later.',
+    );
+    if (rateLimited) return rateLimited;
 
-const LOCKED_MESSAGE =
-  'This team roster has been locked. Please contact your BeastMode sales representative for help.';
+    try {
+      const member = await addSelf(params.rosterToken, body);
+      return NextResponse.json(member, { status: 201 });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'error';
 
-export async function POST(request: NextRequest, { params }: Params) {
-  const ip = getClientIp(request.headers);
-  const rateLimited = await rateLimitedResponse(
-    `roster-add-self:${ip}`,
-    10,
-    15 * 60 * 1_000,
-    'Too many requests. Please try again later.',
-  );
-  if (rateLimited) return rateLimited;
+      if (msg === 'invalid_token') {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      }
+      if (msg === 'roster_locked') {
+        return NextResponse.json({ error: ROSTER_LOCKED_MESSAGE, code: 'roster_locked' }, { status: 409 });
+      }
+      if (msg === 'roster_full') {
+        return NextResponse.json(
+          { error: `This roster is full (maximum ${MAX_ROSTER_MEMBERS} members). Please contact your team manager.`, code: 'roster_full' },
+          { status: 409 },
+        );
+      }
 
-  const { rosterToken } = await params;
-  const body = await request.json().catch(() => null);
-  const parsed = addRosterMemberSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return badRequest(parsed.error);
-  }
-
-  try {
-    const member = await addSelf(rosterToken, parsed.data);
-    return NextResponse.json(member, { status: 201 });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'error';
-
-    if (msg === 'invalid_token') {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      throw err;
     }
-    if (msg === 'roster_locked') {
-      return NextResponse.json({ error: LOCKED_MESSAGE, code: 'roster_locked' }, { status: 409 });
-    }
-    if (msg === 'roster_full') {
-      return NextResponse.json(
-        { error: `This roster is full (maximum ${MAX_ROSTER_MEMBERS} members). Please contact your team manager.`, code: 'roster_full' },
-        { status: 409 },
-      );
-    }
-
-    logger.error('[/api/o/roster/[rosterToken]/members]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
+  },
+});

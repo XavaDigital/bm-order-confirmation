@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   Document,
   Page,
@@ -7,8 +8,8 @@ import {
 } from '@react-pdf/renderer';
 import { APP_NAME, APP_TAGLINE, PDF_FOOTER_TEXT } from '@/lib/config';
 
-const RED = '#BF272D';
-const NAVY = '#0d1117';
+const ACCENT = '#4f46e5'; // fleet indigo
+const INK = '#191919';
 const WHITE = '#ffffff';
 const LIGHT_GREY = '#f5f5f5';
 const MID_GREY = '#e0e0e0';
@@ -28,14 +29,14 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     borderBottomWidth: 3,
-    borderBottomColor: RED,
+    borderBottomColor: ACCENT,
     paddingBottom: 10,
     marginBottom: 16,
   },
   brand: {
     fontSize: 20,
     fontFamily: 'Helvetica-Bold',
-    color: NAVY,
+    color: INK,
     letterSpacing: 2,
     textTransform: 'uppercase',
   },
@@ -52,7 +53,7 @@ const s = StyleSheet.create({
   orderNumber: {
     fontSize: 14,
     fontFamily: 'Helvetica-Bold',
-    color: RED,
+    color: ACCENT,
   },
   confirmedBadge: {
     marginTop: 4,
@@ -71,7 +72,7 @@ const s = StyleSheet.create({
   sectionTitle: {
     fontSize: 8,
     fontFamily: 'Helvetica-Bold',
-    color: RED,
+    color: ACCENT,
     textTransform: 'uppercase',
     letterSpacing: 1,
     borderBottomWidth: 1,
@@ -100,7 +101,7 @@ const s = StyleSheet.create({
     borderRadius: 4,
   },
   garmentHeader: {
-    backgroundColor: NAVY,
+    backgroundColor: INK,
     color: WHITE,
     padding: '6 8',
     fontSize: 9,
@@ -150,6 +151,19 @@ const s = StyleSheet.create({
   },
 });
 
+/**
+ * "Muted label + value" row — the PDF twin of the label/value convention on
+ * the customer pages (customerStyles.ts FIELD_LABEL_STYLE). react-pdf only.
+ */
+function LabelValueRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <View style={s.row}>
+      <Text style={s.label}>{label}</Text>
+      <Text style={s.value}>{value}</Text>
+    </View>
+  );
+}
+
 interface SizingRow {
   size?: string | null;
   playerName?: string | null;
@@ -161,6 +175,8 @@ interface GarmentData {
   name: string;
   fabrics: string[];
   notes: string | null;
+  selectedOptions?: Record<string, string> | null;
+  selectedFabrics?: Record<string, string> | null;
   sizing: SizingRow[];
 }
 
@@ -217,46 +233,32 @@ export function OrderPdf({
         {/* Order details */}
         <View style={s.section}>
           <Text style={s.sectionTitle}>Customer Details</Text>
-          <View style={s.row}><Text style={s.label}>Name</Text><Text style={s.value}>{customerName}</Text></View>
-          <View style={s.row}><Text style={s.label}>Email</Text><Text style={s.value}>{customerEmail}</Text></View>
-          {customerContact && (
-            <View style={s.row}><Text style={s.label}>Contact</Text><Text style={s.value}>{customerContact}</Text></View>
-          )}
-          {clubName && (
-            <View style={s.row}><Text style={s.label}>Club / Team</Text><Text style={s.value}>{clubName}</Text></View>
-          )}
+          <LabelValueRow label="Name" value={customerName} />
+          <LabelValueRow label="Email" value={customerEmail} />
+          {customerContact && <LabelValueRow label="Contact" value={customerContact} />}
+          {clubName && <LabelValueRow label="Club / Team" value={clubName} />}
         </View>
 
         <View style={s.section}>
           <Text style={s.sectionTitle}>Order Details</Text>
           {orderValueAmount && (
-            <View style={s.row}>
-              <Text style={s.label}>Order Value</Text>
-              <Text style={s.value}>
-                {orderValueCurrency ?? 'NZD'} {Number(orderValueAmount).toFixed(2)}
-              </Text>
-            </View>
+            <LabelValueRow
+              label="Order Value"
+              value={`${orderValueCurrency ?? 'NZD'} ${Number(orderValueAmount).toFixed(2)}`}
+            />
           )}
-          {expectedShipDate && (
-            <View style={s.row}><Text style={s.label}>Expected Ship</Text><Text style={s.value}>{expectedShipDate}</Text></View>
-          )}
-          {deadlineDate && (
-            <View style={s.row}><Text style={s.label}>Deadline</Text><Text style={s.value}>{deadlineDate}</Text></View>
-          )}
+          {expectedShipDate && <LabelValueRow label="Expected Ship" value={expectedShipDate} />}
+          {deadlineDate && <LabelValueRow label="Deadline" value={deadlineDate} />}
           {confirmedAt && (
-            <View style={s.row}>
-              <Text style={s.label}>Confirmed</Text>
-              <Text style={s.value}>
-                {new Date(confirmedAt).toLocaleString('en-NZ', {
-                  day: 'numeric', month: 'long', year: 'numeric',
-                  hour: '2-digit', minute: '2-digit',
-                })}
-              </Text>
-            </View>
+            <LabelValueRow
+              label="Confirmed"
+              value={new Date(confirmedAt).toLocaleString('en-NZ', {
+                day: 'numeric', month: 'long', year: 'numeric',
+                hour: '2-digit', minute: '2-digit',
+              })}
+            />
           )}
-          {generalNotes && (
-            <View style={s.row}><Text style={s.label}>Notes</Text><Text style={s.value}>{generalNotes}</Text></View>
-          )}
+          {generalNotes && <LabelValueRow label="Notes" value={generalNotes} />}
         </View>
 
         {/* Garments */}
@@ -267,18 +269,22 @@ export function OrderPdf({
               <View key={idx} style={s.garmentCard}>
                 <Text style={s.garmentHeader}>{g.name}</Text>
                 <View style={s.garmentBody}>
+                  {g.selectedFabrics &&
+                    Object.entries(g.selectedFabrics)
+                      .filter(([, v]) => v)
+                      .map(([label, valueText]) => (
+                        <LabelValueRow key={`fabric-${label}`} label={label} value={valueText} />
+                      ))}
                   {g.fabrics.length > 0 && (
-                    <View style={s.row}>
-                      <Text style={s.label}>Fabrics</Text>
-                      <Text style={s.value}>{g.fabrics.join(', ')}</Text>
-                    </View>
+                    <LabelValueRow label="Fabrics" value={g.fabrics.join(', ')} />
                   )}
-                  {g.notes && (
-                    <View style={s.row}>
-                      <Text style={s.label}>Notes</Text>
-                      <Text style={s.value}>{g.notes}</Text>
-                    </View>
-                  )}
+                  {g.selectedOptions &&
+                    Object.entries(g.selectedOptions)
+                      .filter(([, v]) => v)
+                      .map(([label, valueText]) => (
+                        <LabelValueRow key={label} label={label} value={valueText} />
+                      ))}
+                  {g.notes && <LabelValueRow label="Notes" value={g.notes} />}
                   {g.sizing.length > 0 && (
                     <View style={s.table}>
                       <View style={s.tableHeader}>

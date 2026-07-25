@@ -65,3 +65,7 @@ export type RosterImportMapping = z.infer<typeof rosterImportMappingSchema>;
 // src/server/roster/service.ts `importRosterMembers`) — omitted on the first
 // commit attempt; the caller re-sends it once staff have confirmed.
 export const duplicateResolutionSchema = z.enum(['importAll', 'skipAmbiguous']).optional();
+
+/** Customer-facing copy when a write hits a locked roster — shared by every roster route. */
+export const ROSTER_LOCKED_MESSAGE =
+  'This team roster has been locked. Please contact your BeastMode sales representative for help.';

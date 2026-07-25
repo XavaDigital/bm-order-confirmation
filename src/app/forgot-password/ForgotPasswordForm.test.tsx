@@ -8,7 +8,7 @@ beforeEach(() => {
 });
 
 async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>, email = 'jane@example.com') {
-  await user.type(screen.getByPlaceholderText('Email'), email);
+  await user.type(screen.getByLabelText('Email'), email);
   await user.click(screen.getByRole('button', { name: /send reset link/i }));
 }
 
@@ -17,7 +17,7 @@ describe('ForgotPasswordForm', () => {
     render(<ForgotPasswordForm />);
 
     expect(screen.getByText('BeastMode')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Email')).toBeInTheDocument();
+    expect(screen.getByLabelText('Email')).toBeInTheDocument();
   });
 
   it('shows a validation error when submitting an empty form', async () => {
@@ -74,6 +74,6 @@ describe('ForgotPasswordForm', () => {
     await fillAndSubmit(user);
 
     expect(await screen.findByText('Too many requests. Please try again later.')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Email')).toBeInTheDocument();
+    expect(screen.getByLabelText('Email')).toBeInTheDocument();
   });
 });

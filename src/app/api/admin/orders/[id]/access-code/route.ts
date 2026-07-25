@@ -1,36 +1,26 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { setOrderAccessCode, clearOrderAccessCode, ConflictError } from '@/server/orders/service';
-import { getSession } from '@/lib/session';
-import { logger } from '@/lib/logger';
-
-type Params = { params: Promise<{ id: string }> };
+import { NextResponse } from 'next/server';
+import { setOrderAccessCode, clearOrderAccessCode } from '@/server/orders/service';
+import { defineRoute } from '@/lib/route-handler';
 
 /**
  * Enable (or rotate) the per-order access code on the active customer link.
  * The raw code is returned ONCE — staff relay it out-of-band (phone/text).
  */
-export async function POST(_req: NextRequest, { params }: Params) {
-  const { id: orderId } = await params;
-  try {
-    const session = await getSession();
-    const result = await setOrderAccessCode(orderId, { actorEmail: session.email });
+export const POST = defineRoute<{ id: string }>({
+  auth: 'staff',
+  tag: 'orders/[id]/access-code POST',
+  handler: async ({ params, session }) => {
+    const result = await setOrderAccessCode(params.id, { actorEmail: session!.email });
     return NextResponse.json(result, { status: 201 });
-  } catch (err) {
-    if (err instanceof ConflictError) return NextResponse.json({ error: err.message }, { status: 409 });
-    logger.error('[admin/access-code POST]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
+  },
+});
 
 /** Remove the access code — the link alone opens the order again. */
-export async function DELETE(_req: NextRequest, { params }: Params) {
-  const { id: orderId } = await params;
-  try {
-    const session = await getSession();
-    await clearOrderAccessCode(orderId, { actorEmail: session.email });
+export const DELETE = defineRoute<{ id: string }>({
+  auth: 'staff',
+  tag: 'orders/[id]/access-code DELETE',
+  handler: async ({ params, session }) => {
+    await clearOrderAccessCode(params.id, { actorEmail: session!.email });
     return NextResponse.json({ ok: true });
-  } catch (err) {
-    logger.error('[admin/access-code DELETE]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
+  },
+});

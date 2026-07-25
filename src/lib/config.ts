@@ -4,7 +4,7 @@
  */
 
 export const APP_NAME = 'BeastMode';
-export const APP_DOMAIN = 'beastmode.co.nz';
+const APP_DOMAIN = 'beastmode.co.nz';
 
 /** Shown next to the wordmark on auth pages and the default email header. */
 export const APP_TAGLINE = 'Order Confirmation';

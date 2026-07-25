@@ -275,7 +275,7 @@ describe('DashboardView', () => {
   it('retrying a failed event calls the retry endpoint and removes it from the list', async () => {
     vi.useRealTimers(); // userEvent's internal waits deadlock under fake timers
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true } as Response);
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response);
     render(
       <AntdApp>
         <DashboardView
@@ -289,7 +289,10 @@ describe('DashboardView', () => {
 
     await user.click(screen.getByRole('button', { name: /retry now/i }));
 
-    expect(fetch).toHaveBeenCalledWith('/api/admin/events/event-7/retry', { method: 'POST' });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/admin/events/event-7/retry',
+      expect.objectContaining({ method: 'POST' }),
+    );
     expect(await screen.findByText('Event queued for retry')).toBeInTheDocument();
     expect(screen.getByText(/the outbox is healthy/i)).toBeInTheDocument();
   });

@@ -1,0 +1,82 @@
+import { describe, expect, it } from 'vitest';
+import { snap, toGarmentDto, toSizingDto } from './mappers';
+
+const garment = {
+  name: 'Home Jersey',
+  fabrics: ['Dry-fit', 'Mesh'],
+  notes: 'note',
+  selectedOptions: { 'Zip Type': 'pullover' },
+  selectedFabrics: { 'Outer Fabric': 'Cotton Fleece' },
+  garmentType: { name: 'Pullover Hoodie' },
+  sizing: [
+    { size: 'M', playerName: 'Alex', playerNumber: '7', notes: 'sz note', rosterMemberId: 'rm-1' },
+    { size: null, playerName: null, playerNumber: null, notes: null, rosterMemberId: null },
+  ],
+};
+
+describe('toGarmentDto', () => {
+  it('projects the shared garment DTO shape', () => {
+    expect(toGarmentDto(garment)).toEqual({
+      name: 'Home Jersey',
+      fabrics: ['Dry-fit', 'Mesh'],
+      notes: 'note',
+      garmentTypeName: 'Pullover Hoodie',
+      selectedOptions: { 'Zip Type': 'pullover' },
+      selectedFabrics: { 'Outer Fabric': 'Cotton Fleece' },
+      sizing: [
+        { size: 'M', playerName: 'Alex', playerNumber: '7', notes: 'sz note' },
+        { size: null, playerName: null, playerNumber: null, notes: null },
+      ],
+    });
+  });
+
+  it('normalizes missing fields: non-array fabrics -> [], absent type/options -> null', () => {
+    const dto = toGarmentDto({ name: 'Plain Tee', fabrics: null, notes: null, sizing: [] });
+    expect(dto).toEqual({
+      name: 'Plain Tee',
+      fabrics: [],
+      notes: null,
+      garmentTypeName: null,
+      selectedOptions: null,
+      selectedFabrics: null,
+      sizing: [],
+    });
+  });
+
+  it('adds viaTeamRoster per sizing row only when rosterFlags is set', () => {
+    const plain = toGarmentDto(garment);
+    expect(plain.sizing.every((row) => !('viaTeamRoster' in row))).toBe(true);
+
+    const flagged = toGarmentDto(garment, { rosterFlags: true });
+    expect(flagged.sizing.map((row) => row.viaTeamRoster)).toEqual([true, false]);
+  });
+});
+
+describe('toSizingDto', () => {
+  it('never carries rosterMemberId through', () => {
+    const row = toSizingDto(garment.sizing[0]);
+    expect(row).toEqual({ size: 'M', playerName: 'Alex', playerNumber: '7', notes: 'sz note' });
+    expect('rosterMemberId' in row).toBe(false);
+  });
+});
+
+describe('snap (snapshot key compat)', () => {
+  it('reads camelCase keys from new snapshots', () => {
+    expect(snap({ orderValueAmount: '10.00' }, 'orderValueAmount', 'order_value_amount')).toBe('10.00');
+  });
+
+  it('falls back to legacy snake_case keys from pre-migration snapshots', () => {
+    expect(snap({ order_value_amount: '10.00' }, 'orderValueAmount', 'order_value_amount')).toBe('10.00');
+  });
+
+  it('prefers the camelCase key when both are present, including explicit null', () => {
+    expect(snap({ orderValueAmount: 'new', order_value_amount: 'old' }, 'orderValueAmount', 'order_value_amount')).toBe('new');
+    expect(snap({ orderValueAmount: null, order_value_amount: 'old' }, 'orderValueAmount', 'order_value_amount')).toBeNull();
+  });
+
+  it('returns undefined for missing objects or keys', () => {
+    expect(snap(undefined, 'a', 'b')).toBeUndefined();
+    expect(snap(null, 'a', 'b')).toBeUndefined();
+    expect(snap({}, 'a', 'b')).toBeUndefined();
+  });
+});

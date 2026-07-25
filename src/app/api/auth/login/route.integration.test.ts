@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 vi.mock('@/db', async () => {
   const { createTestDb } = await import('@/db/test-helpers');
@@ -28,7 +28,14 @@ vi.mock('@/lib/session', () => {
       return true;
     },
   });
-  return { getSession: vi.fn(async () => session) };
+  return {
+    getSession: vi.fn(async () => session),
+    requireAdmin: vi.fn(async () => {
+      if (!session.userId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
+      if (session.role !== 'admin') return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
+      return { session };
+    }),
+  };
 });
 
 import { db } from '@/db';

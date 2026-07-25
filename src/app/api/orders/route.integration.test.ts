@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { NextRequest } from 'next/server';
 
 vi.mock('@/db', async () => {
   const { createTestDb } = await import('@/db/test-helpers');
@@ -27,7 +28,7 @@ function validPayload() {
 
 describe('POST /api/orders', () => {
   it('returns 401 with a missing x-api-key and writes no row', async () => {
-    const req = new Request('http://localhost/api/orders', {
+    const req = new NextRequest('http://localhost/api/orders', {
       method: 'POST',
       body: JSON.stringify(validPayload()),
       headers: { 'content-type': 'application/json' },
@@ -40,7 +41,7 @@ describe('POST /api/orders', () => {
   });
 
   it('returns 401 with a wrong x-api-key and writes no row', async () => {
-    const req = new Request('http://localhost/api/orders', {
+    const req = new NextRequest('http://localhost/api/orders', {
       method: 'POST',
       body: JSON.stringify(validPayload()),
       headers: { 'content-type': 'application/json', 'x-api-key': 'totally-wrong-key' },
@@ -53,7 +54,7 @@ describe('POST /api/orders', () => {
   });
 
   it('returns 400 for an invalid JSON body', async () => {
-    const req = new Request('http://localhost/api/orders', {
+    const req = new NextRequest('http://localhost/api/orders', {
       method: 'POST',
       body: '{not valid json',
       headers: { 'content-type': 'application/json', 'x-api-key': API_KEY },
@@ -64,8 +65,8 @@ describe('POST /api/orders', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 422 with details for schema-valid JSON that fails the contract (no garments)', async () => {
-    const req = new Request('http://localhost/api/orders', {
+  it('returns 400 with details for schema-valid JSON that fails the contract (no garments)', async () => {
+    const req = new NextRequest('http://localhost/api/orders', {
       method: 'POST',
       body: JSON.stringify({ customer: { name: 'Jane Coach', email: 'jane@example.com' }, garments: [] }),
       headers: { 'content-type': 'application/json', 'x-api-key': API_KEY },
@@ -74,12 +75,13 @@ describe('POST /api/orders', () => {
     const res = await POST(req);
     const json = await res.json();
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
+    expect(json.error).toBe('Invalid request');
     expect(json.details).toBeDefined();
   });
 
   it('returns 201 with orderId/orderNumber/token/url for a valid payload and correct key', async () => {
-    const req = new Request('http://localhost/api/orders', {
+    const req = new NextRequest('http://localhost/api/orders', {
       method: 'POST',
       body: JSON.stringify(validPayload()),
       headers: { 'content-type': 'application/json', 'x-api-key': API_KEY },
@@ -98,7 +100,7 @@ describe('POST /api/orders', () => {
 
 describe('GET /api/orders', () => {
   it('returns 401 with a missing key', async () => {
-    const req = new Request('http://localhost/api/orders', { method: 'GET' });
+    const req = new NextRequest('http://localhost/api/orders', { method: 'GET' });
 
     const res = await GET(req);
 
@@ -106,14 +108,14 @@ describe('GET /api/orders', () => {
   });
 
   it('returns 200 with an orders array for a valid key', async () => {
-    const createReq = new Request('http://localhost/api/orders', {
+    const createReq = new NextRequest('http://localhost/api/orders', {
       method: 'POST',
       body: JSON.stringify(validPayload()),
       headers: { 'content-type': 'application/json', 'x-api-key': API_KEY },
     });
     await POST(createReq);
 
-    const req = new Request('http://localhost/api/orders', {
+    const req = new NextRequest('http://localhost/api/orders', {
       method: 'GET',
       headers: { 'x-api-key': API_KEY },
     });

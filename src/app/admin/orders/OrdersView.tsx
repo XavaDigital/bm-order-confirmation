@@ -10,12 +10,17 @@ import {
   Typography,
   Tabs,
   Tooltip,
+  App,
 } from 'antd';
 import { FileAddOutlined, SearchOutlined, DownloadOutlined, BgColorsOutlined } from '@ant-design/icons';
 import Link from 'next/link';
 import type { ColumnType } from 'antd/es/table';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
+import { ORDER_STATUS } from '@/lib/status';
 import { formatDate, formatCurrency } from '@/lib/format';
+import { getJson } from '@/lib/api-fetch';
+import { SEMANTIC } from '@/lib/semantic-colors';
 
 type SortField = 'createdAt' | 'orderValueAmount';
 type SortDirection = 'ascend' | 'descend' | null;
@@ -36,15 +41,11 @@ interface OrderRow {
 
 const STATUS_TABS = [
   { key: '', label: 'All' },
-  { key: 'draft', label: 'Draft' },
-  { key: 'sent', label: 'Sent' },
-  { key: 'viewed', label: 'Viewed' },
-  { key: 'confirmed', label: 'Confirmed' },
-  { key: 'changes_requested', label: 'Changes Requested' },
-  { key: 'cancelled', label: 'Cancelled' },
+  ...Object.entries(ORDER_STATUS).map(([key, meta]) => ({ key, label: meta.label })),
 ];
 
 export function OrdersView() {
+  const { message } = App.useApp();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [orders, setOrders] = useState<OrderRow[]>([]);
@@ -86,17 +87,18 @@ export function OrdersView() {
         params.set('sortDir', sortOrder === 'ascend' ? 'asc' : 'desc');
       }
 
-      const res = await fetch(`/api/admin/orders?${params}`);
-      if (!res.ok) throw new Error('Failed to load');
-      const data: { orders: OrderRow[]; total: number } = await res.json();
+      const data = await getJson<{ orders: OrderRow[]; total: number }>(
+        `/api/admin/orders?${params}`,
+        'Failed to load',
+      );
       setOrders(data.orders);
       setTotal(data.total);
     } catch {
-      // silently keep previous state on error
+      message.error('Failed to load orders');
     } finally {
       setLoading(false);
     }
-  }, [status, debouncedSearch, page, sortField, sortOrder]);
+  }, [status, debouncedSearch, page, sortField, sortOrder, message]);
 
   useEffect(() => {
     fetchOrders();
@@ -156,7 +158,7 @@ export function OrdersView() {
           <OrderStatusBadge status={val} />
           {record.colorSampleRequestedAt && (
             <Tooltip title="Colour book / sample requested — hold production">
-              <BgColorsOutlined style={{ color: '#d46b08' }} />
+              <BgColorsOutlined style={{ color: SEMANTIC.hold }} />
             </Tooltip>
           )}
         </Space>
@@ -185,35 +187,24 @@ export function OrdersView() {
 
   return (
     <div>
-      <div
-        style={{
-          marginBottom: 24,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-        }}
-      >
-        <div>
-          <Typography.Title level={3} style={{ marginBottom: 4 }}>
-            Orders
-          </Typography.Title>
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            {total} order{total !== 1 ? 's' : ''} total
-          </Typography.Paragraph>
-        </div>
-        <Space>
-          <a href={exportHref}>
-            <Button icon={<DownloadOutlined />} size="large">
-              Export CSV
-            </Button>
-          </a>
-          <Link href="/admin/orders/new">
-            <Button type="primary" icon={<FileAddOutlined />} size="large">
-              New Order
-            </Button>
-          </Link>
-        </Space>
-      </div>
+      <AdminPageHeader
+        title="Orders"
+        subtitle={`${total} order${total !== 1 ? 's' : ''} total`}
+        extra={
+          <Space>
+            <a href={exportHref}>
+              <Button icon={<DownloadOutlined />} size="large">
+                Export CSV
+              </Button>
+            </a>
+            <Link href="/admin/orders/new">
+              <Button type="primary" icon={<FileAddOutlined />} size="large">
+                New Order
+              </Button>
+            </Link>
+          </Space>
+        }
+      />
 
       <Space direction="vertical" style={{ width: '100%' }} size={0}>
         <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>

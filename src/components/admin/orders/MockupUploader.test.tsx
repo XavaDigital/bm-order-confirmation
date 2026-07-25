@@ -1,8 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
+import { installMockFetch } from '@/test/mockFetch';
 import { MockupUploader, type MockupImage } from './MockupUploader';
+
+const IMAGES_URL = '/api/admin/orders/order-1/garments/garment-1/images';
 
 function image(overrides: Partial<MockupImage> = {}): MockupImage {
   return {
@@ -28,7 +31,12 @@ function fileInput(container: HTMLElement) {
 }
 
 beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn());
+  // Default: any request throws loudly; tests install their own routes.
+  installMockFetch();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('MockupUploader', () => {
@@ -46,18 +54,17 @@ describe('MockupUploader', () => {
 
   it('uploading a single image POSTs it and appends it to the grid', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => image({ id: 'img-new', caption: null }),
-    } as Response);
+    const { fetchMock } = installMockFetch([
+      { match: IMAGES_URL, method: 'POST', response: image({ id: 'img-new', caption: null }) },
+    ]);
     const { container } = renderUploader([]);
 
     const file = new File(['bytes'], 'mockup.png', { type: 'image/png' });
     await user.upload(fileInput(container), file);
 
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-    const [url, init] = vi.mocked(fetch).mock.calls[0];
-    expect(url).toBe('/api/admin/orders/order-1/garments/garment-1/images');
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(IMAGES_URL);
     expect(init).toMatchObject({ method: 'POST' });
     expect((init!.body as FormData).get('file')).toBe(file);
 
@@ -66,22 +73,25 @@ describe('MockupUploader', () => {
 
   it('includes the caption field entered before uploading', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => image() } as Response);
+    const { fetchMock } = installMockFetch([
+      { match: IMAGES_URL, method: 'POST', response: image() },
+    ]);
     const { container } = renderUploader([]);
 
     await user.type(screen.getByPlaceholderText('Caption (optional)'), 'Back view');
     await user.upload(fileInput(container), new File(['bytes'], 'mockup.png', { type: 'image/png' }));
 
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-    const [, init] = vi.mocked(fetch).mock.calls[0];
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [, init] = fetchMock.mock.calls[0];
     expect((init!.body as FormData).get('caption')).toBe('Back view');
   });
 
   it('selecting two files in one batch uploads both and reports the combined success count', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch)
-      .mockResolvedValueOnce({ ok: true, json: async () => image({ id: 'img-1' }) } as Response)
-      .mockResolvedValueOnce({ ok: true, json: async () => image({ id: 'img-2' }) } as Response);
+    let uploadCount = 0;
+    const { fetchMock } = installMockFetch([
+      { match: IMAGES_URL, method: 'POST', response: () => image({ id: `img-${++uploadCount}` }) },
+    ]);
     const { container } = renderUploader([]);
 
     const files = [
@@ -90,15 +100,18 @@ describe('MockupUploader', () => {
     ];
     await user.upload(fileInput(container), files);
 
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('2 images uploaded')).toBeInTheDocument();
   });
 
   it('reports partial failure counts when one of two uploads fails', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch)
-      .mockResolvedValueOnce({ ok: true, json: async () => image({ id: 'img-1' }) } as Response)
-      .mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'Too large' }) } as Response);
+    const { fetchMock } = installMockFetch([
+      // Baseline: uploads fail…
+      { match: IMAGES_URL, method: 'POST', status: 400, response: { error: 'Too large' } },
+      // …except the first one (once-routes are matched first, then consumed).
+      { match: IMAGES_URL, method: 'POST', once: true, response: image({ id: 'img-1' }) },
+    ]);
     const { container } = renderUploader([]);
 
     const files = [
@@ -107,20 +120,22 @@ describe('MockupUploader', () => {
     ];
     await user.upload(fileInput(container), files);
 
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('Image uploaded')).toBeInTheDocument();
-    expect(await screen.findByText('Failed to upload 1 image')).toBeInTheDocument();
+    expect(await screen.findByText(/Failed to upload 1 image/)).toBeInTheDocument();
   });
 
   it('deleting an image confirms, then DELETEs it and removes it from the grid', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true } as Response);
+    const { fetchMock } = installMockFetch([
+      { match: `${IMAGES_URL}/img-1`, method: 'DELETE', response: { ok: true } },
+    ]);
     renderUploader([image({ id: 'img-1', caption: 'Front view' })]);
 
     await user.click(screen.getByRole('button', { name: /delete/i }));
     await user.click(await screen.findByRole('button', { name: 'Remove' }));
 
-    expect(fetch).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       '/api/admin/orders/order-1/garments/garment-1/images/img-1',
       { method: 'DELETE' },
     );
@@ -131,7 +146,9 @@ describe('MockupUploader', () => {
 
   it('shows an error message and keeps the image when deletion fails', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response);
+    installMockFetch([
+      { match: `${IMAGES_URL}/img-1`, method: 'DELETE', status: 500, response: {} },
+    ]);
     renderUploader([image({ id: 'img-1', caption: 'Front view' })]);
 
     await user.click(screen.getByRole('button', { name: /delete/i }));

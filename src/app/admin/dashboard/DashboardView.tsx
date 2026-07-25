@@ -31,20 +31,14 @@ import {
   Cell,
   Legend,
 } from 'recharts';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
+import { orderStatusMeta } from '@/lib/status';
+import { postJson } from '@/lib/api-fetch';
+import { SEMANTIC } from '@/lib/semantic-colors';
 
-const { Title, Paragraph, Text } = Typography;
+const { Text } = Typography;
 
-// Raw hex per status — needed for the pie chart fill and the avatar
-// background, which can't use OrderStatusBadge's antd semantic tag colors.
-const STATUS_HEX: Record<string, string> = {
-  draft: '#8c8c8c',
-  sent: '#faad14',
-  viewed: '#1677ff',
-  confirmed: '#52c41a',
-  changes_requested: '#ff4d4f',
-  cancelled: '#595959',
-};
 
 type RecentOrder = {
   id: string;
@@ -214,11 +208,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
   async function retryEvent(id: string) {
     setRetryingId(id);
     try {
-      const res = await fetch(`/api/admin/events/${id}/retry`, { method: 'POST' });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? 'Failed to retry event');
-      }
+      await postJson(`/api/admin/events/${id}/retry`, undefined, 'Failed to retry event');
       setEvents((prev) => prev.filter((e) => e.id !== id));
       message.success('Event queued for retry');
     } catch (err) {
@@ -244,19 +234,17 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <Title level={3} style={{ marginBottom: 4 }}>Dashboard</Title>
-          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            Overview of all order confirmations.
-          </Paragraph>
-        </div>
-        <Link href="/admin/orders/new">
-          <Button type="primary" icon={<FileAddOutlined />} size="large">
-            New Order
-          </Button>
-        </Link>
-      </div>
+      <AdminPageHeader
+        title="Dashboard"
+        subtitle="Overview of all order confirmations."
+        extra={
+          <Link href="/admin/orders/new">
+            <Button type="primary" icon={<FileAddOutlined />} size="large">
+              New Order
+            </Button>
+          </Link>
+        }
+      />
 
       {/* Stat cards */}
       <Row gutter={[16, 16]}>
@@ -276,7 +264,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
               title="Pipeline Value"
               value={formatNZD(totalValueNZD)}
               prefix={<DollarOutlined />}
-              valueStyle={{ fontWeight: 700, color: '#1677ff' }}
+              valueStyle={{ fontWeight: 700, color: SEMANTIC.info }}
             />
           </Card>
         </Col>
@@ -286,7 +274,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
               title="Awaiting Customer"
               value={awaitingCount}
               prefix={<SendOutlined />}
-              valueStyle={{ color: '#faad14', fontWeight: 700 }}
+              valueStyle={{ color: SEMANTIC.warning, fontWeight: 700 }}
             />
           </Card>
         </Col>
@@ -306,7 +294,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
               title="Confirmed"
               value={counts.confirmed}
               prefix={<CheckCircleOutlined />}
-              valueStyle={{ color: '#52c41a', fontWeight: 700 }}
+              valueStyle={{ color: SEMANTIC.success, fontWeight: 700 }}
             />
           </Card>
         </Col>
@@ -316,7 +304,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
               title="Changes Requested"
               value={counts.changesRequested}
               prefix={<ExclamationCircleOutlined />}
-              valueStyle={{ color: counts.changesRequested > 0 ? '#ff4d4f' : undefined, fontWeight: 700 }}
+              valueStyle={{ color: counts.changesRequested > 0 ? SEMANTIC.error : undefined, fontWeight: 700 }}
             />
           </Card>
         </Col>
@@ -326,7 +314,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
               title="Colour Sample Holds"
               value={colorSampleHolds.length}
               prefix={<BgColorsOutlined />}
-              valueStyle={{ color: colorSampleHolds.length > 0 ? '#d46b08' : undefined, fontWeight: 700 }}
+              valueStyle={{ color: colorSampleHolds.length > 0 ? SEMANTIC.hold : undefined, fontWeight: 700 }}
             />
           </Card>
         </Col>
@@ -337,7 +325,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
                 title="Failed Events"
                 value={events.length}
                 prefix={<ThunderboltOutlined />}
-                valueStyle={{ color: events.length > 0 ? '#ff4d4f' : undefined, fontWeight: 700 }}
+                valueStyle={{ color: events.length > 0 ? SEMANTIC.error : undefined, fontWeight: 700 }}
                 suffix={deadCount > 0 ? <Text style={{ fontSize: 12 }} type="secondary">({deadCount} dead)</Text> : undefined}
               />
             </Card>
@@ -388,7 +376,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
                     dataKey="value"
                   >
                     {pieData.map((entry) => (
-                      <Cell key={entry.key} fill={STATUS_HEX[entry.key]} />
+                      <Cell key={entry.key} fill={orderStatusMeta(entry.key).hex} />
                     ))}
                   </Pie>
                   <Tooltip
@@ -418,9 +406,9 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
           <Card
             title={
               <Space size={8}>
-                <WarningOutlined style={{ color: staleOrders.length > 0 ? '#faad14' : undefined }} />
+                <WarningOutlined style={{ color: staleOrders.length > 0 ? SEMANTIC.warning : undefined }} />
                 Needs Follow-up
-                {staleOrders.length > 0 && <Badge count={staleOrders.length} style={{ backgroundColor: '#faad14' }} />}
+                {staleOrders.length > 0 && <Badge count={staleOrders.length} style={{ backgroundColor: SEMANTIC.warning }} />}
               </Space>
             }
             styles={{ body: { padding: 0 } }}
@@ -474,7 +462,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
                       <div style={{ fontSize: 12, opacity: 0.65, fontWeight: 400 }}>Orders sent, pending response</div>
                     </div>
                     {awaitingCount > 0 && (
-                      <Badge count={awaitingCount} style={{ backgroundColor: '#faad14' }} />
+                      <Badge count={awaitingCount} style={{ backgroundColor: SEMANTIC.warning }} />
                     )}
                   </div>
                 </Button>
@@ -541,7 +529,7 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
                   clubName={order.clubName}
                   orderNumber={order.orderNumber}
                   status={order.status}
-                  avatarColor={STATUS_HEX[order.status]}
+                  avatarColor={orderStatusMeta(order.status).hex}
                   trailing={timeAgo(order.createdAt)}
                 />
               )}
@@ -586,10 +574,10 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
           <Card
             title={
               <Space size={8}>
-                <BgColorsOutlined style={{ color: colorSampleHolds.length > 0 ? '#d46b08' : undefined }} />
+                <BgColorsOutlined style={{ color: colorSampleHolds.length > 0 ? SEMANTIC.hold : undefined }} />
                 Colour Sample Holds
                 {colorSampleHolds.length > 0 && (
-                  <Badge count={colorSampleHolds.length} style={{ backgroundColor: '#d46b08' }} />
+                  <Badge count={colorSampleHolds.length} style={{ backgroundColor: SEMANTIC.hold }} />
                 )}
               </Space>
             }
@@ -620,9 +608,9 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
             <Card
               title={
                 <Space size={8}>
-                  <ThunderboltOutlined style={{ color: events.length > 0 ? '#ff4d4f' : undefined }} />
+                  <ThunderboltOutlined style={{ color: events.length > 0 ? SEMANTIC.error : undefined }} />
                   Failed Events
-                  {events.length > 0 && <Badge count={events.length} style={{ backgroundColor: '#ff4d4f' }} />}
+                  {events.length > 0 && <Badge count={events.length} style={{ backgroundColor: SEMANTIC.error }} />}
                 </Space>
               }
               styles={{ body: { padding: 0 } }}

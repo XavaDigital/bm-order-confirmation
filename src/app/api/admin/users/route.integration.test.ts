@@ -61,6 +61,10 @@ async function setSession(role: 'sales' | 'admin', overrides: Record<string, unk
   Object.assign(session, overrides);
 }
 
+function getRequest() {
+  return new NextRequest('http://localhost/api/admin/users', { method: 'GET' });
+}
+
 function postRequest(body: unknown) {
   return new NextRequest('http://localhost/api/admin/users', {
     method: 'POST',
@@ -71,13 +75,13 @@ function postRequest(body: unknown) {
 
 describe('GET /api/admin/users', () => {
   it('returns 401 when there is no session', async () => {
-    const res = await GET();
+    const res = await GET(getRequest());
     expect(res.status).toBe(401);
   });
 
   it('returns 403 for a sales-role session', async () => {
     await setSession('sales');
-    const res = await GET();
+    const res = await GET(getRequest());
     expect(res.status).toBe(403);
   });
 
@@ -88,7 +92,7 @@ describe('GET /api/admin/users', () => {
       { email: 'pending@example.com', passwordHash: 'x', name: 'Pending', role: 'sales', inviteTokenHash: 'hash', isActive: false },
     ]);
 
-    const res = await GET();
+    const res = await GET(getRequest());
     const json = await res.json();
 
     expect(res.status).toBe(200);

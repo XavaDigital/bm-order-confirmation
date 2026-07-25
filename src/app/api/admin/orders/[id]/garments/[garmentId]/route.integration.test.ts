@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 vi.mock('@/db', async () => {
   const { createTestDb } = await import('@/db/test-helpers');
@@ -9,15 +9,47 @@ vi.mock('@/db', async () => {
   return { db, schema };
 });
 
+vi.mock('@/lib/session', () => {
+  const store: Record<string, unknown> = {};
+  const session = new Proxy(store, {
+    get(target, prop) {
+      if (prop === 'save') return async () => {};
+      if (prop === 'destroy') return () => { for (const k of Object.keys(target)) delete target[k]; };
+      return target[prop as string];
+    },
+    set(target, prop, value) {
+      target[prop as string] = value;
+      return true;
+    },
+  });
+  return {
+    getSession: vi.fn(async () => session),
+    requireAdmin: vi.fn(async () => {
+      if (!session.userId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
+      if (session.role !== 'admin') return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
+      return { session };
+    }),
+  };
+});
+
 import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
+import { getSession } from '@/lib/session';
 import { createOrderSchema } from '@/server/orders/contract';
 import { createOrder } from '@/server/orders/service';
 import { PATCH, DELETE } from './route';
 
+beforeEach(async () => {
+  const session = (await getSession()) as unknown as Record<string, unknown>;
+  session.userId = 'staff-1';
+  session.role = 'sales';
+});
+
 afterEach(async () => {
   await resetTestDb(db);
+  const session = (await getSession()) as unknown as Record<string, unknown>;
+  for (const key of Object.keys(session)) delete session[key];
 });
 
 function minimalOrderInput(overrides: Partial<Parameters<typeof createOrderSchema.parse>[0]> = {}) {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 vi.mock('@/db', async () => {
   const { createTestDb } = await import('@/db/test-helpers');
@@ -21,7 +21,14 @@ vi.mock('@/lib/session', () => {
       return true;
     },
   });
-  return { getSession: vi.fn(async () => session) };
+  return {
+    getSession: vi.fn(async () => session),
+    requireAdmin: vi.fn(async () => {
+      if (!session.userId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
+      if (session.role !== 'admin') return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
+      return { session };
+    }),
+  };
 });
 
 const { sendRosterMemberLinkEmail, isEmailConfigured } = vi.hoisted(() => ({
@@ -49,6 +56,8 @@ afterEach(async () => {
 
 beforeEach(async () => {
   const session = (await getSession()) as unknown as Record<string, unknown>;
+  session.userId = 'staff-1';
+  session.role = 'sales';
   session.email = 'staff@example.com';
 });
 
@@ -106,7 +115,7 @@ describe('POST /api/admin/orders/[id]/roster/email-links', () => {
 
     await POST(postRequest(), { params: Promise.resolve({ id: created.orderId }) });
 
-    const events = await db.query.domainEvents.findMany({ where: eq(schema.domainEvents.aggregateId, created.orderId) });
+    const events = await db.query.auditEvents.findMany({ where: eq(schema.auditEvents.aggregateId, created.orderId) });
     expect(events.filter((e) => e.eventType === 'roster.member_link_emailed')).toHaveLength(1);
   });
 

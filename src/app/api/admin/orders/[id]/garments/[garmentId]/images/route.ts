@@ -1,43 +1,53 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { randomBytes } from 'node:crypto';
 import { addMockupImage } from '@/server/orders/service';
-import { uploadFile, getSignedUrl, mockupKey } from '@/lib/storage';
+import { uploadFile, getSignedUrl, mockupKey, isStorageConfigured } from '@/lib/storage';
 import { parseMultipartFormData, parseUploadedFile } from '@/lib/uploads';
+import { defineRoute } from '@/lib/route-handler';
 import { logger } from '@/lib/logger';
-
-type Params = { params: Promise<{ id: string; garmentId: string }> };
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
-export async function POST(request: NextRequest, { params }: Params) {
-  const { id: orderId, garmentId } = await params;
+export const POST = defineRoute<{ id: string; garmentId: string }>({
+  auth: 'staff',
+  tag: 'admin/images POST',
+  handler: async ({ request, params, session }) => {
+    const { id: orderId, garmentId } = params;
 
-  const formData = await parseMultipartFormData(request);
-  if (formData instanceof NextResponse) return formData;
+    if (!isStorageConfigured()) {
+      return NextResponse.json(
+        { error: 'File storage is not configured on this server' },
+        { status: 503 },
+      );
+    }
 
-  const upload = await parseUploadedFile(formData, {
-    allowedTypes: ALLOWED_TYPES,
-    maxBytes: MAX_BYTES,
-    typeErrorMessage: 'Only JPEG, PNG, WebP and GIF images are allowed',
-  });
-  if (upload instanceof NextResponse) return upload;
-  const { file, buffer } = upload;
+    const formData = await parseMultipartFormData(request);
+    if (formData instanceof NextResponse) return formData;
 
-  const caption = (formData.get('caption') as string | null) ?? null;
-  const ext = file.name.split('.').pop() ?? 'jpg';
-  const filename = `${randomBytes(8).toString('hex')}.${ext}`;
-  const key = mockupKey(orderId, garmentId, filename);
+    const upload = await parseUploadedFile(formData, {
+      allowedTypes: ALLOWED_TYPES,
+      maxBytes: MAX_BYTES,
+      typeErrorMessage: 'Only JPEG, PNG, WebP and GIF images are allowed',
+    });
+    if (upload instanceof NextResponse) return upload;
+    const { file, buffer } = upload;
 
-  try {
-    await uploadFile(key, buffer, file.type);
+    const caption = (formData.get('caption') as string | null) ?? null;
+    const ext = file.name.split('.').pop() ?? 'jpg';
+    const filename = `${randomBytes(8).toString('hex')}.${ext}`;
+    const key = mockupKey(orderId, garmentId, filename);
 
-    const image = await addMockupImage(garmentId, { storageKey: key, caption });
-    const url = await getSignedUrl(key, 4 * 3600); // 4-hour signed URL for immediate admin preview
+    try {
+      await uploadFile(key, buffer, file.type);
 
-    return NextResponse.json({ ...image, url }, { status: 201 });
-  } catch (err) {
-    logger.error('[admin/images POST]', err);
-    return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
-  }
-}
+      const image = await addMockupImage(garmentId, { storageKey: key, caption }, { actorEmail: session!.email });
+      const url = await getSignedUrl(key, 4 * 3600); // 4-hour signed URL for immediate admin preview
+
+      return NextResponse.json({ ...image, url }, { status: 201 });
+    } catch (err) {
+      logger.error('[admin/images POST]', err);
+      return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
+    }
+  },
+});

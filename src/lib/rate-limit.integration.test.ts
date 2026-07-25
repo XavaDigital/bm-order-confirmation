@@ -72,9 +72,9 @@ describe('checkRateLimitAsync (Postgres-backed)', () => {
   it('rateLimitedResponse returns null while allowed and a 429 with Retry-After once exceeded', async () => {
     const key = 'pg-route-1';
     for (let i = 0; i < 2; i++) {
-      expect(await rateLimitedResponse(key, 2, 60_000, 'Too many requests.')).toBeNull();
+      expect(await rateLimitedResponse(key, { maxRequests: 2, windowMs: 60_000 }, 'Too many requests.')).toBeNull();
     }
-    const res = await rateLimitedResponse(key, 2, 60_000, 'Too many requests.');
+    const res = await rateLimitedResponse(key, { maxRequests: 2, windowMs: 60_000 }, 'Too many requests.');
     expect(res).not.toBeNull();
     expect(res!.status).toBe(429);
     expect(res!.headers.get('Retry-After')).not.toBeNull();

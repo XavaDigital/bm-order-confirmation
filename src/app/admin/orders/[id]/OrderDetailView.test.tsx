@@ -1,15 +1,25 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
+import { installMockFetch } from '@/test/mockFetch';
 import { OrderDetailView, type AdminOrderData } from './OrderDetailView';
 
 const pushMock = vi.fn();
+const replaceMock = vi.fn();
 let searchParamsValue = new URLSearchParams();
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: pushMock }),
+  useRouter: () => ({ push: pushMock, replace: replaceMock, refresh: vi.fn() }),
   useSearchParams: () => searchParamsValue,
 }));
+
+// CustomerHubSelect checks /api/admin/hub/status on mount via getJson; stub it
+// (hub unconfigured → renders nothing) so the mount fetch never consumes the
+// global fetch mock's *Once queue that drives the action assertions.
+vi.mock('@/lib/api-fetch', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-fetch')>();
+  return { ...actual, getJson: vi.fn().mockResolvedValue({ configured: false }) };
+});
 
 vi.mock('@/components/admin/orders/OrderForm', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/components/admin/orders/OrderForm')>();
@@ -18,8 +28,8 @@ vi.mock('@/components/admin/orders/OrderForm', async (importOriginal) => {
     OrderForm: () => <div data-testid="order-form" />,
   };
 });
-vi.mock('@/components/admin/orders/GarmentAccordion', () => ({
-  GarmentAccordion: () => <div data-testid="garment-accordion" />,
+vi.mock('@/components/admin/orders/GarmentsMasterDetail', () => ({
+  GarmentsMasterDetail: () => <div data-testid="garments-master-detail" />,
 }));
 vi.mock('@/components/admin/orders/ShareLinkPanel', () => ({
   ShareLinkPanel: () => <div data-testid="share-link-panel" />,
@@ -67,8 +77,14 @@ function renderView(order: AdminOrderData) {
 
 beforeEach(() => {
   pushMock.mockClear();
+  replaceMock.mockClear();
   searchParamsValue = new URLSearchParams();
-  vi.stubGlobal('fetch', vi.fn());
+  // Default: any request throws loudly; tests that fetch install their own routes.
+  installMockFetch();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('OrderDetailView', () => {
@@ -81,21 +97,22 @@ describe('OrderDetailView', () => {
     expect(screen.getByText('/ Wildcats')).toBeInTheDocument();
   });
 
-  it('shows the garments tab count and passes orderId through to the audit log tab', async () => {
+  it('shows the garments rail count and passes orderId through to the audit log panel', async () => {
     const user = userEvent.setup();
     renderView(baseOrder({ garments: [{ id: 'g-1', name: 'Jersey', fabrics: [], notes: null, sortOrder: 0, sizing: [], images: [], sizeChartIds: [] }] }));
 
-    expect(screen.getByRole('tab', { name: 'Garments (1)' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Garments \(1\)/ })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('tab', { name: 'Audit Log' }));
+    await user.click(screen.getByRole('menuitem', { name: /Audit Log/ }));
     expect(screen.getByTestId('audit-log-tab')).toHaveTextContent('order-1');
+    expect(replaceMock).toHaveBeenCalledWith('?tab=audit', { scroll: false });
   });
 
-  it('opens the tab named in the "tab" URL search param', () => {
+  it('opens the section named in the "tab" URL search param', () => {
     searchParamsValue = new URLSearchParams('tab=share');
     renderView(baseOrder());
 
-    expect(screen.getByTestId('share-link-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('share-link-panel')).toBeVisible();
   });
 
   it('shows a cancelled alert when the order is cancelled', () => {
@@ -132,7 +149,9 @@ describe('OrderDetailView', () => {
 
   it('resolving a colour sample request clears the hold-production alert', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true } as Response);
+    const { fetchMock } = installMockFetch([
+      { match: '/api/admin/orders/order-1/resolve-color-sample', method: 'POST', response: { ok: true } },
+    ]);
     renderView(
       baseOrder({
         status: 'confirmed',
@@ -144,7 +163,10 @@ describe('OrderDetailView', () => {
     await user.click(screen.getByRole('button', { name: /mark resolved/i }));
     await user.click(await screen.findByRole('button', { name: 'Yes, resolved' }));
 
-    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/resolve-color-sample', { method: 'POST' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/admin/orders/order-1/resolve-color-sample',
+      expect.objectContaining({ method: 'POST' }),
+    );
     expect(await screen.findByText('Colour sample request marked as resolved')).toBeInTheDocument();
     expect(
       screen.queryByText('Customer requested a colour book / physical sample — hold production.'),
@@ -153,7 +175,14 @@ describe('OrderDetailView', () => {
 
   it('shows an error message when resolving fails, and keeps the alert', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'Failed to resolve' }) } as Response);
+    installMockFetch([
+      {
+        match: '/api/admin/orders/order-1/resolve-color-sample',
+        method: 'POST',
+        status: 400,
+        response: { error: 'Failed to resolve' },
+      },
+    ]);
     renderView(
       baseOrder({
         status: 'confirmed',
@@ -185,12 +214,14 @@ describe('OrderDetailView', () => {
 
   it('saving details PATCHes the order and shows a success message', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true } as Response);
+    const { fetchMock } = installMockFetch([
+      { match: '/api/admin/orders/order-1', method: 'PATCH', response: { ok: true } },
+    ]);
     renderView(baseOrder());
 
     await user.click(screen.getByRole('button', { name: /save details/i }));
 
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       '/api/admin/orders/order-1',
       expect.objectContaining({ method: 'PATCH' }),
     ));
@@ -199,7 +230,9 @@ describe('OrderDetailView', () => {
 
   it('shows an error message when saving details fails', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response);
+    installMockFetch([
+      { match: '/api/admin/orders/order-1', method: 'PATCH', status: 500, response: {} },
+    ]);
     renderView(baseOrder());
 
     await user.click(screen.getByRole('button', { name: /save details/i }));
@@ -209,7 +242,9 @@ describe('OrderDetailView', () => {
 
   it('includes typed internal notes in the save payload', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true } as Response);
+    const { fetchMock } = installMockFetch([
+      { match: '/api/admin/orders/order-1', method: 'PATCH', response: { ok: true } },
+    ]);
     renderView(baseOrder());
 
     await user.type(
@@ -218,21 +253,23 @@ describe('OrderDetailView', () => {
     );
     await user.click(screen.getByRole('button', { name: /save details/i }));
 
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const body = JSON.parse(fetchMock.mock.calls[0][1]!.body as string);
     expect(body.internalNotes).toBe('Called about sizing');
   });
 
   it('shows Delete order only for draft orders, and deleting redirects to the orders list', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true } as Response);
+    const { fetchMock } = installMockFetch([
+      { match: '/api/admin/orders/order-1', method: 'DELETE', response: { ok: true } },
+    ]);
     renderView(baseOrder({ status: 'draft' }));
 
     const deleteButton = screen.getByRole('button', { name: /delete order/i });
     await user.click(deleteButton);
     await user.click(await screen.findByRole('button', { name: 'Delete' }));
 
-    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1', { method: 'DELETE' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/orders/order-1', { method: 'DELETE' });
     await vi.waitFor(() => expect(pushMock).toHaveBeenCalledWith('/admin/orders'));
   });
 
@@ -243,18 +280,25 @@ describe('OrderDetailView', () => {
 
   it('shows Resend link for a resendable status and emails a fresh link on click', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response);
+    const { fetchMock } = installMockFetch([
+      { match: '/api/admin/orders/order-1/send-link', method: 'POST', response: {} },
+    ]);
     renderView(baseOrder({ status: 'sent' }));
 
     await user.click(screen.getByRole('button', { name: /resend link/i }));
 
-    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/send-link', { method: 'POST' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/admin/orders/order-1/send-link',
+      expect.objectContaining({ method: 'POST' }),
+    );
     expect(await screen.findByText('Link emailed to jane@example.com')).toBeInTheDocument();
   });
 
   it('shows a "not configured" message when resending on a 503 without throwing', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}) } as Response);
+    installMockFetch([
+      { match: '/api/admin/orders/order-1/send-link', method: 'POST', status: 503, response: {} },
+    ]);
     renderView(baseOrder({ status: 'sent' }));
 
     await user.click(screen.getByRole('button', { name: /resend link/i }));
@@ -277,25 +321,35 @@ describe('OrderDetailView', () => {
 
   it('duplicating an order POSTs and navigates to the new order', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ orderId: 'order-2', orderNumber: 'OC-2' }),
-    } as Response);
+    const { fetchMock } = installMockFetch([
+      {
+        match: '/api/admin/orders/order-1/duplicate',
+        method: 'POST',
+        response: { orderId: 'order-2', orderNumber: 'OC-2' },
+      },
+    ]);
     renderView(baseOrder());
 
     await user.click(screen.getByRole('button', { name: /duplicate/i }));
 
-    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/duplicate', { method: 'POST' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/admin/orders/order-1/duplicate',
+      expect.objectContaining({ method: 'POST' }),
+    );
     expect(await screen.findByText('Created OC-2 from this order')).toBeInTheDocument();
     await vi.waitFor(() => expect(pushMock).toHaveBeenCalledWith('/admin/orders/order-2'));
   });
 
   it('shows an error message when duplicating fails', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: false,
-      json: async () => ({ error: 'No garments to copy' }),
-    } as Response);
+    installMockFetch([
+      {
+        match: '/api/admin/orders/order-1/duplicate',
+        method: 'POST',
+        status: 400,
+        response: { error: 'No garments to copy' },
+      },
+    ]);
     renderView(baseOrder());
 
     await user.click(screen.getByRole('button', { name: /duplicate/i }));
@@ -306,13 +360,18 @@ describe('OrderDetailView', () => {
 
   it('cancelling a cancellable order updates the status badge and hides Cancel/Resend', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true } as Response);
+    const { fetchMock } = installMockFetch([
+      { match: '/api/admin/orders/order-1/cancel', method: 'POST', response: { ok: true } },
+    ]);
     renderView(baseOrder({ status: 'sent' }));
 
     await user.click(screen.getByRole('button', { name: /cancel order/i }));
     await user.click(await screen.findByRole('button', { name: 'Cancel order' }));
 
-    expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/cancel', { method: 'POST' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/admin/orders/order-1/cancel',
+      expect.objectContaining({ method: 'POST' }),
+    );
     expect(await screen.findByText('Order cancelled')).toBeInTheDocument();
     expect(await screen.findByText('Cancelled')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /resend link/i })).not.toBeInTheDocument();
@@ -325,7 +384,14 @@ describe('OrderDetailView', () => {
 
   it('shows an error message when cancelling fails, and keeps the current status', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'Cannot cancel' }) } as Response);
+    installMockFetch([
+      {
+        match: '/api/admin/orders/order-1/cancel',
+        method: 'POST',
+        status: 400,
+        response: { error: 'Cannot cancel' },
+      },
+    ]);
     renderView(baseOrder({ status: 'sent' }));
 
     await user.click(screen.getByRole('button', { name: /cancel order/i }));

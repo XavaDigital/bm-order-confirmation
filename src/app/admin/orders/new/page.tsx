@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Form,
   Input,
+  Select,
   Button,
   Space,
   Typography,
@@ -16,12 +17,21 @@ import {
 import { ArrowLeftOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import Link from 'next/link';
 import { OrderForm, toApiPayload, type OrderFormValues } from '@/components/admin/orders/OrderForm';
+import { CustomerHubSelect, type HubCustomerPick } from '@/components/admin/orders/CustomerHubSelect';
+import { getJson, postJson } from '@/lib/api-fetch';
 
 const { Title } = Typography;
 
 interface GarmentEntry {
   key: string;
   name: string;
+  garmentTypeId?: string;
+}
+
+interface GarmentTypeOption {
+  id: string;
+  name: string;
+  category: string | null;
 }
 
 export default function NewOrderPage() {
@@ -32,6 +42,31 @@ export default function NewOrderPage() {
     { key: '1', name: '' },
   ]);
   const [submitting, setSubmitting] = useState(false);
+  const [types, setTypes] = useState<GarmentTypeOption[]>([]);
+  const [hubCustomer, setHubCustomer] = useState<HubCustomerPick | null>(null);
+
+  useEffect(() => {
+    getJson<GarmentTypeOption[]>('/api/admin/garment-types?active=1', 'Failed to load garment types')
+      .then(setTypes)
+      .catch(() => {
+        // Optional enhancement — plain garment names still work.
+      });
+  }, []);
+
+  function setGarmentType(key: string, garmentTypeId: string | undefined) {
+    setGarments((prev) =>
+      prev.map((g) => {
+        if (g.key !== key) return g;
+        // Auto-fill an empty name from the type's name
+        const typeName = types.find((t) => t.id === garmentTypeId)?.name;
+        return {
+          ...g,
+          garmentTypeId,
+          name: g.name.trim() === '' && typeName ? typeName : g.name,
+        };
+      }),
+    );
+  }
 
   function addGarment() {
     setGarments((prev) => [...prev, { key: String(Date.now()), name: '' }]);
@@ -89,26 +124,29 @@ export default function NewOrderPage() {
         shipping: {
           mode: payload.shippingMode ?? 'prefilled',
         },
-        garments: garmentList.map((g) => ({ name: g.name.trim() })),
+        garments: garmentList.map((g) => ({
+          name: g.name.trim(),
+          ...(g.garmentTypeId && { garmentTypeId: g.garmentTypeId }),
+        })),
+        ...(hubCustomer && {
+          hubCustomerId: hubCustomer.id,
+          hubCustomerName: hubCustomer.name,
+        }),
       };
 
-      const res = await fetch('/api/admin/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? 'Failed to create order');
-      }
-
-      const result: { orderId: string; orderNumber: string } = await res.json();
+      const result = await postJson<{ orderId: string; orderNumber: string }>(
+        '/api/admin/orders',
+        body,
+        'Failed to create order',
+      );
+      if (!result?.orderId) throw new Error('Create succeeded but no order id was returned');
       message.success(`Order ${result.orderNumber} created`);
+      // Keep `submitting` true through the navigation — re-enabling the button
+      // here allows a double-submit that silently creates a second order.
       router.push(`/admin/orders/${result.orderId}`);
+      router.refresh();
     } catch (err: unknown) {
       message.error(err instanceof Error ? err.message : 'Failed to create order');
-    } finally {
       setSubmitting(false);
     }
   }
@@ -133,6 +171,21 @@ export default function NewOrderPage() {
       </div>
 
       <Card>
+        {/* Renders nothing unless the Sales Hub integration is configured */}
+        <div style={{ marginBottom: 16 }}>
+          <CustomerHubSelect
+            value={hubCustomer}
+            onSelect={(customer) => {
+              setHubCustomer(customer);
+              if (customer) {
+                form.setFieldsValue({
+                  customerName: customer.name,
+                  ...(customer.email && { customerEmail: customer.email }),
+                });
+              }
+            }}
+          />
+        </div>
         <OrderForm form={form} />
 
         <Divider />
@@ -147,6 +200,21 @@ export default function NewOrderPage() {
         <Space direction="vertical" style={{ width: '100%' }} size={8}>
           {garments.map((g) => (
             <div key={g.key} style={{ display: 'flex', gap: 8 }}>
+              {types.length > 0 && (
+                <Select
+                  value={g.garmentTypeId}
+                  onChange={(v) => setGarmentType(g.key, v)}
+                  allowClear
+                  placeholder="Type (optional)"
+                  style={{ width: 220 }}
+                  showSearch
+                  optionFilterProp="label"
+                  options={types.map((t) => ({
+                    value: t.id,
+                    label: t.category ? `${t.name} (${t.category})` : t.name,
+                  }))}
+                />
+              )}
               <Input
                 value={g.name}
                 placeholder="Garment name (e.g. Home Jersey)"

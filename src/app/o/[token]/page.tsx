@@ -1,7 +1,8 @@
 import { notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { getOrderForCustomer, recordOrderViewed } from '@/server/orders/customer-service';
-import { getSignedUrl } from '@/lib/storage';
+import { toGarmentDto } from '@/server/orders/mappers';
+import { signChartRefs, signImageRefs } from '@/lib/signed-urls';
 import { ACCESS_CODE_COOKIE, isAccessCodeCookieValid } from '@/lib/access-code';
 import { AccessCodeGate } from '@/components/customer/AccessCodeGate';
 import { CustomerOrderView, type CustomerOrderViewProps } from './view';
@@ -13,22 +14,6 @@ export const dynamic = 'force-dynamic';
 export const metadata = { robots: { index: false, follow: false } };
 
 type Props = { params: Promise<{ token: string }> };
-
-async function signImageUrls(
-  images: { id: string; storageKey: string; caption: string | null; sortOrder: number }[],
-): Promise<{ id: string; caption: string | null; url: string }[]> {
-  return Promise.all(
-    images.map(async (img) => {
-      let url = '';
-      try {
-        url = await getSignedUrl(img.storageKey, 3600);
-      } catch {
-        // Storage not configured in this environment — leave empty.
-      }
-      return { id: img.id, caption: img.caption, url };
-    }),
-  );
-}
 
 export default async function CustomerOrderPage({ params }: Props) {
   const { token } = await params;
@@ -59,42 +44,14 @@ export default async function CustomerOrderPage({ params }: Props) {
   const garments: CustomerOrderViewProps['order']['garments'] = await Promise.all(
     order.garments.map(async (g) => ({
       id: g.id,
-      name: g.name,
-      fabrics: Array.isArray(g.fabrics) ? (g.fabrics as string[]) : [],
-      notes: g.notes ?? null,
-      sizing: g.sizing.map((s) => ({
-        size: s.size ?? null,
-        playerName: s.playerName ?? null,
-        playerNumber: s.playerNumber ?? null,
-        notes: s.notes ?? null,
-        viaTeamRoster: s.rosterMemberId !== null && s.rosterMemberId !== undefined,
+      ...toGarmentDto(g, { rosterFlags: true }),
+      images: (await signImageRefs(g.images)).map((img) => ({
+        id: img.id,
+        caption: img.caption,
+        url: img.url,
       })),
-      images: await signImageUrls(g.images),
-      sizeCharts: await Promise.all(
-        g.sizeChartLinks
-          .filter((l) => l.sizeChart)
-          .map(async (l) => {
-            let url: string | null = null;
-            let downloadUrl: string | null = null;
-            const storageKey = l.sizeChart!.storageKey ?? null;
-            try {
-              if (storageKey) {
-                const filename = storageKey.split('/').pop() ?? l.sizeChart!.name;
-                [url, downloadUrl] = await Promise.all([
-                  getSignedUrl(storageKey, 3600),
-                  getSignedUrl(storageKey, 3600, {
-                    contentDisposition: `attachment; filename="${filename}"`,
-                  }),
-                ]);
-              }
-            } catch { /* storage not configured */ }
-            return {
-              name: l.sizeChart!.name,
-              storageKey,
-              url,
-              downloadUrl,
-            };
-          }),
+      sizeCharts: await signChartRefs(
+        g.sizeChartLinks.filter((l) => l.sizeChart).map((l) => l.sizeChart!),
       ),
     })),
   );

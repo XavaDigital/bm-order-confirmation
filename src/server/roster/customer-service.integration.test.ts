@@ -423,3 +423,59 @@ describe('submitMemberSizesByMemberToken', () => {
     ).rejects.toThrow('roster_locked');
   });
 });
+
+describe('chart-defined sizes on the roster read models', () => {
+  async function seedChartWithSizes(name: string, sizes: { label: string; tall: boolean }[]) {
+    const [chart] = await db.insert(schema.sizeCharts).values({ name, sizes }).returning();
+    return chart;
+  }
+
+  it('exposes the union of linked chart sizes per garment (tall OR-ed, deduped)', async () => {
+    const chartA = await seedChartWithSizes('Adult', [
+      { label: 'M', tall: false },
+      { label: 'L', tall: true },
+    ]);
+    const chartB = await seedChartWithSizes('Alt', [
+      { label: 'm', tall: true },
+      { label: 'XL', tall: false },
+    ]);
+    const created = await createOrder(
+      minimalInput({
+        garments: [
+          { name: 'Hoodie', sizeChartIds: [chartA.id, chartB.id] },
+          { name: 'Shorts' },
+        ],
+      }),
+    );
+    const { token } = await generateRosterToken(created.orderId);
+
+    const roster = await getRosterForMember(token);
+    const hoodie = roster!.order.garments.find((g) => g.name === 'Hoodie')!;
+    const shorts = roster!.order.garments.find((g) => g.name === 'Shorts')!;
+
+    expect(hoodie.sizes).toEqual([
+      { label: 'M', tall: true },
+      { label: 'L', tall: true },
+      { label: 'XL', tall: false },
+    ]);
+    expect(shorts.sizes).toEqual([]);
+  });
+
+  it('exposes chart sizes on the per-member read model and accepts a "L Tall" submission', async () => {
+    const chart = await seedChartWithSizes('Adult', [{ label: 'L', tall: true }]);
+    const created = await createOrder(
+      minimalInput({ garments: [{ name: 'Hoodie', sizeChartIds: [chart.id] }] }),
+    );
+    const member = await addRosterMember(created.orderId, { name: 'Alex Player' });
+    const { token: memberToken } = await generateMemberToken(member.id);
+
+    const roster = await getRosterForMemberByMemberToken(memberToken);
+    expect(roster!.order.garments[0].sizes).toEqual([{ label: 'L', tall: true }]);
+
+    const garmentId = roster!.order.garments[0].id;
+    const result = await submitMemberSizesByMemberToken(memberToken, {
+      sizes: [{ garmentId, size: 'L Tall' }],
+    });
+    expect(result.sizes).toEqual([{ garmentId, size: 'L Tall' }]);
+  });
+});

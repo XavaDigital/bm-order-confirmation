@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
+import { installMockFetch, type MockRoute } from '@/test/mockFetch';
 import { SizeChartsView } from './SizeChartsView';
 
 function chart(overrides: Record<string, unknown> = {}) {
@@ -16,8 +17,8 @@ function chart(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function mockChartsOnce(charts: ReturnType<typeof chart>[]) {
-  vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => charts } as Response);
+function chartsRoute(charts: ReturnType<typeof chart>[]): MockRoute {
+  return { match: '/api/admin/size-charts', method: 'GET', response: charts };
 }
 
 function renderView(role: 'sales' | 'admin' = 'admin') {
@@ -45,28 +46,33 @@ async function waitForModalToClose() {
 }
 
 beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn());
+  // Default: any request throws loudly; tests install their own routes.
+  installMockFetch();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('SizeChartsView', () => {
   it('fetches and renders a row per chart', async () => {
-    mockChartsOnce([chart()]);
+    const { fetchMock } = installMockFetch([chartsRoute([chart()])]);
     renderView();
 
-    expect(fetch).toHaveBeenCalledWith('/api/admin/size-charts');
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/size-charts');
     expect(await screen.findByText('Adult Unisex')).toBeInTheDocument();
     expect(screen.getByText('PDF')).toBeInTheDocument();
   });
 
   it('shows an "Image" type tag for a non-PDF storage key', async () => {
-    mockChartsOnce([chart({ storageKey: 'charts/kids.png' })]);
+    installMockFetch([chartsRoute([chart({ storageKey: 'charts/kids.png' })])]);
     renderView();
 
     expect(await screen.findByText('Image')).toBeInTheDocument();
   });
 
   it('shows a dash for a chart with no description', async () => {
-    mockChartsOnce([chart({ description: null })]);
+    installMockFetch([chartsRoute([chart({ description: null })])]);
     renderView();
 
     const row = (await screen.findByText('Adult Unisex')).closest('tr')!;
@@ -74,21 +80,21 @@ describe('SizeChartsView', () => {
   });
 
   it('shows the empty-library message when there are no charts', async () => {
-    mockChartsOnce([]);
+    installMockFetch([chartsRoute([])]);
     renderView();
 
     expect(await screen.findByText(/no size charts yet/i)).toBeInTheDocument();
   });
 
   it('shows an error message when the initial fetch fails', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response);
+    installMockFetch([{ match: '/api/admin/size-charts', method: 'GET', status: 500, response: {} }]);
     renderView();
 
     expect(await screen.findByText('Failed to load size charts')).toBeInTheDocument();
   });
 
   it('does not show a View button for a chart with no signed url', async () => {
-    mockChartsOnce([chart({ url: null })]);
+    installMockFetch([chartsRoute([chart({ url: null })])]);
     renderView();
 
     await screen.findByText('Adult Unisex');
@@ -97,7 +103,7 @@ describe('SizeChartsView', () => {
 
   it('viewing a PDF chart opens a preview modal with an iframe', async () => {
     const user = userEvent.setup();
-    mockChartsOnce([chart({ storageKey: 'charts/adult.pdf', url: 'https://signed.example.com/adult.pdf' })]);
+    installMockFetch([chartsRoute([chart({ storageKey: 'charts/adult.pdf', url: 'https://signed.example.com/adult.pdf' })])]);
     renderView();
     await screen.findByText('Adult Unisex');
 
@@ -109,7 +115,7 @@ describe('SizeChartsView', () => {
 
   it('viewing an image chart opens a preview modal with an image', async () => {
     const user = userEvent.setup();
-    mockChartsOnce([chart({ storageKey: 'charts/kids.png', url: 'https://signed.example.com/kids.png' })]);
+    installMockFetch([chartsRoute([chart({ storageKey: 'charts/kids.png', url: 'https://signed.example.com/kids.png' })])]);
     renderView();
     await screen.findByText('Adult Unisex');
 
@@ -121,8 +127,8 @@ describe('SizeChartsView', () => {
 
   it('uploading a chart with a selected file POSTs the form and prepends the new chart', async () => {
     const user = userEvent.setup();
-    mockChartsOnce([]);
-    const { container } = renderView();
+    const { fetchMock, addRoute } = installMockFetch([chartsRoute([])]);
+    renderView();
     await screen.findByText(/no size charts yet/i);
 
     await user.click(screen.getByRole('button', { name: /upload chart/i }));
@@ -130,13 +136,14 @@ describe('SizeChartsView', () => {
     await user.type(within(dialog).getByPlaceholderText('Adult Unisex Jersey'), 'Youth Unisex');
     await user.upload(fileInput(dialog), new File(['bytes'], 'youth.pdf', { type: 'application/pdf' }));
 
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => chart({ id: 'chart-2', name: 'Youth Unisex', storageKey: 'charts/youth.pdf' }),
-    } as Response);
+    addRoute({
+      match: '/api/admin/size-charts',
+      method: 'POST',
+      response: chart({ id: 'chart-2', name: 'Youth Unisex', storageKey: 'charts/youth.pdf' }),
+    });
     await user.click(within(dialog).getByRole('button', { name: /^upload$/i }));
 
-    const [url, init] = vi.mocked(fetch).mock.calls.at(-1)!;
+    const [url, init] = fetchMock.mock.calls.at(-1)!;
     expect(url).toBe('/api/admin/size-charts');
     expect(init).toMatchObject({ method: 'POST' });
     expect((init!.body as FormData).get('name')).toBe('Youth Unisex');
@@ -147,7 +154,7 @@ describe('SizeChartsView', () => {
 
   it('shows an error message when the upload request fails', async () => {
     const user = userEvent.setup();
-    mockChartsOnce([]);
+    const { addRoute } = installMockFetch([chartsRoute([])]);
     renderView();
     await screen.findByText(/no size charts yet/i);
 
@@ -156,10 +163,12 @@ describe('SizeChartsView', () => {
     await user.type(within(dialog).getByPlaceholderText('Adult Unisex Jersey'), 'Youth Unisex');
     await user.upload(fileInput(dialog), new File(['bytes'], 'youth.pdf', { type: 'application/pdf' }));
 
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: false,
-      json: async () => ({ error: 'File too large' }),
-    } as Response);
+    addRoute({
+      match: '/api/admin/size-charts',
+      method: 'POST',
+      status: 400,
+      response: { error: 'File too large' },
+    });
     await user.click(within(dialog).getByRole('button', { name: /^upload$/i }));
 
     expect(await screen.findByText('File too large')).toBeInTheDocument();
@@ -167,7 +176,7 @@ describe('SizeChartsView', () => {
 
   it('editing a chart pre-fills the form, saves via PATCH, and updates the row', async () => {
     const user = userEvent.setup();
-    mockChartsOnce([chart()]);
+    const { fetchMock, addRoute } = installMockFetch([chartsRoute([chart()])]);
     renderView();
     await screen.findByText('Adult Unisex');
 
@@ -179,16 +188,17 @@ describe('SizeChartsView', () => {
     await user.clear(nameInput);
     await user.type(nameInput, 'Adult Unisex V2');
 
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => chart({ name: 'Adult Unisex V2' }),
-    } as Response);
+    addRoute({
+      match: '/api/admin/size-charts/chart-1',
+      method: 'PATCH',
+      response: chart({ name: 'Adult Unisex V2' }),
+    });
     await user.click(within(dialog).getByRole('button', { name: /^save$/i }));
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/admin/size-charts/chart-1', {
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/admin/size-charts/chart-1', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Adult Unisex V2', description: '' }),
+      body: JSON.stringify({ name: 'Adult Unisex V2', description: '', sizes: [] }),
     });
     expect(await screen.findByText('Chart updated')).toBeInTheDocument();
     expect(screen.getByText('Adult Unisex V2')).toBeInTheDocument();
@@ -196,14 +206,14 @@ describe('SizeChartsView', () => {
 
   it('shows an error message when saving an edit fails', async () => {
     const user = userEvent.setup();
-    mockChartsOnce([chart()]);
+    const { addRoute } = installMockFetch([chartsRoute([chart()])]);
     renderView();
     await screen.findByText('Adult Unisex');
 
     await user.click(screen.getByRole('button', { name: /edit/i }));
     const dialog = await screen.findByRole('dialog');
 
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response);
+    addRoute({ match: '/api/admin/size-charts/chart-1', method: 'PATCH', status: 500, response: {} });
     await user.click(within(dialog).getByRole('button', { name: /^save$/i }));
 
     expect(await screen.findByText('Failed to save changes')).toBeInTheDocument();
@@ -211,14 +221,15 @@ describe('SizeChartsView', () => {
 
   it('deleting a chart with no linked garments shows a plain success message', async () => {
     const user = userEvent.setup();
-    mockChartsOnce([chart()]);
+    const { addRoute } = installMockFetch([chartsRoute([chart()])]);
     renderView();
     await screen.findByText('Adult Unisex');
 
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ linkedGarmentCount: 0 }),
-    } as Response);
+    addRoute({
+      match: '/api/admin/size-charts/chart-1',
+      method: 'DELETE',
+      response: { linkedGarmentCount: 0 },
+    });
     await user.click(screen.getByRole('button', { name: /delete/i }));
     await user.click(await screen.findByRole('button', { name: 'Delete' }));
 
@@ -228,14 +239,15 @@ describe('SizeChartsView', () => {
 
   it('deleting a chart that is linked to garments shows a warning with the count', async () => {
     const user = userEvent.setup();
-    mockChartsOnce([chart()]);
+    const { addRoute } = installMockFetch([chartsRoute([chart()])]);
     renderView();
     await screen.findByText('Adult Unisex');
 
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ linkedGarmentCount: 3 }),
-    } as Response);
+    addRoute({
+      match: '/api/admin/size-charts/chart-1',
+      method: 'DELETE',
+      response: { linkedGarmentCount: 3 },
+    });
     await user.click(screen.getByRole('button', { name: /delete/i }));
     await user.click(await screen.findByRole('button', { name: 'Delete' }));
 
@@ -244,11 +256,11 @@ describe('SizeChartsView', () => {
 
   it('shows an error message when deleting fails', async () => {
     const user = userEvent.setup();
-    mockChartsOnce([chart()]);
+    const { addRoute } = installMockFetch([chartsRoute([chart()])]);
     renderView();
     await screen.findByText('Adult Unisex');
 
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response);
+    addRoute({ match: '/api/admin/size-charts/chart-1', method: 'DELETE', status: 500, response: {} });
     await user.click(screen.getByRole('button', { name: /delete/i }));
     await user.click(await screen.findByRole('button', { name: 'Delete' }));
 
@@ -257,7 +269,7 @@ describe('SizeChartsView', () => {
   });
 
   it('hides the upload button and edit/delete row actions for a sales-role session', async () => {
-    mockChartsOnce([chart()]);
+    installMockFetch([chartsRoute([chart()])]);
     renderView('sales');
     await screen.findByText('Adult Unisex');
 
@@ -270,7 +282,7 @@ describe('SizeChartsView', () => {
 
   it('closing the upload modal without saving does not call fetch again', async () => {
     const user = userEvent.setup();
-    mockChartsOnce([]);
+    const { fetchMock } = installMockFetch([chartsRoute([])]);
     renderView();
     await screen.findByText(/no size charts yet/i);
 
@@ -279,6 +291,6 @@ describe('SizeChartsView', () => {
     await user.click(within(dialog).getByRole('button', { name: /^cancel$/i }));
     await waitForModalToClose();
 
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

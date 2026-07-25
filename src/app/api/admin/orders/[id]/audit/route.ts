@@ -1,16 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getOrderAuditLog } from '@/server/events/outbox';
-import { logger } from '@/lib/logger';
+import { defineRoute } from '@/lib/route-handler';
 
-type Params = { params: Promise<{ id: string }> };
-
-export async function GET(_req: NextRequest, { params }: Params) {
-  const { id: orderId } = await params;
-  try {
-    const events = await getOrderAuditLog(orderId);
+export const GET = defineRoute<{ id: string }>({
+  auth: 'staff',
+  tag: 'orders/[id]/audit GET',
+  handler: async ({ params }) => {
+    const events = await getOrderAuditLog(params.id);
     return NextResponse.json({ events });
-  } catch (err) {
-    logger.error('[admin/audit GET]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
+  },
+});

@@ -1,20 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { duplicateOrder, NotFoundError } from '@/server/orders/service';
-import { getSession } from '@/lib/session';
-import { logger } from '@/lib/logger';
+import { NextResponse } from 'next/server';
+import { duplicateOrder } from '@/server/orders/service';
+import { defineRoute } from '@/lib/route-handler';
 
-type Params = { params: Promise<{ id: string }> };
-
-export async function POST(_req: NextRequest, { params }: Params) {
-  const { id } = await params;
-
-  try {
-    const session = await getSession();
-    const result = await duplicateOrder(id, session.userId, { actorEmail: session.email });
+export const POST = defineRoute<{ id: string }>({
+  auth: 'staff',
+  tag: 'orders/[id]/duplicate POST',
+  handler: async ({ params, session }) => {
+    const result = await duplicateOrder(params.id, session!.userId, { actorEmail: session!.email });
     return NextResponse.json(result, { status: 201 });
-  } catch (err) {
-    if (err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
-    logger.error('[admin/orders/duplicate POST]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
+  },
+});

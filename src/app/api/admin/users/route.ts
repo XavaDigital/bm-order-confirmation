@@ -1,10 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireAdmin } from '@/lib/session';
-import { badRequest } from '@/lib/api-responses';
-import { listStaffUsers, inviteUser, UserConflictError } from '@/server/users/service';
+import { listStaffUsers, inviteUser } from '@/server/users/service';
 import { sendInviteEmail, isEmailConfigured } from '@/lib/email';
-import { logger } from '@/lib/logger';
+import { defineRoute } from '@/lib/route-handler';
 
 const inviteSchema = z.object({
   name: z.string().min(1),
@@ -12,52 +10,32 @@ const inviteSchema = z.object({
   role: z.enum(['sales', 'admin']),
 });
 
-export async function GET() {
-  const check = await requireAdmin();
-  if (check.error) return check.error;
+export const GET = defineRoute({
+  auth: 'admin',
+  tag: 'admin/users GET',
+  handler: async () => NextResponse.json(await listStaffUsers()),
+});
 
-  try {
-    const users = await listStaffUsers();
-    return NextResponse.json(users);
-  } catch (err) {
-    logger.error('[admin/users GET]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
-
-export async function POST(request: NextRequest) {
-  const check = await requireAdmin();
-  if (check.error) return check.error;
-
-  const body = await request.json().catch(() => null);
-  const parsed = inviteSchema.safeParse(body);
-  if (!parsed.success) {
-    return badRequest(parsed.error);
-  }
-
-  try {
-    const { rawToken, setupUrl } = await inviteUser(
-      parsed.data.name,
-      parsed.data.email,
-      parsed.data.role,
-    );
+export const POST = defineRoute<Record<string, never>, typeof inviteSchema._type>({
+  auth: 'admin',
+  tag: 'admin/users POST',
+  schema: inviteSchema,
+  handler: async ({ body, session }) => {
+    const { setupUrl } = await inviteUser(body.name, body.email, body.role);
 
     if (isEmailConfigured()) {
       await sendInviteEmail({
-        to: parsed.data.email,
-        toName: parsed.data.name,
-        inviterName: check.session!.name,
-        role: parsed.data.role,
+        to: body.email,
+        toName: body.name,
+        inviterName: session!.name,
+        role: body.role,
         setupUrl,
       });
     }
 
-    return NextResponse.json({ ok: true, setupUrl: isEmailConfigured() ? undefined : setupUrl }, { status: 201 });
-  } catch (err) {
-    if (err instanceof UserConflictError) {
-      return NextResponse.json({ error: err.message }, { status: 409 });
-    }
-    logger.error('[admin/users POST]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
+    return NextResponse.json(
+      { ok: true, setupUrl: isEmailConfigured() ? undefined : setupUrl },
+      { status: 201 },
+    );
+  },
+});

@@ -19,7 +19,7 @@ declare global {
 }
 
 /** Push any payload to the GTM dataLayer, initialising the array if needed. */
-export function pushDataLayer(payload: Record<string, unknown>): void {
+function pushDataLayer(payload: Record<string, unknown>): void {
   if (typeof window === 'undefined') return;
   window.dataLayer = window.dataLayer ?? [];
   window.dataLayer.push(payload);
