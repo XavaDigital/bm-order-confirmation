@@ -35,3 +35,60 @@ export function orderStatusMeta(status: string): StatusMeta {
     ORDER_STATUS[status as OrderStatus] ?? { label: status, tag: 'default', hex: '#8c8c8c' }
   );
 }
+
+// --- purchase orders ---------------------------------------------------------
+
+export type PoStatus =
+  | 'draft'
+  | 'sent'
+  | 'confirmed'
+  | 'pre_production'
+  | 'in_production'
+  | 'in_transit'
+  | 'received'
+  | 'completed'
+  | 'remake'
+  | 'cancelled';
+
+/** Colors follow the legacy bm-quote map — what production staff recognize. */
+export const PO_STATUS: Record<PoStatus, StatusMeta> = {
+  draft: { label: 'Draft', tag: 'default', hex: '#8c8c8c' },
+  sent: { label: 'Sent', tag: 'blue', hex: '#1677ff' },
+  confirmed: { label: 'Confirmed', tag: 'cyan', hex: '#13c2c2' },
+  pre_production: { label: 'Pre-production', tag: 'purple', hex: '#722ed1' },
+  in_production: { label: 'In production', tag: 'geekblue', hex: '#2f54eb' },
+  in_transit: { label: 'In transit', tag: 'orange', hex: '#fa8c16' },
+  received: { label: 'Received', tag: 'green', hex: '#52c41a' },
+  completed: { label: 'Completed', tag: 'success', hex: '#52c41a' },
+  remake: { label: 'Remake', tag: 'red', hex: '#ff4d4f' },
+  cancelled: { label: 'Cancelled', tag: 'default', hex: '#595959' },
+};
+
+export function poStatusMeta(status: string): StatusMeta {
+  return PO_STATUS[status as PoStatus] ?? { label: status, tag: 'default', hex: '#8c8c8c' };
+}
+
+// --- shipments ---------------------------------------------------------------
+
+export type ShipmentStatus =
+  | 'pending'
+  | 'in_transit'
+  | 'delivered'
+  | 'delayed'
+  | 'exception'
+  | 'cancelled';
+
+export const SHIPMENT_STATUS: Record<ShipmentStatus, StatusMeta> = {
+  pending: { label: 'Pending', tag: 'default', hex: '#8c8c8c' },
+  in_transit: { label: 'In transit', tag: 'blue', hex: '#1677ff' },
+  delivered: { label: 'Delivered', tag: 'green', hex: '#52c41a' },
+  delayed: { label: 'Delayed', tag: 'orange', hex: '#fa8c16' },
+  exception: { label: 'Exception', tag: 'red', hex: '#ff4d4f' },
+  cancelled: { label: 'Cancelled', tag: 'default', hex: '#595959' },
+};
+
+export function shipmentStatusMeta(status: string): StatusMeta {
+  return (
+    SHIPMENT_STATUS[status as ShipmentStatus] ?? { label: status, tag: 'default', hex: '#8c8c8c' }
+  );
+}

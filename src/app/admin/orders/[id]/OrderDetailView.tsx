@@ -34,6 +34,7 @@ import {
   LinkOutlined,
   TeamOutlined,
   HistoryOutlined,
+  ShoppingCartOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
 import { formatDateTime } from '@/lib/format';
@@ -47,6 +48,7 @@ import { ShareLinkPanel } from '@/components/admin/orders/ShareLinkPanel';
 import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
 import { AuditLogTab } from '@/components/admin/orders/AuditLogTab';
 import { RosterPanel } from '@/components/admin/orders/RosterPanel';
+import { ProductionPanel } from '@/components/admin/orders/ProductionPanel';
 import type { MockupImage } from '@/components/admin/orders/MockupUploader';
 
 interface SizingRow {
@@ -448,6 +450,19 @@ export function OrderDetailView({ order }: Props) {
       label: 'Team Roster',
       icon: <TeamOutlined />,
       children: <RosterPanel orderId={order.id} customerEmail={order.customerEmail} />,
+    },
+    {
+      key: 'production',
+      label: 'Production',
+      icon: <ShoppingCartOutlined />,
+      children: (
+        <ProductionPanel
+          orderId={order.id}
+          orderStatus={currentStatus}
+          colorSampleRequestedAt={colorSampleRequestedAt}
+          garments={order.garments.map((g) => ({ id: g.id, name: g.name }))}
+        />
+      ),
     },
     {
       key: 'audit',

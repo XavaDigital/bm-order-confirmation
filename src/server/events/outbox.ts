@@ -55,7 +55,18 @@ export type DomainEventType =
   | 'roster.member_link_generated'
   | 'roster.member_link_emailed'
   | 'staff.password_reset_requested'
-  | 'staff.password_reset_completed';
+  | 'staff.password_reset_completed'
+  // Purchase orders + shipments (PO_PLAN). 'po.sent' and the shipment.* types
+  // are emitted by later phases — declared now so the union is complete.
+  | 'po.created'
+  | 'po.updated'
+  | 'po.sent'
+  | 'po.revised'
+  | 'po.status_changed'
+  | 'po.cancelled'
+  | 'shipment.created'
+  | 'shipment.updated'
+  | 'shipment.status_changed';
 
 /**
  * Build an emitter bound to one aggregate type, so call sites can't fat-finger

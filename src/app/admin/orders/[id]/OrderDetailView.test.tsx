@@ -37,6 +37,11 @@ vi.mock('@/components/admin/orders/ShareLinkPanel', () => ({
 vi.mock('@/components/admin/orders/AuditLogTab', () => ({
   AuditLogTab: ({ orderId }: { orderId: string }) => <div data-testid="audit-log-tab">{orderId}</div>,
 }));
+vi.mock('@/components/admin/orders/ProductionPanel', () => ({
+  ProductionPanel: ({ orderId, orderStatus }: { orderId: string; orderStatus: string }) => (
+    <div data-testid="production-panel">{`${orderId}:${orderStatus}`}</div>
+  ),
+}));
 
 function baseOrder(overrides: Partial<AdminOrderData> = {}): AdminOrderData {
   return {
@@ -106,6 +111,15 @@ describe('OrderDetailView', () => {
     await user.click(screen.getByRole('menuitem', { name: /Audit Log/ }));
     expect(screen.getByTestId('audit-log-tab')).toHaveTextContent('order-1');
     expect(replaceMock).toHaveBeenCalledWith('?tab=audit', { scroll: false });
+  });
+
+  it('shows a Production rail entry and passes orderId + live status to the panel', async () => {
+    const user = userEvent.setup();
+    renderView(baseOrder({ status: 'confirmed' }));
+
+    await user.click(screen.getByRole('menuitem', { name: /Production/ }));
+    expect(screen.getByTestId('production-panel')).toHaveTextContent('order-1:confirmed');
+    expect(replaceMock).toHaveBeenCalledWith('?tab=production', { scroll: false });
   });
 
   it('opens the section named in the "tab" URL search param', () => {

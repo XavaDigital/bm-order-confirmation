@@ -1,0 +1,208 @@
+'use client';
+
+/**
+ * Purchase-orders list page (PO_PLAN). Param-driven fetch against
+ * GET /api/admin/purchase-orders (status/supplier/search filters), following
+ * OrdersView's pattern. Rows link to the PO detail and the parent order.
+ */
+import { useState, useEffect, useCallback } from 'react';
+import { Table, Input, Select, Space, Tag, Typography, App } from 'antd';
+import { SearchOutlined } from '@ant-design/icons';
+import Link from 'next/link';
+import type { ColumnType } from 'antd/es/table';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { PoStatusBadge } from '@/components/admin/purchase-orders/PoStatusBadge';
+import { PO_STATUS } from '@/lib/status';
+import { formatDate } from '@/lib/format';
+import { getJson } from '@/lib/api-fetch';
+import { useAdminResource } from '@/lib/use-admin-resource';
+
+const { Text } = Typography;
+
+interface PoRow {
+  id: string;
+  poNumber: string;
+  status: string;
+  currentRevisionNumber: number;
+  deadlineDate: string | null;
+  expectedShipDate: string | null;
+  actualShipDate: string | null;
+  sentAt: string | null;
+  createdAt: string;
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  supplierId: string;
+  supplierName: string;
+}
+
+interface SupplierOption {
+  id: string;
+  name: string;
+}
+
+const STATUS_OPTIONS = Object.entries(PO_STATUS).map(([value, meta]) => ({
+  value,
+  label: meta.label,
+}));
+
+export function PurchaseOrdersView() {
+  const { message } = App.useApp();
+  const [rows, setRows] = useState<PoRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [status, setStatus] = useState<string | undefined>(undefined);
+  const [supplierId, setSupplierId] = useState<string | undefined>(undefined);
+
+  const { data: suppliers } = useAdminResource<SupplierOption[]>('/api/admin/suppliers', {
+    errorMessage: 'Failed to load suppliers',
+    toast: false,
+  });
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const fetchPos = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (status) params.set('status', status);
+      if (supplierId) params.set('supplierId', supplierId);
+      if (debouncedSearch) params.set('search', debouncedSearch);
+      const qs = params.toString();
+      const data = await getJson<PoRow[]>(
+        `/api/admin/purchase-orders${qs ? `?${qs}` : ''}`,
+        'Failed to load purchase orders',
+      );
+      setRows(data);
+    } catch {
+      message.error('Failed to load purchase orders');
+    } finally {
+      setLoading(false);
+    }
+  }, [status, supplierId, debouncedSearch, message]);
+
+  useEffect(() => {
+    fetchPos();
+  }, [fetchPos]);
+
+  const columns: ColumnType<PoRow>[] = [
+    {
+      title: 'PO #',
+      dataIndex: 'poNumber',
+      render: (val: string, record: PoRow) => (
+        <Link href={`/admin/purchase-orders/${record.id}`}>
+          <Text strong style={{ fontFamily: 'monospace' }}>
+            {val}
+          </Text>
+        </Link>
+      ),
+    },
+    {
+      title: 'Order #',
+      dataIndex: 'orderNumber',
+      width: 150,
+      render: (val: string, record: PoRow) => (
+        <div>
+          <Link href={`/admin/orders/${record.orderId}`}>
+            <Text style={{ fontFamily: 'monospace' }}>{val}</Text>
+          </Link>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {record.customerName}
+            </Text>
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: 'Supplier',
+      dataIndex: 'supplierName',
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      width: 140,
+      render: (val: string) => <PoStatusBadge status={val} />,
+    },
+    {
+      title: 'Rev',
+      dataIndex: 'currentRevisionNumber',
+      width: 70,
+      render: (n: number) => <Tag>v{n}</Tag>,
+    },
+    {
+      title: 'Deadline',
+      dataIndex: 'deadlineDate',
+      width: 120,
+      render: (val: string | null) =>
+        val ? formatDate(val) : <Text type="secondary">—</Text>,
+    },
+    {
+      title: 'Expected ship',
+      dataIndex: 'expectedShipDate',
+      width: 130,
+      render: (val: string | null) =>
+        val ? formatDate(val) : <Text type="secondary">—</Text>,
+    },
+    {
+      title: 'Created',
+      dataIndex: 'createdAt',
+      width: 120,
+      render: (val: string) => formatDate(val),
+    },
+  ];
+
+  return (
+    <div>
+      <AdminPageHeader
+        title="Purchase Orders"
+        subtitle={`${rows.length} purchase order${rows.length !== 1 ? 's' : ''}`}
+      />
+
+      <Space direction="vertical" style={{ width: '100%' }} size={0}>
+        <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+          <Input
+            prefix={<SearchOutlined />}
+            placeholder="Search PO, order, customer or supplier…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            allowClear
+            style={{ maxWidth: 340 }}
+          />
+          <Select
+            placeholder="All statuses"
+            allowClear
+            value={status}
+            onChange={(v) => setStatus(v)}
+            options={STATUS_OPTIONS}
+            style={{ width: 180 }}
+          />
+          <Select
+            placeholder="All suppliers"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            value={supplierId}
+            onChange={(v) => setSupplierId(v)}
+            options={(suppliers ?? []).map((s) => ({ value: s.id, label: s.name }))}
+            style={{ width: 220 }}
+          />
+        </div>
+
+        <Table
+          dataSource={rows}
+          columns={columns}
+          rowKey="id"
+          loading={loading}
+          pagination={{ pageSize: 20, showSizeChanger: false, hideOnSinglePage: true }}
+          size="middle"
+          locale={{ emptyText: 'No purchase orders yet — create one from an order’s Production panel.' }}
+        />
+      </Space>
+    </div>
+  );
+}

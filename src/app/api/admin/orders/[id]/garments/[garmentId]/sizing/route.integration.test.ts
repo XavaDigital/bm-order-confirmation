@@ -118,7 +118,10 @@ describe('POST /api/admin/orders/[id]/garments/[garmentId]/sizing', () => {
     const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(json).toEqual({ ok: true });
+    // Response now returns the saved rows (with ids) so the editor can re-seed.
+    expect(json.ok).toBe(true);
+    expect(json.rows).toHaveLength(2);
+    expect(json.rows.every((r: { id?: string }) => typeof r.id === 'string')).toBe(true);
 
     const rows = await db.query.garmentSizing.findMany({
       where: eq(schema.garmentSizing.garmentId, garmentId),

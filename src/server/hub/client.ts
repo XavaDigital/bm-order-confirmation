@@ -117,6 +117,24 @@ export async function getHubCustomersByIds(ids: string[]): Promise<HubCustomer[]
 }
 
 /**
+ * Push an order's aggregate production status to the hub, keyed by the hub's
+ * own order reference (orders.externalRef). Best-effort/non-throwing like
+ * everything here. NOTE: the hub-side inbound endpoint is a PROPOSAL — this
+ * ships dormant; coordinate the contract with bm-sales before enabling
+ * (see PO_PLAN "Hub write-back").
+ */
+export async function pushProductionStatus(
+  hubOrderRef: string,
+  status: string,
+): Promise<boolean> {
+  const res = await call(`/orders/${encodeURIComponent(hubOrderRef)}/production-status`, {
+    method: 'POST',
+    body: { status },
+  });
+  return Boolean(res?.ok);
+}
+
+/**
  * Create (or link to) a hub customer — idempotent on email. A 409 means the
  * hub found multiple plausible candidates; the caller must disambiguate.
  */

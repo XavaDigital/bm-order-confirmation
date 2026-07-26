@@ -8,7 +8,7 @@ export const POST = defineRoute<{ id: string; garmentId: string }, typeof upsert
   tag: 'admin/sizing POST',
   schema: upsertSizingSchema,
   handler: async ({ params, body, session }) => {
-    await upsertSizingRows(params.garmentId, body, { actorEmail: session!.email });
-    return NextResponse.json({ ok: true });
+    const rows = await upsertSizingRows(params.garmentId, body, { actorEmail: session!.email });
+    return NextResponse.json({ ok: true, rows });
   },
 });

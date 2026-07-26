@@ -6,8 +6,11 @@ import { usePathname } from 'next/navigation';
 import { Layout, Menu, ConfigProvider, App, Button, Tooltip } from 'antd';
 import {
   DashboardOutlined,
+  FileDoneOutlined,
   FileTextOutlined,
   ProfileOutlined,
+  SendOutlined,
+  ShopOutlined,
   SkinOutlined,
   TeamOutlined,
   MenuFoldOutlined,
@@ -39,6 +42,21 @@ function buildNavItems(role: 'sales' | 'admin') {
       key: '/admin/orders',
       icon: <FileTextOutlined />,
       label: <Link href="/admin/orders">Orders</Link>,
+    },
+    {
+      key: '/admin/purchase-orders',
+      icon: <FileDoneOutlined />,
+      label: <Link href="/admin/purchase-orders">Purchase Orders</Link>,
+    },
+    {
+      key: '/admin/shipments',
+      icon: <SendOutlined />,
+      label: <Link href="/admin/shipments">Shipments</Link>,
+    },
+    {
+      key: '/admin/suppliers',
+      icon: <ShopOutlined />,
+      label: <Link href="/admin/suppliers">Suppliers</Link>,
     },
     {
       key: '/admin/garment-types',

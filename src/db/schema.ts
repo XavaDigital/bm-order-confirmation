@@ -60,6 +60,26 @@ export const eventStatus = confirmation.enum('event_status', [
   'failed',
   'dead',
 ]);
+export const poStatus = confirmation.enum('po_status', [
+  'draft',
+  'sent',
+  'confirmed',
+  'pre_production',
+  'in_production',
+  'in_transit',
+  'received',
+  'completed',
+  'remake',
+  'cancelled',
+]);
+export const shipmentStatus = confirmation.enum('shipment_status', [
+  'pending',
+  'in_transit',
+  'delivered',
+  'delayed',
+  'exception',
+  'cancelled',
+]);
 
 // --- staff users -----------------------------------------------------------
 export const staffUsers = confirmation.table(
@@ -600,6 +620,173 @@ export const rateLimits = confirmation.table(
   (t) => [index('rate_limits_window_start_idx').on(t.windowStart)],
 );
 
+// --- suppliers (factory partners; PO_PLAN) ----------------------------------
+// Deactivate-never-delete, like garment types: POs on old orders keep
+// pointing at retired suppliers.
+export const suppliers = confirmation.table(
+  'suppliers',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    name: text('name').notNull(),
+    // Short uppercase code used in PO numbers (PO-{YYMM}-{CODE}{NN}-…).
+    // Unique when set; auto-generated 2-char fallback from the name when blank.
+    supplierCode: text('supplier_code'),
+    contactPerson: text('contact_person'),
+    email: text('email'),
+    phone: text('phone'),
+    website: text('website'),
+    address: jsonb('address').$type<Record<string, unknown>>(),
+    specialties: jsonb('specialties').$type<string[]>().notNull().default([]),
+    minimumOrderQuantity: integer('minimum_order_quantity'),
+    leadTimeWeeks: integer('lead_time_weeks'),
+    notes: text('notes'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index('suppliers_active_idx').on(t.isActive),
+    uniqueIndex('suppliers_code_uq').on(t.supplierCode).where(sql`${t.supplierCode} is not null`),
+  ],
+);
+
+// --- purchase orders ---------------------------------------------------------
+// One sizing-row line in a PO revision snapshot, keyed by the garment_sizing
+// row UUID (stable across staff saves — see upsertSizingRows). Variance and
+// coverage are computed against these ids, never by size-string matching.
+export interface PoSnapshotLine {
+  sizingRowId: string;
+  size: string | null;
+  playerName: string | null;
+  playerNumber: string | null;
+  notes: string | null;
+}
+
+export interface PoSnapshotGarment {
+  garmentId: string;
+  name: string;
+  garmentTypeId: string | null;
+  /** Denormalized so the PDF renders without a live garment_types read. */
+  garmentTypeName: string | null;
+  fabrics: string[];
+  selectedFabrics: Record<string, string> | null;
+  selectedOptions: Record<string, string> | null;
+  notes: string | null;
+  lines: PoSnapshotLine[];
+}
+
+/** The immutable content of one PO revision — what the supplier was sent. */
+export interface PoSnapshot {
+  orderNumber: string;
+  garments: PoSnapshotGarment[];
+}
+
+export const purchaseOrders = confirmation.table(
+  'purchase_orders',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    // Legacy-familiar format: PO-{YY}{MM}-{supplierCode}{NN}-{CUSTOMER10}
+    poNumber: text('po_number').notNull().unique(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    supplierId: uuid('supplier_id')
+      .notNull()
+      .references(() => suppliers.id),
+    status: poStatus('status').notNull().default('draft'),
+    // Denormalized pointer to the latest revision (latest = max(revisionNumber);
+    // no circular FK on purpose).
+    currentRevisionNumber: integer('current_revision_number').notNull().default(1),
+    deadlineDate: date('deadline_date'),
+    expectedShipDate: date('expected_ship_date'),
+    actualShipDate: date('actual_ship_date'),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    receivedAt: timestamp('received_at', { withTimezone: true }),
+    notes: text('notes'),
+    createdBy: uuid('created_by').references(() => staffUsers.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index('purchase_orders_order_idx').on(t.orderId),
+    index('purchase_orders_supplier_idx').on(t.supplierId),
+    index('purchase_orders_status_idx').on(t.status),
+  ],
+);
+
+export const purchaseOrderRevisions = confirmation.table(
+  'purchase_order_revisions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    poId: uuid('po_id')
+      .notNull()
+      .references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+    revisionNumber: integer('revision_number').notNull(),
+    // Why this revision was issued — null only for revision 1 (the original).
+    reason: text('reason'),
+    snapshot: jsonb('snapshot').notNull().$type<PoSnapshot>(),
+    createdBy: uuid('created_by').references(() => staffUsers.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('po_revisions_po_rev_uq').on(t.poId, t.revisionNumber)],
+);
+
+// --- shipments ---------------------------------------------------------------
+export const shipments = confirmation.table(
+  'shipments',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    supplierId: uuid('supplier_id')
+      .notNull()
+      .references(() => suppliers.id),
+    nickname: text('nickname'),
+    carrier: text('carrier'),
+    trackingNumber: text('tracking_number'),
+    trackingUrl: text('tracking_url'),
+    boxCount: integer('box_count'),
+    pieceCount: integer('piece_count'),
+    shippingCost: numeric('shipping_cost', { precision: 12, scale: 2 }),
+    shippingCostCurrency: text('shipping_cost_currency').notNull().default('USD'),
+    etaDate: date('eta_date'),
+    shippedAt: timestamp('shipped_at', { withTimezone: true }),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    status: shipmentStatus('status').notNull().default('pending'),
+    notes: text('notes'),
+    createdBy: uuid('created_by').references(() => staffUsers.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index('shipments_supplier_idx').on(t.supplierId),
+    index('shipments_status_idx').on(t.status),
+  ],
+);
+
+export const shipmentPurchaseOrders = confirmation.table(
+  'shipment_purchase_orders',
+  {
+    shipmentId: uuid('shipment_id')
+      .notNull()
+      .references(() => shipments.id, { onDelete: 'cascade' }),
+    purchaseOrderId: uuid('purchase_order_id')
+      .notNull()
+      .references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.shipmentId, t.purchaseOrderId] }),
+    index('shipment_pos_po_idx').on(t.purchaseOrderId),
+  ],
+);
+
 // --- relations (no DB migration needed — type-level only for db.query.* API) ---
 
 export const ordersRelations = relations(orders, ({ one, many }) => ({
@@ -608,6 +795,7 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
   rosterMembers: many(rosterMembers),
   rosterAccess: many(rosterAccess),
   notes: many(orderNotes),
+  purchaseOrders: many(purchaseOrders),
   confirmation: one(confirmations, {
     fields: [orders.id],
     references: [confirmations.orderId],
@@ -622,6 +810,45 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
 
 export const confirmationsRelations = relations(confirmations, ({ one }) => ({
   order: one(orders, { fields: [confirmations.orderId], references: [orders.id] }),
+}));
+
+export const suppliersRelations = relations(suppliers, ({ many }) => ({
+  purchaseOrders: many(purchaseOrders),
+  shipments: many(shipments),
+}));
+
+export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many }) => ({
+  order: one(orders, { fields: [purchaseOrders.orderId], references: [orders.id] }),
+  supplier: one(suppliers, { fields: [purchaseOrders.supplierId], references: [suppliers.id] }),
+  revisions: many(purchaseOrderRevisions),
+  shipmentLinks: many(shipmentPurchaseOrders),
+  createdByUser: one(staffUsers, {
+    fields: [purchaseOrders.createdBy],
+    references: [staffUsers.id],
+  }),
+}));
+
+export const purchaseOrderRevisionsRelations = relations(purchaseOrderRevisions, ({ one }) => ({
+  purchaseOrder: one(purchaseOrders, {
+    fields: [purchaseOrderRevisions.poId],
+    references: [purchaseOrders.id],
+  }),
+}));
+
+export const shipmentsRelations = relations(shipments, ({ one, many }) => ({
+  supplier: one(suppliers, { fields: [shipments.supplierId], references: [suppliers.id] }),
+  purchaseOrderLinks: many(shipmentPurchaseOrders),
+}));
+
+export const shipmentPurchaseOrdersRelations = relations(shipmentPurchaseOrders, ({ one }) => ({
+  shipment: one(shipments, {
+    fields: [shipmentPurchaseOrders.shipmentId],
+    references: [shipments.id],
+  }),
+  purchaseOrder: one(purchaseOrders, {
+    fields: [shipmentPurchaseOrders.purchaseOrderId],
+    references: [purchaseOrders.id],
+  }),
 }));
 
 export const acknowledgmentsRelations = relations(acknowledgments, ({ one }) => ({

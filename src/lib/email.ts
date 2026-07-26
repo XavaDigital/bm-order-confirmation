@@ -36,6 +36,7 @@ interface SendEmailParams {
   subject: string;
   html: string;
   text: string;
+  attachments?: { filename: string; content: Buffer; contentType?: string }[];
 }
 
 /** Shared guard + transport + envelope for every sender in this file. */
@@ -50,6 +51,7 @@ async function sendEmail(params: SendEmailParams): Promise<void> {
     subject: params.subject,
     html: params.html,
     text: params.text,
+    ...(params.attachments?.length ? { attachments: params.attachments } : {}),
   });
 }
 
@@ -562,6 +564,81 @@ export async function sendCustomerReceiptEmail(params: SendCustomerReceiptParams
     subject: `Your ${APP_NAME} order ${params.orderNumber} is confirmed`,
     html: buildReceiptHtml(params),
     text: buildReceiptText(params),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Supplier purchase order — PO PDF attached; sent when staff hit "Send to
+// supplier" (PO_PLAN). Revision >1 = amended PO superseding earlier versions.
+// ---------------------------------------------------------------------------
+
+export interface SendSupplierPoEmailParams {
+  to: string;
+  toName: string;
+  poNumber: string;
+  orderNumber: string;
+  revisionNumber: number;
+  /** Optional reason shown for amended POs (revision > 1). */
+  reason?: string | null;
+  pdf: Buffer;
+}
+
+export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Promise<void> {
+  const { poNumber, orderNumber, revisionNumber } = params;
+  const amended = revisionNumber > 1;
+
+  const subject = amended
+    ? `Amended purchase order ${poNumber} (revision ${revisionNumber}) — ${APP_NAME}`
+    : `Purchase order ${poNumber} — ${APP_NAME}`;
+
+  const supersedeLine = amended
+    ? `This revision supersedes all previous versions of ${poNumber} — please discard earlier copies.`
+    : '';
+  const reasonBlock =
+    amended && params.reason
+      ? calloutBlock(
+          '#faad14',
+          `<p style="color:rgba(255,255,255,0.5);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Reason for amendment</p>
+                    <p style="color:rgba(255,255,255,0.85);font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${params.reason}</p>`,
+        )
+      : '';
+
+  await sendEmail({
+    to: params.to,
+    toName: params.toName,
+    subject,
+    html: wrapEmailLayout({
+      title: amended ? 'Amended Purchase Order' : 'Purchase Order',
+      headerLabel: amended ? `Purchase Order — Revision ${revisionNumber}` : 'Purchase Order',
+      bodyHtml: `<p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
+              ${introP(`
+                Please find attached ${amended ? `revision ${revisionNumber} of` : ''} purchase order <strong style="color:#ffffff;">${poNumber}</strong>
+                (our order <strong style="color:#ffffff;">${orderNumber}</strong>).
+                ${supersedeLine}
+              `)}
+              ${reasonBlock}
+              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;">
+              <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.5;margin:0;">
+                Please confirm receipt by replying to this email. If anything in the attached
+                document is unclear, contact us before starting production.
+              </p>`,
+    }),
+    text: [
+      `Hi ${params.toName},`,
+      '',
+      `Please find attached ${amended ? `revision ${revisionNumber} of ` : ''}purchase order ${poNumber} (our order ${orderNumber}).`,
+      ...(supersedeLine ? ['', supersedeLine] : []),
+      ...(amended && params.reason ? ['', `Reason for amendment: ${params.reason}`] : []),
+      '',
+      `Please confirm receipt by replying to this email. If anything in the attached document is unclear, contact us before starting production.`,
+    ].join('\n'),
+    attachments: [
+      {
+        filename: `${poNumber}${amended ? `-rev${revisionNumber}` : ''}.pdf`,
+        content: params.pdf,
+        contentType: 'application/pdf',
+      },
+    ],
   });
 }
 

@@ -483,7 +483,7 @@ describe('garment CRUD', () => {
 });
 
 describe('upsertSizingRows', () => {
-  it('replaces existing rows (delete-then-insert semantics)', async () => {
+  it('replaces the row set when no ids are provided', async () => {
     const created = await createOrder(
       minimalInput({ garments: [{ name: 'Jersey', sizing: [{ size: 'M' }, { size: 'L' }] }] }),
     );
@@ -514,6 +514,118 @@ describe('upsertSizingRows', () => {
       .from(schema.garmentSizing)
       .where(eq(schema.garmentSizing.garmentId, garmentId));
     expect(rows).toHaveLength(0);
+  });
+
+  it('keeps row UUIDs stable when the payload carries ids (double-save)', async () => {
+    const created = await createOrder(
+      minimalInput({ garments: [{ name: 'Jersey', sizing: [{ size: 'M' }, { size: 'L' }] }] }),
+    );
+    const order = await getOrderAdmin(created.orderId);
+    const garmentId = order!.garments[0].id;
+
+    const first = await upsertSizingRows(garmentId, [
+      { size: 'M', playerName: 'Alex' },
+      { size: 'L', playerName: 'Sam' },
+    ]);
+    expect(first).toHaveLength(2);
+
+    // Save again with the returned ids — edit one field, keep both rows.
+    const second = await upsertSizingRows(
+      garmentId,
+      first.map((r) => ({
+        id: r.id,
+        size: r.size,
+        playerName: r.playerName === 'Alex' ? 'Alexandra' : r.playerName,
+        playerNumber: r.playerNumber,
+        notes: r.notes,
+      })),
+    );
+
+    expect(second.map((r) => r.id).sort()).toEqual(first.map((r) => r.id).sort());
+    expect(second.find((r) => r.id === first[0].id)!.playerName).toBe('Alexandra');
+  });
+
+  it('updates matched rows, inserts id-less rows, deletes rows absent from the payload', async () => {
+    const created = await createOrder(
+      minimalInput({ garments: [{ name: 'Jersey', sizing: [{ size: 'M' }, { size: 'L' }] }] }),
+    );
+    const order = await getOrderAdmin(created.orderId);
+    const garmentId = order!.garments[0].id;
+    const initial = await db.query.garmentSizing.findMany({
+      where: eq(schema.garmentSizing.garmentId, garmentId),
+    });
+    const kept = initial.find((r) => r.size === 'M')!;
+    const dropped = initial.find((r) => r.size === 'L')!;
+
+    const result = await upsertSizingRows(garmentId, [
+      { id: kept.id, size: 'M', notes: 'edited' },
+      { size: 'XL' }, // new, no id
+    ]);
+
+    expect(result).toHaveLength(2);
+    const ids = result.map((r) => r.id);
+    expect(ids).toContain(kept.id);
+    expect(ids).not.toContain(dropped.id);
+    expect(result.find((r) => r.id === kept.id)!.notes).toBe('edited');
+    expect(result.find((r) => r.size === 'XL')).toBeDefined();
+  });
+
+  it('preserves roster-member attribution on rows updated by a staff save', async () => {
+    const created = await createOrder(
+      minimalInput({ garments: [{ name: 'Jersey', sizing: [{ size: 'M' }] }] }),
+    );
+    const order = await getOrderAdmin(created.orderId);
+    const garmentId = order!.garments[0].id;
+    const [row] = await db.query.garmentSizing.findMany({
+      where: eq(schema.garmentSizing.garmentId, garmentId),
+    });
+
+    // Simulate a roster submission having claimed this row.
+    const [member] = await db
+      .insert(schema.rosterMembers)
+      .values({ orderId: created.orderId, name: 'Alex' })
+      .returning();
+    await db
+      .update(schema.garmentSizing)
+      .set({ rosterMemberId: member.id })
+      .where(eq(schema.garmentSizing.id, row.id));
+
+    await upsertSizingRows(garmentId, [{ id: row.id, size: 'L' }]);
+
+    const [after] = await db.query.garmentSizing.findMany({
+      where: eq(schema.garmentSizing.id, row.id),
+    });
+    expect(after.size).toBe('L');
+    expect(after.rosterMemberId).toBe(member.id);
+  });
+
+  it('treats an id that belongs to another garment as untrusted and inserts fresh', async () => {
+    const created = await createOrder(
+      minimalInput({
+        garments: [
+          { name: 'Jersey', sizing: [{ size: 'M' }] },
+          { name: 'Shorts', sizing: [{ size: 'S' }] },
+        ],
+      }),
+    );
+    const order = await getOrderAdmin(created.orderId);
+    const jerseyId = order!.garments[0].id;
+    const shortsId = order!.garments[1].id;
+    const [foreignRow] = await db.query.garmentSizing.findMany({
+      where: eq(schema.garmentSizing.garmentId, shortsId),
+    });
+
+    const result = await upsertSizingRows(jerseyId, [{ id: foreignRow.id, size: 'XXL' }]);
+
+    // Inserted as a NEW row on the jersey; the shorts row is untouched.
+    expect(result).toHaveLength(1);
+    expect(result[0].id).not.toBe(foreignRow.id);
+    expect(result[0].size).toBe('XXL');
+    const [shortsRow] = await db.query.garmentSizing.findMany({
+      where: eq(schema.garmentSizing.id, foreignRow.id),
+    });
+    expect(shortsRow.garmentId).toBe(shortsId);
+    expect(shortsRow.size).toBe('S');
   });
 });
 

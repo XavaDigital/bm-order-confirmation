@@ -31,6 +31,7 @@ import {
   sendStaffColorSampleRequestEmail,
   sendStaffConfirmationEmail,
   sendCustomerReceiptEmail,
+  sendSupplierPoEmail,
 } from './email';
 
 beforeEach(() => {
@@ -421,5 +422,54 @@ describe('sendCustomerReceiptEmail', () => {
     expect(call.html).not.toContain('&times;0');
     expect(call.text).toContain('- Rain Jacket');
     expect(call.text).not.toContain('x0');
+  });
+});
+
+describe('sendSupplierPoEmail', () => {
+  const base = {
+    to: 'factory@example.com',
+    toName: 'Golden Stitch',
+    poNumber: 'PO-2607-GS01-ACMEUNITED',
+    orderNumber: 'OC-ABCD1234',
+    pdf: Buffer.from('%PDF-fake'),
+  };
+
+  it('throws when SMTP is not configured', async () => {
+    await expect(sendSupplierPoEmail({ ...base, revisionNumber: 1 })).rejects.toThrow(
+      'SMTP is not configured',
+    );
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it('attaches the PDF and uses the plain subject for revision 1', async () => {
+    configureSmtp();
+    await sendSupplierPoEmail({ ...base, revisionNumber: 1 });
+
+    const call = sendMail.mock.calls[0][0] as Record<string, unknown>;
+    expect(call.subject).toBe('Purchase order PO-2607-GS01-ACMEUNITED — BeastMode');
+    const attachments = call.attachments as { filename: string; contentType: string }[];
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].filename).toBe('PO-2607-GS01-ACMEUNITED.pdf');
+    expect(attachments[0].contentType).toBe('application/pdf');
+    expect(call.text).not.toContain('supersedes');
+  });
+
+  it('marks amendments with the revision number, supersede notice, and reason', async () => {
+    configureSmtp();
+    await sendSupplierPoEmail({
+      ...base,
+      revisionNumber: 3,
+      reason: 'Two sizes changed after customer review',
+    });
+
+    const call = sendMail.mock.calls[0][0] as Record<string, unknown>;
+    expect(call.subject).toBe(
+      'Amended purchase order PO-2607-GS01-ACMEUNITED (revision 3) — BeastMode',
+    );
+    const attachments = call.attachments as { filename: string }[];
+    expect(attachments[0].filename).toBe('PO-2607-GS01-ACMEUNITED-rev3.pdf');
+    expect(call.text).toContain('supersedes all previous versions');
+    expect(call.text).toContain('Two sizes changed after customer review');
+    expect(call.html).toContain('Two sizes changed after customer review');
   });
 });

@@ -21,6 +21,8 @@ import {
   LockOutlined,
   UnlockOutlined,
   UploadOutlined,
+  FileDoneOutlined,
+  SendOutlined,
 } from '@ant-design/icons';
 
 const { Text } = Typography;
@@ -63,6 +65,15 @@ const EVENT_ICONS: Record<string, ReactNode> = {
   'roster.reminder_sent':   <MailOutlined style={{ color: SEMANTIC.success }} />,
   'roster.member_link_generated': <LinkOutlined style={{ color: SEMANTIC.info }} />,
   'roster.member_link_emailed':   <MailOutlined style={{ color: SEMANTIC.success }} />,
+  'po.created':        <FileDoneOutlined style={{ color: SEMANTIC.info }} />,
+  'po.updated':        <EditOutlined style={{ color: SEMANTIC.warning }} />,
+  'po.sent':           <MailOutlined style={{ color: SEMANTIC.success }} />,
+  'po.revised':        <EditOutlined style={{ color: SEMANTIC.warning }} />,
+  'po.status_changed': <FileDoneOutlined style={{ color: SEMANTIC.info }} />,
+  'po.cancelled':      <CloseCircleOutlined style={{ color: SEMANTIC.error }} />,
+  'shipment.created':        <SendOutlined style={{ color: SEMANTIC.info }} />,
+  'shipment.updated':        <EditOutlined style={{ color: SEMANTIC.warning }} />,
+  'shipment.status_changed': <SendOutlined style={{ color: SEMANTIC.info }} />,
 };
 
 function eventIcon(type: string) {
@@ -91,6 +102,15 @@ const EVENT_LABELS: Record<string, string> = {
   'chart_links.updated': 'Size chart links updated',
   'access_code.enabled':  'Access code enabled',
   'access_code.disabled': 'Access code removed',
+  'po.created':        'Purchase order raised',
+  'po.updated':        'Purchase order updated',
+  'po.sent':           'Purchase order sent to supplier',
+  'po.revised':        'Purchase order revision issued',
+  'po.status_changed': 'Purchase order status changed',
+  'po.cancelled':      'Purchase order cancelled',
+  'shipment.created':        'Shipment created',
+  'shipment.updated':        'Shipment updated',
+  'shipment.status_changed': 'Shipment status changed',
   'roster.member_added':   'Team member added',
   'roster.member_updated': 'Team member updated',
   'roster.member_removed': 'Team member removed',
@@ -139,6 +159,11 @@ const EVENT_COLORS: Record<string, string> = {
   'roster.reminder_sent':   'green',
   'roster.member_link_generated': 'blue',
   'roster.member_link_emailed':   'green',
+  'po.created':        'geekblue',
+  'po.sent':           'green',
+  'po.revised':        'orange',
+  'po.cancelled':      'red',
+  'shipment.created':  'blue',
 };
 
 function eventColor(type: string): string {

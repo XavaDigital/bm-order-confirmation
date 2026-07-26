@@ -74,9 +74,15 @@ describe('SizingTable', () => {
     expect(screen.getByText(/no sizing rows yet/i)).toBeInTheDocument();
   });
 
-  it('saving POSTs the rows (empty strings become null) and shows a success message', async () => {
+  it('saving POSTs the rows with their ids (empty strings become null) and shows a success message', async () => {
     const user = userEvent.setup();
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response);
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        rows: [{ id: 'row-1', size: 'M', playerName: 'Alice', playerNumber: null, notes: null }],
+      }),
+    } as Response);
     renderTable({
       initialRows: [{ id: 'row-1', size: 'M', playerName: 'Alice', playerNumber: '', notes: '' }],
     });
@@ -88,12 +94,47 @@ describe('SizingTable', () => {
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // Saved rows carry their id so the server updates in place (stable
+        // UUIDs for roster attribution + PO snapshots).
         body: JSON.stringify([
-          { size: 'M', playerName: 'Alice', playerNumber: null, notes: null, sortOrder: 0 },
+          { id: 'row-1', size: 'M', playerName: 'Alice', playerNumber: null, notes: null, sortOrder: 0 },
         ]),
       }),
     );
     expect(await screen.findByText(/sizing saved/i)).toBeInTheDocument();
+  });
+
+  it('re-seeds local rows with server ids after save so a second save updates in place', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          rows: [{ id: 'srv-1', size: 'M', playerName: null, playerNumber: null, notes: null }],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          rows: [{ id: 'srv-1', size: 'M', playerName: null, playerNumber: null, notes: null }],
+        }),
+      } as Response);
+    renderTable({ initialRows: [] });
+
+    await user.click(screen.getByRole('button', { name: /add row/i }));
+    await user.click(screen.getByRole('button', { name: /save sizing/i }));
+    expect(await screen.findByText(/sizing saved/i)).toBeInTheDocument();
+
+    // First save sent no id (new row)…
+    const firstBody = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
+    expect(firstBody[0].id).toBeUndefined();
+
+    // …second save carries the id returned by the server.
+    await user.click(screen.getByRole('button', { name: /save sizing/i }));
+    const secondBody = JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string);
+    expect(secondBody[0].id).toBe('srv-1');
   });
 
   it('shows an error message when saving fails', async () => {

@@ -22,7 +22,14 @@ describe('AppShell nav', () => {
     );
 
     expect(await screen.findByRole('menuitem', { name: /dashboard/i })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: /orders/i })).toBeInTheDocument();
+    // The icon's aria-label is part of the accessible name, so distinguish
+    // "Orders" from "Purchase Orders" with a matcher function.
+    expect(
+      screen.getByRole('menuitem', { name: (n) => /orders/i.test(n) && !/purchase/i.test(n) }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /purchase orders/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /shipments/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /suppliers/i })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /size charts/i })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: /users/i })).not.toBeInTheDocument();
   });

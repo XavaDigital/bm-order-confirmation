@@ -801,18 +801,45 @@ export async function upsertSizingRows(
   const garment = await loadGarmentOrThrow(garmentId);
 
   await db.transaction(async (tx) => {
-    await tx.delete(garmentSizing).where(eq(garmentSizing.garmentId, garmentId));
-    if (rows.length > 0) {
-      await tx.insert(garmentSizing).values(
-        rows.map((row, i) => ({
-          garmentId,
-          size: row.size ?? null,
-          playerName: row.playerName ?? null,
-          playerNumber: row.playerNumber ?? null,
-          notes: row.notes ?? null,
-          sortOrder: row.sortOrder ?? i,
-        })),
-      );
+    // Reconciling upsert — NOT delete-all + reinsert. Row UUIDs are stable
+    // identity: roster-member attribution hangs off them, and PO snapshots
+    // key their lines on them, so a staff save must never regenerate ids.
+    const existing = await tx
+      .select({ id: garmentSizing.id })
+      .from(garmentSizing)
+      .where(eq(garmentSizing.garmentId, garmentId));
+    const existingIds = new Set(existing.map((r) => r.id));
+
+    const keptIds = new Set<string>();
+    const inserts: (typeof garmentSizing.$inferInsert)[] = [];
+
+    for (const [i, row] of rows.entries()) {
+      const values = {
+        size: row.size ?? null,
+        playerName: row.playerName ?? null,
+        playerNumber: row.playerNumber ?? null,
+        notes: row.notes ?? null,
+        sortOrder: row.sortOrder ?? i,
+      };
+      // An id we don't recognize for THIS garment is untrusted input — insert
+      // a fresh row rather than updating across garment boundaries.
+      if (row.id && existingIds.has(row.id)) {
+        keptIds.add(row.id);
+        await tx
+          .update(garmentSizing)
+          .set({ ...values, updatedAt: new Date() })
+          .where(and(eq(garmentSizing.id, row.id), eq(garmentSizing.garmentId, garmentId)));
+      } else {
+        inserts.push({ garmentId, ...values });
+      }
+    }
+
+    const staleIds = existing.filter((r) => !keptIds.has(r.id)).map((r) => r.id);
+    if (staleIds.length > 0) {
+      await tx.delete(garmentSizing).where(inArray(garmentSizing.id, staleIds));
+    }
+    if (inserts.length > 0) {
+      await tx.insert(garmentSizing).values(inserts);
     }
 
     await recordAuditEvent(
@@ -824,6 +851,13 @@ export async function upsertSizingRows(
       },
       tx,
     );
+  });
+
+  // The saved rows (with their final ids) — callers feed these back into the
+  // editor so a follow-up save updates rather than reinserting.
+  return db.query.garmentSizing.findMany({
+    where: eq(garmentSizing.garmentId, garmentId),
+    orderBy: [asc(garmentSizing.sortOrder)],
   });
 }
 

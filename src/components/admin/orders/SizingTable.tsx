@@ -10,6 +10,9 @@ import type { SizeChartSize } from '@/db/schema';
 
 interface SizingRow {
   key: string; // local key for React, not stored in DB
+  /** DB row id — present on saved rows; carried through saves so the server
+   * updates in place (stable UUIDs for roster attribution + PO snapshots). */
+  id?: string;
   size: string;
   playerName: string;
   playerNumber: string;
@@ -34,6 +37,7 @@ interface Props {
 function toLocal(rows: Props['initialRows']): SizingRow[] {
   return rows.map((r, i) => ({
     key: r.id ?? `new-${i}`,
+    id: r.id,
     size: r.size ?? '',
     playerName: r.playerName ?? '',
     playerNumber: r.playerNumber ?? '',
@@ -69,13 +73,21 @@ export function SizingTable({ orderId, garmentId, initialRows, allowedSizes }: P
     setSaving(true);
     try {
       const body = rows.map((r, i) => ({
+        ...(r.id ? { id: r.id } : {}),
         size: r.size || null,
         playerName: r.playerName || null,
         playerNumber: r.playerNumber || null,
         notes: r.notes || null,
         sortOrder: i,
       }));
-      await postJson(`/api/admin/orders/${orderId}/garments/${garmentId}/sizing`, body, 'Failed to save');
+      const res = await postJson<{ ok: boolean; rows: Props['initialRows'] }>(
+        `/api/admin/orders/${orderId}/garments/${garmentId}/sizing`,
+        body,
+        'Failed to save',
+      );
+      // Re-seed from the server response so newly inserted rows pick up their
+      // ids — the next save then updates in place instead of reinserting.
+      if (Array.isArray(res.rows)) setRows(toLocal(res.rows));
       message.success('Sizing saved');
     } catch {
       message.error('Failed to save sizing');

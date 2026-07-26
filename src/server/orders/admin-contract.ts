@@ -42,6 +42,10 @@ export const updateGarmentSchema = addGarmentSchema
   .partial();
 
 export const sizingRowSchema = baseSizingRowSchema.extend({
+  // Existing row id — rows that carry one are UPDATED in place (preserving the
+  // UUID and any roster-member attribution); id-less rows are inserted fresh.
+  // PO snapshots key on these UUIDs, so staff saves must never regenerate them.
+  id: z.string().uuid().optional(),
   sortOrder: z.number().int().optional(),
 });
 
