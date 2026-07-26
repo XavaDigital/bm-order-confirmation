@@ -230,52 +230,52 @@ Set `SMTP_*` and `MAIL_FROM`. Without this, confirmation links must be copied an
 shared manually. Staff notification emails (order confirmed, changes requested) are
 also disabled until SMTP is configured.
 
-### 6. Set up the outbox processor cron job
+### 6. Set up the scheduled jobs (Google Cloud Scheduler)
 
 The outbox processor delivers domain events to their handlers (Google Ads conversion,
 staff email notifications) and drives the retry/redrive backoff described in
-[IMPROVEMENT_ROADMAP.md](./IMPROVEMENT_ROADMAP.md) 3.1. It must be called on a schedule
-via `POST /api/internal/process-outbox` with the `x-api-key` header.
+[IMPROVEMENT_ROADMAP.md](./IMPROVEMENT_ROADMAP.md) 3.1. **Nothing is delivered until
+something calls it on a schedule** — staff confirmation and change-request emails simply
+never go out otherwise.
 
-**Decision (roadmap 3.2): Supabase pg_cron + pg_net — this is the mechanism, not one
-option among several.** The app itself is deliberately host-agnostic (PROJECT_BRIEF.md
-§2 — App Runner is tentative, "not locked"); the database on Supabase is the one fixed
-part of the stack, so scheduling from inside Supabase means the job's lifetime is tied
-to the DB rather than to whichever compute host runs the app this month, with no
-host-specific config (no `vercel.json`, no host's own cron product) to carry over on a
-future migration.
+**Decision (2026-07-27): Google Cloud Scheduler.** This supersedes the earlier
+Supabase `pg_cron` + `pg_net` decision (see the collapsed section below for that
+rationale, which was sound — the change is a deliberate move to keep scheduling with the
+rest of the fleet's GCP infrastructure, alongside bm-identity on Cloud Run, rather than
+splitting operational surface between the database and the cloud project).
 
-Run **[scripts/setup-outbox-cron.sql](./scripts/setup-outbox-cron.sql)** once against
-the production Supabase project's SQL Editor (after enabling the `pg_cron` and `pg_net`
-extensions under Database → Extensions) — it has the full instructions and the
-verify/remove commands inline. It needs the deployed app's `APP_BASE_URL` and
-`INTERNAL_API_KEY` values substituted in; no new env vars beyond those two (already
-required — see step 1) are involved.
+The endpoints accept **either** `Authorization: Bearer $CRON_SECRET` or
+`x-api-key: $INTERNAL_API_KEY`, and both `GET` and `POST` (schedulers differ on which
+they issue — a POST-only route would 405 forever and drain nothing).
 
-<details>
-<summary>Alternatives (not used) — Vercel Cron / external cron</summary>
-
-These remain viable if the app ever moves off a Postgres host that supports `pg_cron`
-(e.g. a non-Supabase Postgres). Vercel Cron additionally needs the `CRON_SECRET` env var
-(`isCronAuthorized` in `src/lib/api-auth.ts` validates Vercel's
-`Authorization: Bearer $CRON_SECRET` header).
-
-**Vercel Cron** — add to `vercel.json`:
-```json
-{
-  "crons": [
-    {
-      "path": "/api/internal/process-outbox",
-      "schedule": "* * * * *"
-    }
-  ]
-}
+```bash
+# Outbox — every 5 minutes. The processor batches (BATCH_SIZE=20 per run) and uses
+# FOR UPDATE SKIP LOCKED, so overlapping runs are safe.
+gcloud scheduler jobs create http bm-order-confirmation-outbox   --location=<REGION>   --schedule="*/5 * * * *"   --uri="<APP_BASE_URL>/api/internal/process-outbox"   --http-method=GET   --headers="Authorization=Bearer <CRON_SECRET>"
 ```
 
-**External cron (Railway, cron-job.org, etc.)** — POST every minute:
+Verify with `gcloud scheduler jobs run bm-order-confirmation-outbox --location=<REGION>`
+and check the response body — it returns `{processed, delivered, failed, purgedRateLimits}`.
+
+> If the `pg_cron` job below was ever scheduled, unschedule it so the two don't both
+> fire: `select cron.unschedule('process-outbox');` (harmless if both run — the SKIP
+> LOCKED claim prevents double-delivery — but it wastes requests and muddies debugging).
+
+<details>
+<summary>Superseded: Supabase pg_cron / Vercel Cron / external cron</summary>
+
+**Supabase pg_cron + pg_net** — the prior decision, scripted in
+[scripts/setup-outbox-cron.sql](./scripts/setup-outbox-cron.sql). Its rationale: the app
+is host-agnostic (PROJECT_BRIEF.md §2) while the Supabase database is the fixed part of
+the stack, so a DB-resident job survives a change of compute host. Still viable, and the
+script is kept for that reason.
+
+**Vercel Cron** — needs `vercel.json`; not applicable while the app deploys as a
+standalone container (`output: 'standalone'`, see `next.config.ts`).
+
+**External cron (Railway, cron-job.org, etc.)**:
 ```bash
-curl -X POST https://your-app.com/api/internal/process-outbox \
-  -H "x-api-key: your-INTERNAL_API_KEY"
+curl -X POST https://your-app.com/api/internal/process-outbox   -H "x-api-key: your-INTERNAL_API_KEY"
 ```
 </details>
 

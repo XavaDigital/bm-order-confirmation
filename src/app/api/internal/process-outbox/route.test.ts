@@ -7,7 +7,7 @@ const { processOutbox } = vi.hoisted(() => ({
 
 vi.mock('@/server/events/processor', () => ({ processOutbox }));
 
-import { POST } from './route';
+import { GET, POST } from './route';
 
 const API_KEY = 'test-internal-api-key-0123456789';
 const CRON_SECRET = 'test-cron-secret-not-a-real-secret-0123456789';
@@ -60,7 +60,7 @@ describe('POST /api/internal/process-outbox', () => {
     expect(processOutbox).not.toHaveBeenCalled();
   });
 
-  it('returns 200 for a Vercel Cron request authenticated via Authorization: Bearer $CRON_SECRET', async () => {
+  it('returns 200 for a scheduler request authenticated via Authorization: Bearer $CRON_SECRET', async () => {
     processOutbox.mockResolvedValueOnce({ processed: 1, delivered: 1, failed: 0 });
 
     const res = await POST(postRequestWithBearer(CRON_SECRET));
@@ -76,5 +76,48 @@ describe('POST /api/internal/process-outbox', () => {
 
     const res = await POST(postRequest(API_KEY));
     expect(res.status).toBe(500);
+  });
+});
+
+// Schedulers (Google Cloud Scheduler, Vercel Cron) issue GET by default. The
+// route was POST-only, so a scheduled job would have 405'd forever and the
+// outbox would never have drained.
+describe('GET /api/internal/process-outbox', () => {
+  beforeEach(() => {
+    processOutbox.mockClear();
+  });
+
+  function getRequest(headers?: Record<string, string>) {
+    return new NextRequest('http://localhost/api/internal/process-outbox', {
+      method: 'GET',
+      headers,
+    });
+  }
+
+  it('is exported and behaves identically to POST for a valid bearer', async () => {
+    processOutbox.mockResolvedValueOnce({ processed: 2, delivered: 2, failed: 0 });
+
+    const res = await GET(getRequest({ authorization: `Bearer ${CRON_SECRET}` }));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json).toEqual({
+      processed: 2,
+      delivered: 2,
+      failed: 0,
+      purgedRateLimits: expect.any(Number),
+    });
+    expect(processOutbox).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts the x-api-key path too', async () => {
+    const res = await GET(getRequest({ 'x-api-key': API_KEY }));
+    expect(res.status).toBe(200);
+  });
+
+  it('still rejects an unauthenticated GET', async () => {
+    const res = await GET(getRequest());
+    expect(res.status).toBe(401);
+    expect(processOutbox).not.toHaveBeenCalled();
   });
 });

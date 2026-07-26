@@ -1,6 +1,12 @@
 -- Outbox processor scheduler — roadmap 3.2.
 --
--- Decision: Supabase pg_cron + pg_net, not Vercel Cron or an external cron
+-- ⚠️ SUPERSEDED (2026-07-27): scheduling moved to Google Cloud Scheduler — see
+-- README §6. This script is kept because its rationale still holds if the app
+-- ever needs a scheduler that outlives the compute host. If this job WAS ever
+-- scheduled, unschedule it so it doesn't fire alongside Cloud Scheduler:
+--     select cron.unschedule('process-outbox');
+--
+-- Original decision: Supabase pg_cron + pg_net, not Vercel Cron or an external cron
 -- service. The app is deliberately host-agnostic (PROJECT_BRIEF.md §2 — AWS
 -- App Runner is the tentative app host, but "not locked"); the one fixed part
 -- of the stack is the Postgres database on Supabase. Scheduling from inside
