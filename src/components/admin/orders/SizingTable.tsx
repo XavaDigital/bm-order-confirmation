@@ -32,6 +32,8 @@ interface Props {
   /** Chart-defined sizes (from the garment's linked size charts) — when
    * non-empty, the Size cell becomes a select incl. "<size> Tall" variants. */
   allowedSizes?: SizeChartSize[];
+  /** Called after a successful save — sizing rows drive purchase-order coverage. */
+  onSaved?: () => void;
 }
 
 function toLocal(rows: Props['initialRows']): SizingRow[] {
@@ -45,7 +47,7 @@ function toLocal(rows: Props['initialRows']): SizingRow[] {
   }));
 }
 
-export function SizingTable({ orderId, garmentId, initialRows, allowedSizes }: Props) {
+export function SizingTable({ orderId, garmentId, initialRows, allowedSizes, onSaved }: Props) {
   const { message } = App.useApp();
   const [rows, setRows] = useState<SizingRow[]>(() => toLocal(initialRows));
   const [saving, setSaving] = useState(false);
@@ -89,6 +91,7 @@ export function SizingTable({ orderId, garmentId, initialRows, allowedSizes }: P
       // ids — the next save then updates in place instead of reinserting.
       if (Array.isArray(res.rows)) setRows(toLocal(res.rows));
       message.success('Sizing saved');
+      onSaved?.();
     } catch {
       message.error('Failed to save sizing');
     } finally {

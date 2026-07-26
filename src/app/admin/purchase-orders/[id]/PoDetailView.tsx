@@ -36,6 +36,7 @@ import {
 import {
   DownOutlined,
   DownloadOutlined,
+  FileExcelOutlined,
   MailOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
@@ -337,6 +338,9 @@ export function PoDetailView({ poId }: { poId: string }) {
             <a href={`/api/admin/purchase-orders/${poId}/pdf`}>
               <Button icon={<DownloadOutlined />}>Download PDF</Button>
             </a>
+            <a href={`/api/admin/purchase-orders/${poId}/xlsx`}>
+              <Button icon={<FileExcelOutlined />}>Download XLSX</Button>
+            </a>
             {legalTransitions.length > 0 && (
               <Dropdown
                 trigger={['click']}
@@ -544,6 +548,12 @@ export function PoDetailView({ poId }: { poId: string }) {
                     aria-label={`PDF for revision ${r.revisionNumber}`}
                   >
                     PDF
+                  </a>
+                  <a
+                    href={`/api/admin/purchase-orders/${poId}/xlsx?rev=${r.revisionNumber}`}
+                    aria-label={`XLSX for revision ${r.revisionNumber}`}
+                  >
+                    XLSX
                   </a>
                 </Space>
               ),

@@ -5,11 +5,10 @@ import { App as AntdApp } from 'antd';
 import { installMockFetch, type MockRoute } from '@/test/mockFetch';
 import { ProductionPanel, type ProductionSummary } from './ProductionPanel';
 
-const SUMMARY_URL = '/api/admin/orders/order-1/purchase-orders';
 const SUPPLIERS_URL = '/api/admin/suppliers?active=1';
 
-function summaryRoute(body: unknown): MockRoute {
-  return { match: SUMMARY_URL, method: 'GET', response: body };
+function suppliersRoute(): MockRoute {
+  return { match: SUPPLIERS_URL, method: 'GET', response: [{ id: 's1', name: 'Acme Textiles' }] };
 }
 
 function emptySummary(): ProductionSummary {
@@ -87,6 +86,10 @@ function renderPanel(overrides: Partial<Parameters<typeof ProductionPanel>[0]> =
           { id: 'g1', name: 'Jersey' },
           { id: 'g2', name: 'Hoodie' },
         ]}
+        summary={emptySummary()}
+        loading={false}
+        error={null}
+        reload={vi.fn()}
         {...overrides}
       />
     </AntdApp>,
@@ -103,24 +106,27 @@ afterEach(() => {
 });
 
 describe('ProductionPanel', () => {
-  it('fetches the production summary on mount and shows the empty state', async () => {
-    const { fetchMock } = installMockFetch([summaryRoute(emptySummary())]);
+  it('shows the empty state when the order has no purchase orders', async () => {
     renderPanel();
 
     expect(await screen.findByText('No purchase orders yet for this order')).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith(SUMMARY_URL);
     expect(screen.getByRole('button', { name: /create purchase order/i })).toBeInTheDocument();
   });
 
-  it('shows an error alert when the summary fetch fails', async () => {
-    renderPanel();
+  it('shows an error alert when the summary could not be loaded', async () => {
+    renderPanel({ summary: null, error: 'Failed to load production summary' });
 
     expect(await screen.findByText('Failed to load production summary')).toBeInTheDocument();
   });
 
+  it('shows a spinner while the summary is loading', () => {
+    const { container } = renderPanel({ summary: null, loading: true });
+
+    expect(container.querySelector('.ant-spin')).toBeTruthy();
+  });
+
   it('renders the coverage bar with the uncovered-by-garment list', async () => {
-    installMockFetch([summaryRoute(summaryWithPos())]);
-    renderPanel();
+    renderPanel({ summary: summaryWithPos() });
 
     expect(await screen.findByText('5 of 8 sizing rows covered')).toBeInTheDocument();
     expect(screen.getByText(/Hoodie — 3 rows uncovered/)).toBeInTheDocument();
@@ -128,8 +134,7 @@ describe('ProductionPanel', () => {
   });
 
   it('renders a card per PO with number link, status badge, revision, supplier', async () => {
-    installMockFetch([summaryRoute(summaryWithPos())]);
-    renderPanel();
+    renderPanel({ summary: summaryWithPos() });
 
     const poLink = await screen.findByRole('link', { name: 'PO-2607-AC01-WILDCATS' });
     expect(poLink).toHaveAttribute('href', '/admin/purchase-orders/po-1');
@@ -142,8 +147,7 @@ describe('ProductionPanel', () => {
   });
 
   it('shows warning variance tags and a review link only for POs with variance', async () => {
-    installMockFetch([summaryRoute(summaryWithPos())]);
-    renderPanel();
+    renderPanel({ summary: summaryWithPos() });
 
     expect(await screen.findByText('+2 added')).toBeInTheDocument();
     expect(screen.getByText('1 modified')).toBeInTheDocument();
@@ -156,12 +160,9 @@ describe('ProductionPanel', () => {
 
   it('opens the create modal with per-garment sizing counts and covered hints', async () => {
     const user = userEvent.setup();
-    const summary = summaryWithPos(); // g1 fully covered, g2 has 3 uncovered rows
-    installMockFetch([
-      summaryRoute(summary),
-      { match: SUPPLIERS_URL, method: 'GET', response: [{ id: 's1', name: 'Acme Textiles' }] },
-    ]);
-    renderPanel();
+    // g1 fully covered, g2 has 3 uncovered rows
+    installMockFetch([suppliersRoute()]);
+    renderPanel({ summary: summaryWithPos() });
     await screen.findByText('5 of 8 sizing rows covered');
 
     await user.click(screen.getByRole('button', { name: /create purchase order/i }));
@@ -171,11 +172,11 @@ describe('ProductionPanel', () => {
     expect(screen.getByText('Hoodie — 3 sizing rows')).toBeInTheDocument();
   });
 
-  it('reloads the summary after a successful create', async () => {
+  it('asks the owner to reload after a successful create', async () => {
     const user = userEvent.setup();
-    const { fetchMock } = installMockFetch([
-      summaryRoute(emptySummary()),
-      { match: SUPPLIERS_URL, method: 'GET', response: [{ id: 's1', name: 'Acme Textiles' }] },
+    const reload = vi.fn();
+    installMockFetch([
+      suppliersRoute(),
       {
         match: '/api/admin/purchase-orders',
         method: 'POST',
@@ -183,7 +184,7 @@ describe('ProductionPanel', () => {
         status: 201,
       },
     ]);
-    renderPanel();
+    renderPanel({ reload });
     await screen.findByText('No purchase orders yet for this order');
 
     await user.click(screen.getByRole('button', { name: /create purchase order/i }));
@@ -194,7 +195,7 @@ describe('ProductionPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Create purchase order' }));
 
     expect(await screen.findByText('Purchase order PO-2607-AC01-X created')).toBeInTheDocument();
-    const summaryGets = fetchMock.mock.calls.filter(([url]) => url === SUMMARY_URL);
-    expect(summaryGets.length).toBe(2); // mount + reload after create
+    // The panel doesn't own the summary — it asks OrderDetailView to refresh it.
+    expect(reload).toHaveBeenCalled();
   });
 });

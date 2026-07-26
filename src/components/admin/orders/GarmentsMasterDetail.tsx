@@ -82,6 +82,12 @@ function typeOptionDefaults(type: GarmentType): Record<string, string> {
 interface Props {
   orderId: string;
   initialGarments: Garment[];
+  /**
+   * Called after any change that can alter purchase-order coverage (garment
+   * added/edited/removed, sizing saved) so the order view can refresh its
+   * production indicators without a page reload.
+   */
+  onGarmentsChanged?: () => void;
 }
 
 /**
@@ -90,7 +96,7 @@ interface Props {
  * with several garments open the accordion got unwieldy; here exactly one
  * garment is in view at a time.
  */
-export function GarmentsMasterDetail({ orderId, initialGarments }: Props) {
+export function GarmentsMasterDetail({ orderId, initialGarments, onGarmentsChanged }: Props) {
   const { message } = App.useApp();
   const searchParams = useSearchParams();
   const screens = Grid.useBreakpoint();
@@ -164,6 +170,7 @@ export function GarmentsMasterDetail({ orderId, initialGarments }: Props) {
         return next;
       });
       message.success('Garment saved');
+      onGarmentsChanged?.();
     } catch {
       message.error('Failed to save garment');
     } finally {
@@ -181,6 +188,7 @@ export function GarmentsMasterDetail({ orderId, initialGarments }: Props) {
         return next;
       });
       message.success('Garment removed');
+      onGarmentsChanged?.();
     } catch {
       message.error('Failed to remove garment');
     } finally {
@@ -215,6 +223,7 @@ export function GarmentsMasterDetail({ orderId, initialGarments }: Props) {
       setSelectedId(garment.id);
       setAddingName('');
       message.success('Garment added');
+      onGarmentsChanged?.();
     } catch {
       message.error('Failed to add garment');
     } finally {
@@ -492,6 +501,7 @@ export function GarmentsMasterDetail({ orderId, initialGarments }: Props) {
                 garmentId={garment.id}
                 initialRows={garment.sizing}
                 allowedSizes={allowedSizes}
+                onSaved={onGarmentsChanged}
               />
             </div>
 

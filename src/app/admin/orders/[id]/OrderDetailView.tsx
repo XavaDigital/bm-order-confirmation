@@ -35,6 +35,7 @@ import {
   TeamOutlined,
   HistoryOutlined,
   ShoppingCartOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
 import { formatDateTime } from '@/lib/format';
@@ -49,6 +50,7 @@ import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
 import { AuditLogTab } from '@/components/admin/orders/AuditLogTab';
 import { RosterPanel } from '@/components/admin/orders/RosterPanel';
 import { ProductionPanel } from '@/components/admin/orders/ProductionPanel';
+import { useProductionSummary } from '@/lib/use-production-summary';
 import type { MockupImage } from '@/components/admin/orders/MockupUploader';
 
 interface SizingRow {
@@ -127,6 +129,9 @@ export function OrderDetailView({ order }: Props) {
   const searchParams = useSearchParams();
   const initialTab = searchParams.get('tab') ?? 'details';
   const [activeTab, setActiveTab] = useState(initialTab);
+  // Owned here (not in the panel) so the rail badge + garments warning stay in
+  // step with it, and so an edit anywhere in the order can refresh all three.
+  const production = useProductionSummary(order.id);
   // Panels mount on first visit and stay mounted after (they hold state and
   // fetch their own data) — same semantics as the old Tabs lazy render.
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([initialTab]));
@@ -288,6 +293,9 @@ export function OrderDetailView({ order }: Props) {
     setActiveTab(key);
     setVisitedTabs((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
     router.replace(`?tab=${key}`, { scroll: false });
+    // Visited panels stay mounted, so opening Production must re-read rather
+    // than show whatever the first visit fetched.
+    if (key === 'production') production.reload();
   }
 
   const sections = [
@@ -422,7 +430,32 @@ export function OrderDetailView({ order }: Props) {
       label: `Garments (${order.garments.length})`,
       icon: <SkinOutlined />,
       children: (
-        <GarmentsMasterDetail orderId={order.id} initialGarments={order.garments} />
+        <Space direction="vertical" style={{ width: '100%' }} size={16}>
+          {production.attention.needsAttention && (
+            <Alert
+              type="warning"
+              showIcon
+              message="These garments are not fully covered by a purchase order"
+              description={
+                <Space direction="vertical" size={4}>
+                  <span>
+                    {production.attention.message}. Raise a new purchase order for the
+                    uncovered rows, or issue a revision on the affected purchase order, so
+                    the supplier builds what the order now says.
+                  </span>
+                  <Button size="small" onClick={() => selectTab('production')}>
+                    Open Production
+                  </Button>
+                </Space>
+              }
+            />
+          )}
+          <GarmentsMasterDetail
+            orderId={order.id}
+            initialGarments={order.garments}
+            onGarmentsChanged={production.reload}
+          />
+        </Space>
       ),
     },
     {
@@ -453,7 +486,19 @@ export function OrderDetailView({ order }: Props) {
     },
     {
       key: 'production',
-      label: 'Production',
+      label: production.attention.needsAttention ? (
+        <Space size={6}>
+          <span>Production</span>
+          <Tooltip title={`Action needed — ${production.attention.message}`}>
+            <WarningOutlined
+              aria-label="Production needs attention"
+              style={{ color: SEMANTIC.warning }}
+            />
+          </Tooltip>
+        </Space>
+      ) : (
+        'Production'
+      ),
       icon: <ShoppingCartOutlined />,
       children: (
         <ProductionPanel
@@ -461,6 +506,10 @@ export function OrderDetailView({ order }: Props) {
           orderStatus={currentStatus}
           colorSampleRequestedAt={colorSampleRequestedAt}
           garments={order.garments.map((g) => ({ id: g.id, name: g.name }))}
+          summary={production.summary}
+          loading={production.loading}
+          error={production.error}
+          reload={production.reload}
         />
       ),
     },

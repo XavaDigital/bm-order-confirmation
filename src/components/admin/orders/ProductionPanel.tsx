@@ -10,55 +10,11 @@ import { useMemo, useState } from 'react';
 import { Alert, Button, Card, Empty, Progress, Space, Spin, Tag, Typography } from 'antd';
 import { PlusOutlined, WarningOutlined } from '@ant-design/icons';
 import Link from 'next/link';
-import { useAdminResource } from '@/lib/use-admin-resource';
 import { PoStatusBadge } from '@/components/admin/purchase-orders/PoStatusBadge';
+import type { PoVarianceCounts, ProductionSummary } from '@/types/production';
 import { CreatePoModal, type PoModalGarment } from './CreatePoModal';
 
-interface SummaryGarment {
-  id: string;
-  name: string;
-  sizingRowCount: number;
-}
-
-interface PoVarianceCounts {
-  added: number;
-  modified: number;
-  removed: number;
-}
-
-export interface ProductionPoSummary {
-  id: string;
-  poNumber: string;
-  status: string;
-  currentRevisionNumber: number;
-  deadlineDate: string | null;
-  expectedShipDate: string | null;
-  actualShipDate: string | null;
-  sentAt: string | null;
-  receivedAt: string | null;
-  supplier: { id: string; name: string };
-  latestRevision: {
-    revisionNumber: number;
-    reason: string | null;
-    createdAt: string;
-  };
-  variance: { hasVariance: boolean };
-  varianceCounts: PoVarianceCounts;
-}
-
-export interface ProductionSummary {
-  orderId: string;
-  orderNumber: string;
-  garments: SummaryGarment[];
-  purchaseOrders: ProductionPoSummary[];
-  coverage: {
-    totalRows: number;
-    coveredRows: number;
-    percentage: number;
-    rowToPos: Record<string, Array<{ poId: string; poNumber: string }>>;
-    uncoveredByGarment: Record<string, number>;
-  };
-}
+export type { ProductionSummary, ProductionPoSummary } from '@/types/production';
 
 interface Props {
   orderId: string;
@@ -66,6 +22,15 @@ interface Props {
   colorSampleRequestedAt: string | null;
   /** The order's garments as known by the parent view — name fallback while the summary loads. */
   garments: Array<{ id: string; name: string }>;
+  /**
+   * Summary state is owned by OrderDetailView (see useProductionSummary) so the
+   * rail badge, the garments warning and this panel always agree, and so an
+   * edit elsewhere in the order refreshes them together.
+   */
+  summary: ProductionSummary | null;
+  loading: boolean;
+  error: string | null;
+  reload: () => void;
 }
 
 function varianceTagLabels(counts: PoVarianceCounts): string[] {
@@ -76,11 +41,16 @@ function varianceTagLabels(counts: PoVarianceCounts): string[] {
   return labels;
 }
 
-export function ProductionPanel({ orderId, orderStatus, colorSampleRequestedAt, garments }: Props) {
-  const { data, loading, error, reload } = useAdminResource<ProductionSummary>(
-    `/api/admin/orders/${orderId}/purchase-orders`,
-    { errorMessage: 'Failed to load production summary', toast: false },
-  );
+export function ProductionPanel({
+  orderId,
+  orderStatus,
+  colorSampleRequestedAt,
+  garments,
+  summary: data,
+  loading,
+  error,
+  reload,
+}: Props) {
   const [createOpen, setCreateOpen] = useState(false);
 
   const garmentNameById = useMemo(() => {

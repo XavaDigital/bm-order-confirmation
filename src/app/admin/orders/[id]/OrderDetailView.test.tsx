@@ -43,6 +43,25 @@ vi.mock('@/components/admin/orders/ProductionPanel', () => ({
   ),
 }));
 
+// OrderDetailView owns the production summary (rail badge + garments warning),
+// so tests drive the hook rather than the underlying fetch.
+const reloadProductionMock = vi.fn();
+let productionAttention = {
+  uncoveredRows: 0,
+  posWithVariance: 0,
+  needsAttention: false,
+  message: null as string | null,
+};
+vi.mock('@/lib/use-production-summary', () => ({
+  useProductionSummary: () => ({
+    summary: null,
+    loading: false,
+    error: null,
+    reload: reloadProductionMock,
+    attention: productionAttention,
+  }),
+}));
+
 function baseOrder(overrides: Partial<AdminOrderData> = {}): AdminOrderData {
   return {
     id: 'order-1',
@@ -83,6 +102,13 @@ function renderView(order: AdminOrderData) {
 beforeEach(() => {
   pushMock.mockClear();
   replaceMock.mockClear();
+  reloadProductionMock.mockClear();
+  productionAttention = {
+    uncoveredRows: 0,
+    posWithVariance: 0,
+    needsAttention: false,
+    message: null,
+  };
   searchParamsValue = new URLSearchParams();
   // Default: any request throws loudly; tests that fetch install their own routes.
   installMockFetch();
@@ -413,5 +439,58 @@ describe('OrderDetailView', () => {
 
     expect(await screen.findByText('Cannot cancel')).toBeInTheDocument();
     expect(screen.getByText('Sent')).toBeInTheDocument();
+  });
+
+  describe('production attention indicators', () => {
+    function needsAttention() {
+      productionAttention = {
+        uncoveredRows: 3,
+        posWithVariance: 1,
+        needsAttention: true,
+        message: '3 sizing rows are not covered by a purchase order',
+      };
+    }
+
+    it('marks the Production rail entry when action is needed', async () => {
+      needsAttention();
+      renderView(baseOrder());
+
+      expect(await screen.findByLabelText('Production needs attention')).toBeInTheDocument();
+    });
+
+    it('leaves the Production rail entry unmarked when nothing is owed', () => {
+      renderView(baseOrder());
+
+      expect(screen.queryByLabelText('Production needs attention')).not.toBeInTheDocument();
+    });
+
+    it('warns on the garments section and can jump to Production', async () => {
+      const user = userEvent.setup();
+      needsAttention();
+      renderView(baseOrder());
+
+      await user.click(screen.getByRole('menuitem', { name: /garments/i }));
+
+      expect(
+        await screen.findByText('These garments are not fully covered by a purchase order'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/3 sizing rows are not covered by a purchase order/),
+      ).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Open Production' }));
+      expect(await screen.findByTestId('production-panel')).toBeVisible();
+    });
+
+    it('re-reads the summary when the Production section is opened', async () => {
+      const user = userEvent.setup();
+      renderView(baseOrder());
+      reloadProductionMock.mockClear();
+
+      await user.click(screen.getByRole('menuitem', { name: /production/i }));
+
+      // Panels stay mounted once visited, so opening the section must refetch.
+      expect(reloadProductionMock).toHaveBeenCalled();
+    });
   });
 });
