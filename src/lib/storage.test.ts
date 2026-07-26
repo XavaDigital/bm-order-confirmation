@@ -38,7 +38,24 @@ vi.mock('@/lib/env', () => ({
 }));
 
 import { env } from '@/lib/env';
-import { uploadFile, getSignedUrl, deleteFile, mockupKey, signatureKey, sizeChartKey } from './storage';
+import {
+  uploadFile,
+  getSignedUrl,
+  deleteFile,
+  mockupKey,
+  signatureKey,
+  sizeChartKey,
+  isStorageConfigured,
+  StorageUnavailableError,
+} from './storage';
+
+/** Shape of an AWS SDK service error: the code lands on `name`. */
+function s3Error(name: string, httpStatusCode = 403) {
+  const err = new Error(`${name} (mock)`);
+  err.name = name;
+  (err as unknown as { $metadata: unknown }).$metadata = { httpStatusCode };
+  return err;
+}
 
 beforeEach(() => {
   send.mockClear();
@@ -47,7 +64,10 @@ beforeEach(() => {
   DeleteObjectCommandMock.mockClear();
   GetObjectCommandMock.mockClear();
   getSignedUrlMock.mockClear();
+  send.mockResolvedValue({});
   env.AWS_S3_BUCKET = 'test-bucket';
+  env.AWS_S3_ACCESS_KEY = 'key';
+  env.AWS_S3_SECRET_ACCESS_KEY = 'secret';
 });
 
 describe('uploadFile', () => {
@@ -69,6 +89,66 @@ describe('uploadFile', () => {
     env.AWS_S3_BUCKET = undefined;
     await expect(uploadFile('x.png', Buffer.from('x'), 'image/png')).rejects.toThrow('AWS_S3_BUCKET is not configured');
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe('isStorageConfigured', () => {
+  it('is true only when the bucket AND both credentials are set', () => {
+    expect(isStorageConfigured()).toBe(true);
+  });
+
+  it('is false when the bucket is missing', () => {
+    env.AWS_S3_BUCKET = undefined;
+    expect(isStorageConfigured()).toBe(false);
+  });
+
+  // A half-configured server must fail the up-front 503 gate rather than
+  // reaching the provider and failing with a cryptic credential error.
+  it('is false when the access key is missing', () => {
+    env.AWS_S3_ACCESS_KEY = undefined;
+    expect(isStorageConfigured()).toBe(false);
+  });
+
+  it('is false when the secret key is missing', () => {
+    env.AWS_S3_SECRET_ACCESS_KEY = undefined;
+    expect(isStorageConfigured()).toBe(false);
+  });
+});
+
+describe('credential/config failures', () => {
+  const cases: [string, string][] = [
+    ['InvalidAccessKeyId', 'does not exist'],
+    ['UnrecognizedClientException', 'rejected the configured access key'],
+    ['SignatureDoesNotMatch', 'signature mismatch'],
+    ['AccessDenied', 's3:PutObject'],
+    ['NoSuchBucket', 'bucket does not exist'],
+    ['PermanentRedirect', 'different region'],
+    ['AuthorizationHeaderMalformed', 'different region'],
+    ['ExpiredToken', 'expired'],
+    ['InvalidToken', 'no longer valid'],
+    ['CredentialsProviderError', 'could not be resolved'],
+  ];
+
+  it.each(cases)('maps %s to an actionable StorageUnavailableError', async (code, fragment) => {
+    send.mockRejectedValueOnce(s3Error(code));
+    await expect(uploadFile('x.png', Buffer.from('x'), 'image/png')).rejects.toThrow(
+      StorageUnavailableError,
+    );
+
+    send.mockRejectedValueOnce(s3Error(code));
+    await expect(uploadFile('x.png', Buffer.from('x'), 'image/png')).rejects.toThrow(fragment);
+  });
+
+  it('leaves unrelated provider errors alone (transient failures stay 500s)', async () => {
+    send.mockRejectedValueOnce(s3Error('SlowDown', 503));
+    await expect(uploadFile('x.png', Buffer.from('x'), 'image/png')).rejects.not.toBeInstanceOf(
+      StorageUnavailableError,
+    );
+  });
+
+  it('classifies deleteFile failures too', async () => {
+    send.mockRejectedValueOnce(s3Error('InvalidAccessKeyId'));
+    await expect(deleteFile('x.png')).rejects.toThrow(StorageUnavailableError);
   });
 });
 

@@ -21,10 +21,13 @@
  *                    required X-Acting-User; handler receives actingUser.
  *
  * Error contract (uniform across the app):
- *  - schema parse failure  → 400 { error: 'Invalid request', details }
- *  - *NotFoundError thrown → 404 { error: err.message }
- *  - *ConflictError thrown → 409 { error: err.message }
- *  - anything else         → 500 { error: 'Internal server error' } + logger.error
+ *  - schema parse failure     → 400 { error: 'Invalid request', details }
+ *  - *NotFoundError thrown    → 404 { error: err.message }
+ *  - *ConflictError thrown    → 409 { error: err.message }
+ *  - *UnavailableError thrown → 503 { error: err.message } — server-side
+ *    dependency misconfigured (e.g. rejected storage credentials); the message
+ *    is actionable for staff, so it is surfaced rather than swallowed.
+ *  - anything else            → 500 { error: 'Internal server error' } + logger.error
  */
 import { NextRequest, NextResponse } from 'next/server';
 import type { ZodType, ZodTypeDef } from 'zod';
@@ -110,6 +113,11 @@ export function defineRoute<P = Record<string, never>, B = undefined>(
       }
       if (isNamed(err, 'ConflictError')) {
         return NextResponse.json({ error: err.message }, { status: 409 });
+      }
+      if (isNamed(err, 'UnavailableError')) {
+        // Misconfigured server dependency — log it too, since it needs an ops fix.
+        logger.error(`[${config.tag}]`, err);
+        return serviceUnavailable(err.message);
       }
       logger.error(`[${config.tag}]`, err);
       return serverError();

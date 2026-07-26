@@ -44,13 +44,13 @@ vi.mock('@/lib/session', () => {
 import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
-import { uploadFile, getSignedUrl } from '@/lib/storage';
+import { uploadFile, getSignedUrl, StorageUnavailableError } from '@/lib/storage';
 import { getSession } from '@/lib/session';
 import { GET, POST } from './route';
 
 afterEach(async () => {
   await resetTestDb(db);
-  vi.mocked(uploadFile).mockClear();
+  vi.mocked(uploadFile).mockReset().mockResolvedValue('mock-storage-key');
   vi.mocked(getSignedUrl).mockClear();
   const session = (await getSession()) as unknown as Record<string, unknown>;
   for (const key of Object.keys(session)) delete session[key];
@@ -209,5 +209,45 @@ describe('POST /api/admin/size-charts', () => {
     const res = await POST(multipartRequest({ name: 'Adult Unisex', file, sizes: '{nope' }));
     expect(res.status).toBe(400);
     expect(uploadFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/admin/size-charts — storage failures', () => {
+  function pngFile() {
+    return new File([Buffer.from('fake-png')], 'chart.png', { type: 'image/png' });
+  }
+
+  // Regression: a rejected AWS key used to surface as an opaque 500
+  // {error: 'Upload failed'}, which made a pure config problem undiagnosable
+  // from the browser. It must now be a 503 carrying the actionable message.
+  it('returns 503 with the actionable message when storage credentials are rejected', async () => {
+    await setSession('admin');
+    vi.mocked(uploadFile).mockRejectedValueOnce(
+      new StorageUnavailableError(
+        'File storage rejected the configured access key (it does not exist). Check AWS_S3_ACCESS_KEY.',
+      ),
+    );
+
+    const res = await POST(multipartRequest({ name: 'Hoodie Chart', file: pngFile() }));
+    const json = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(json.error).toContain('rejected the configured access key');
+    expect(json.error).toContain('AWS_S3_ACCESS_KEY');
+
+    // Nothing persisted — the row is only written after a successful upload.
+    const charts = await db.select().from(schema.sizeCharts);
+    expect(charts).toHaveLength(0);
+  });
+
+  it('still returns a generic 500 for an unexpected upload failure', async () => {
+    await setSession('admin');
+    vi.mocked(uploadFile).mockRejectedValueOnce(new Error('socket hang up'));
+
+    const res = await POST(multipartRequest({ name: 'Hoodie Chart', file: pngFile() }));
+    const json = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(json.error).toBe('Upload failed');
   });
 });

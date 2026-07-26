@@ -5,7 +5,7 @@ import { sizeChartSizesFormSchema } from '@/server/size-charts/contract';
 import { badRequest } from '@/lib/api-responses';
 import type { SizeChartSize } from '@/db/schema';
 import { parseMultipartFormData, parseUploadedFile } from '@/lib/uploads';
-import { isStorageConfigured } from '@/lib/storage';
+import { isStorageConfigured, StorageUnavailableError } from '@/lib/storage';
 import { defineRoute } from '@/lib/route-handler';
 import { logger } from '@/lib/logger';
 
@@ -73,6 +73,10 @@ export const POST = defineRoute({
       });
       return NextResponse.json(chart, { status: 201 });
     } catch (err) {
+      // Storage misconfiguration (rejected credentials, missing bucket, wrong
+      // region) carries an actionable message — let the wrapper 503 it rather
+      // than hiding it behind a generic "Upload failed".
+      if (err instanceof StorageUnavailableError) throw err;
       logger.error('[size-charts POST]', err);
       return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
     }

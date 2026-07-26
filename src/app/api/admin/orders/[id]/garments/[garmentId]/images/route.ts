@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
 import { randomBytes } from 'node:crypto';
 import { addMockupImage } from '@/server/orders/service';
-import { uploadFile, getSignedUrl, mockupKey, isStorageConfigured } from '@/lib/storage';
+import {
+  uploadFile,
+  getSignedUrl,
+  mockupKey,
+  isStorageConfigured,
+  StorageUnavailableError,
+} from '@/lib/storage';
 import { parseMultipartFormData, parseUploadedFile } from '@/lib/uploads';
 import { defineRoute } from '@/lib/route-handler';
 import { logger } from '@/lib/logger';
@@ -46,6 +52,9 @@ export const POST = defineRoute<{ id: string; garmentId: string }>({
 
       return NextResponse.json({ ...image, url }, { status: 201 });
     } catch (err) {
+      // Storage misconfiguration carries an actionable message — let the
+      // wrapper 503 it instead of a generic "Upload failed".
+      if (err instanceof StorageUnavailableError) throw err;
       logger.error('[admin/images POST]', err);
       return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
     }
