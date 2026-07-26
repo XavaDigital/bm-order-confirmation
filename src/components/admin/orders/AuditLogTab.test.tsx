@@ -137,12 +137,13 @@ describe('AuditLogTab', () => {
     expect(screen.getByText('Roster locked')).toBeInTheDocument();
   });
 
-  it('renders actor email, recipient, resend marker, fields, and source order number from the payload', async () => {
+  it('renders actor email, recipient, resend marker, fields, and source order number', async () => {
     mockFetchOnce([
       {
         id: 'evt-1',
         eventType: 'link.emailed',
-        payload: { actorEmail: 'sales@example.com', to: 'jane@example.com', orderStatus: 'changes_requested' },
+        payload: { to: 'jane@example.com', orderStatus: 'changes_requested' },
+        actorEmail: 'sales@example.com',
         status: 'delivered',
         createdAt: '2026-06-26T10:30:00Z',
       },

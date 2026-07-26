@@ -37,15 +37,11 @@ function hoodieInput(overrides: Record<string, unknown> = {}) {
   return createGarmentTypeSchema.parse({
     name: 'Pullover Hoodie',
     category: 'Hoodies',
-    fabricOptions: ['Cotton Fleece', 'Poly Fleece'],
+    fabricFields: [{ label: 'Fabric', options: ['Cotton Fleece', 'Poly Fleece'] }],
     orderOptions: [
       { label: 'Zip Type', type: 'select', options: ['full-zip', 'pullover'], defaultOption: 'pullover' },
       { label: 'Cord Color', type: 'text', defaultValue: 'Black' },
       { label: 'Pocket Style', type: 'select', options: ['kangaroo', 'side-zip'] },
-    ],
-    sizes: [
-      { sizeRange: 'mens', sizes: ['S', 'M', 'L'] },
-      { sizeRange: 'womens', sizes: ['8', '10'] },
     ],
     ...overrides,
   });
@@ -61,9 +57,7 @@ describe('garment-types service', () => {
     expect(created.orderOptions).toHaveLength(3);
 
     const fetched = await getGarmentType(created.id);
-    // sizes are chart-owned now — a provided legacy sizes payload is accepted
-    // by the contract for API compat but never persisted
-    expect(fetched.sizes).toEqual([]);
+    expect(fetched.fabricFields).toEqual([{ label: 'Fabric', options: ['Cotton Fleece', 'Poly Fleece'] }]);
   });
 
   it('listGarmentTypes filters to active types when asked', async () => {
@@ -236,16 +230,6 @@ describe('fabric fields', () => {
     expect(updated.fabricFields).toEqual([{ label: 'Main', options: ['Mesh'] }]);
   });
 
-  it('update ignores a legacy sizes payload', async () => {
-    const created = await createGarmentType(
-      createGarmentTypeSchema.parse({ name: 'Zip Hoodie' }),
-    );
-
-    const updated = await updateGarmentType(created.id, {
-      sizes: [{ sizeRange: 'mens', sizes: ['S'] }],
-    });
-    expect(updated.sizes).toEqual([]);
-  });
 });
 
 describe('selected fabrics on garments', () => {

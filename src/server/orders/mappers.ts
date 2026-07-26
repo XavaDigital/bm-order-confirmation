@@ -78,18 +78,3 @@ export function toGarmentDto(
     ),
   };
 }
-
-/**
- * Read a value from a confirmation snapshot, accepting BOTH the camelCase keys
- * written by `buildConfirmationSnapshot()` (new rows) and the legacy
- * snake_case keys present on pre-migration `confirmed_snapshot` jsonb rows.
- */
-export function snap<T = unknown>(
-  obj: Record<string, unknown> | null | undefined,
-  camelKey: string,
-  snakeKey: string,
-): T | undefined {
-  if (!obj) return undefined;
-  if (obj[camelKey] !== undefined) return obj[camelKey] as T;
-  return obj[snakeKey] as T | undefined;
-}

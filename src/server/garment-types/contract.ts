@@ -48,11 +48,6 @@ export const garmentTypeOptionSchema: z.ZodType<GarmentTypeOption, z.ZodTypeDef,
 
 export type GarmentTypeOptionInput = GarmentTypeOption;
 
-export const sizeRangeSchema = z.object({
-  sizeRange: z.string().trim().min(1).max(40),
-  sizes: z.array(z.string().trim().min(1).max(30)).min(1).max(50),
-});
-
 export const fabricFieldSchema = z.object({
   label: z.string().trim().min(1).max(80),
   options: z.array(z.string().trim().min(1).max(120)).min(1).max(50),
@@ -63,9 +58,6 @@ const uniqueLabels = uniqueBy((o: { label: string }) => o.label.toLowerCase());
 export const createGarmentTypeSchema = z.object({
   name: z.string().trim().min(1).max(120),
   category: z.string().trim().min(1).max(80).nullish(),
-  // LEGACY flat fabric list — still accepted (old API clients / existing rows);
-  // superseded by fabricFields (see src/lib/fabric-fields.ts adapter).
-  fabricOptions: z.array(z.string().trim().min(1).max(120)).max(50).default([]),
   fabricFields: z
     .array(fabricFieldSchema)
     .max(10)
@@ -76,9 +68,6 @@ export const createGarmentTypeSchema = z.object({
     .max(30)
     .default([])
     .refine(uniqueLabels, { message: 'Option labels must be unique' }),
-  // Accepted for API compat; IGNORED by the service — sizes now live on size
-  // charts (size_charts.sizes) and reach garments via chart links.
-  sizes: z.array(sizeRangeSchema).max(10).default([]),
   sizeChartIds: z.array(z.string().uuid()).max(20).default([]),
   isActive: z.boolean().default(true),
   sortOrder: z.number().int().min(0).default(0),

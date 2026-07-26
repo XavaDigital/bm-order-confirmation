@@ -1,7 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { orders, staffUsers, confirmations } from '@/db/schema';
-import { snap } from '@/server/orders/mappers';
 import { env } from '@/lib/env';
 import {
   sendStaffConfirmationEmail,
@@ -126,8 +125,6 @@ export async function notifyCustomerOfConfirmation(
   const confirmation = await db.query.confirmations.findFirst({
     where: eq(confirmations.orderId, orderId),
   });
-  // New snapshots use camelCase keys; pre-migration rows keep snake_case —
-  // snap() resolves either (see buildConfirmationSnapshot in customer-service.ts).
   const snapshot = confirmation?.confirmedSnapshot as Record<string, unknown> | undefined;
 
   const snapshotGarments = (snapshot?.garments ?? []) as Array<{
@@ -145,8 +142,8 @@ export async function notifyCustomerOfConfirmation(
     orderNumber,
     confirmedAt,
     garments,
-    orderValueAmount: snap<string | null>(snapshot, 'orderValueAmount', 'order_value_amount') ?? null,
-    orderValueCurrency: snap<string | null>(snapshot, 'orderValueCurrency', 'order_value_currency') ?? null,
-    expectedShipDate: snap<string | null>(snapshot, 'expectedShipDate', 'expected_ship_date') ?? null,
+    orderValueAmount: (snapshot?.orderValueAmount as string | null | undefined) ?? null,
+    orderValueCurrency: (snapshot?.orderValueCurrency as string | null | undefined) ?? null,
+    expectedShipDate: (snapshot?.expectedShipDate as string | null | undefined) ?? null,
   });
 }

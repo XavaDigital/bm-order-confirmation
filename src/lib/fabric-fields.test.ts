@@ -1,22 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { effectiveFabricFields } from './fabric-fields';
+import { effectiveFabrics } from './fabric-fields';
 
-describe('effectiveFabricFields', () => {
-  it('returns fabricFields when defined', () => {
-    const fields = [
-      { label: 'Outer Fabric', options: ['Cotton Fleece'] },
-      { label: 'Hood Lining', options: ['Self-fabric', 'Light mesh'] },
-    ];
-    expect(effectiveFabricFields({ fabricFields: fields, fabricOptions: ['Legacy'] })).toBe(fields);
-  });
-
-  it('adapts a legacy flat fabricOptions list into a single "Fabric" field', () => {
+describe('effectiveFabrics', () => {
+  it('returns the labeled picks for a typed garment', () => {
     expect(
-      effectiveFabricFields({ fabricFields: [], fabricOptions: ['Poly', 'Mesh'] }),
-    ).toEqual([{ label: 'Fabric', options: ['Poly', 'Mesh'] }]);
+      effectiveFabrics({
+        fabrics: ['ignored'],
+        selectedFabrics: { 'Outer Fabric': 'Cotton Fleece', 'Hood Lining': 'Mesh' },
+      }),
+    ).toEqual(['Cotton Fleece', 'Mesh']);
   });
 
-  it('returns [] when the type has neither', () => {
-    expect(effectiveFabricFields({ fabricFields: [], fabricOptions: [] })).toEqual([]);
+  it('skips empty pick values', () => {
+    expect(
+      effectiveFabrics({ fabrics: null, selectedFabrics: { Outer: 'Poly', Lining: '' } }),
+    ).toEqual(['Poly']);
+  });
+
+  it('falls back to the free-text fabrics list for typeless garments', () => {
+    expect(effectiveFabrics({ fabrics: ['Poly', 'Mesh'], selectedFabrics: null })).toEqual([
+      'Poly',
+      'Mesh',
+    ]);
+    expect(effectiveFabrics({ fabrics: ['Poly'], selectedFabrics: {} })).toEqual(['Poly']);
+  });
+
+  it('returns [] when the garment has neither', () => {
+    expect(effectiveFabrics({ fabrics: null, selectedFabrics: null })).toEqual([]);
   });
 });

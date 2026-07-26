@@ -12,7 +12,7 @@ import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
 import {
-  emitDomainEvent,
+  emitOrderEvent,
   recordAuditEvent,
   getChangesRequestedComment,
   getChangesRequestedCount,
@@ -36,12 +36,12 @@ async function seedOrder(overrides: Partial<typeof schema.orders.$inferInsert> =
   return order;
 }
 
-describe('emitDomainEvent', () => {
+describe('emitOrderEvent', () => {
   it('inserts a domain_events row inside a transaction', async () => {
     const order = await seedOrder();
 
     await db.transaction(async (tx) => {
-      await emitDomainEvent(tx, {
+      await emitOrderEvent(tx, {
         aggregateId: order.id,
         eventType: 'order.viewed',
         payload: { foo: 'bar' },
@@ -62,7 +62,7 @@ describe('emitDomainEvent', () => {
 
     await expect(
       db.transaction(async (tx) => {
-        await emitDomainEvent(tx, {
+        await emitOrderEvent(tx, {
           aggregateId: order.id,
           eventType: 'order.viewed',
           payload: {},
@@ -80,13 +80,14 @@ describe('emitDomainEvent', () => {
 });
 
 describe('recordAuditEvent', () => {
-  it('writes to audit_events (not the outbox) and lifts the actor into a column', async () => {
+  it('writes to audit_events (not the outbox) with the actor as a column', async () => {
     const order = await seedOrder();
 
     await recordAuditEvent({
       aggregateId: order.id,
       eventType: 'token.generated',
-      payload: { actorEmail: 'staff@example.com' },
+      payload: {},
+      actorEmail: 'staff@example.com',
     });
 
     // Nothing lands in the outbox — audit rows have no delivery lifecycle.
@@ -224,12 +225,11 @@ describe('getOrderAuditLog', () => {
       createdAt: new Date(Date.now() - 10_000),
     });
     // different aggregateType on the same aggregateId should not appear
-    await db.insert(schema.domainEvents).values({
+    await db.insert(schema.auditEvents).values({
       aggregateType: 'staff_user',
       aggregateId: order.id,
-      eventType: 'order.updated',
+      eventType: 'staff.password_reset_requested',
       payload: {},
-      status: 'delivered',
     });
     // event on a different order should not leak in
     await db.insert(schema.domainEvents).values({
@@ -263,7 +263,8 @@ describe('getOrderAuditLog', () => {
     await recordAuditEvent({
       aggregateId: order.id,
       eventType: 'order.updated',
-      payload: { fields: ['customerName'], actorEmail: 'staff@example.com' },
+      payload: { fields: ['customerName'] },
+      actorEmail: 'staff@example.com',
     });
 
     const log = await getOrderAuditLog(order.id);

@@ -72,12 +72,8 @@ export async function sendOrderConfirmationLink(
   await recordAuditEvent({
     aggregateId: orderId,
     eventType: 'link.emailed',
-    payload: {
-      to: order.customerEmail,
-      orderNumber: order.orderNumber,
-      actorEmail: meta.actorEmail ?? null,
-      orderStatus: order.status,
-    },
+    payload: { to: order.customerEmail, orderNumber: order.orderNumber, orderStatus: order.status },
+    actorEmail: meta.actorEmail ?? null,
   });
 
   return { url };
@@ -107,7 +103,8 @@ export async function sendRosterLink(
   await recordAuditEvent({
     aggregateId: orderId,
     eventType: 'roster.link_emailed',
-    payload: { to: order.customerEmail, actorEmail: meta.actorEmail ?? null },
+    payload: { to: order.customerEmail },
+    actorEmail: meta.actorEmail ?? null,
   });
 
   return { url };
@@ -143,7 +140,8 @@ export async function emailRosterMemberLinks(
     await recordAuditEvent({
       aggregateId: orderId,
       eventType: 'roster.member_link_emailed',
-      payload: { memberId: member.id, name: member.name, to: member.email, actorEmail: meta.actorEmail ?? null },
+      payload: { memberId: member.id, name: member.name, to: member.email },
+      actorEmail: meta.actorEmail ?? null,
     });
     sent++;
   }
@@ -184,7 +182,8 @@ export async function sendRosterMemberReminder(
   await recordAuditEvent({
     aggregateId: orderId,
     eventType: 'roster.reminder_sent',
-    payload: { memberId: member.id, name: member.name, to: member.email, actorEmail: meta.actorEmail ?? null },
+    payload: { memberId: member.id, name: member.name, to: member.email },
+    actorEmail: meta.actorEmail ?? null,
   });
 
   return { url };

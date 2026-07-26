@@ -297,12 +297,6 @@ export type GarmentTypeOption =
   | { label: string; type: 'select'; options: string[]; defaultOption?: string }
   | { label: string; type: 'text'; defaultValue?: string };
 
-/** An ordered list of sizes within a range (e.g. womens / mens / youth). LEGACY — see size_charts.sizes. */
-export interface GarmentTypeSizeRange {
-  sizeRange: string;
-  sizes: string[];
-}
-
 /** A labeled fabric slot on a garment type (e.g. "Outer Fabric", "Hood Lining") — staff pick ONE per field. */
 export interface GarmentTypeFabricField {
   label: string;
@@ -321,15 +315,9 @@ export const garmentTypes = confirmation.table(
     id: uuid('id').defaultRandom().primaryKey(),
     name: text('name').notNull(),
     category: text('category'), // optional grouping, e.g. 'Hoodies'
-    // LEGACY single flat fabric list — superseded by fabricFields; still read
-    // via effectiveFabricFields() (src/lib/fabric-fields.ts) for old rows.
-    fabricOptions: jsonb('fabric_options').$type<string[]>().notNull().default([]),
     // Labeled fabric slots, each with its own pick-list (one pick per slot).
     fabricFields: jsonb('fabric_fields').$type<GarmentTypeFabricField[]>().notNull().default([]),
     orderOptions: jsonb('order_options').$type<GarmentTypeOption[]>().notNull().default([]),
-    // LEGACY / write-dead — sizes now live on size_charts.sizes; kept per the
-    // additive-migrations rule, no longer written or read.
-    sizes: jsonb('sizes').$type<GarmentTypeSizeRange[]>().notNull().default([]),
     // Deactivate-never-delete (Sales Hub dictionary convention): existing
     // garments keep pointing at retired types.
     isActive: boolean('is_active').notNull().default(true),
@@ -548,8 +536,7 @@ export const domainEvents = confirmation.table(
   'domain_events',
   {
     id: uuid('id').defaultRandom().primaryKey(),
-    // 'staff_user' appears only on pre-split legacy audit rows (see audit_events)
-    aggregateType: text('aggregate_type').notNull().$type<'order' | 'staff_user'>(),
+    aggregateType: text('aggregate_type').notNull().$type<'order'>(),
     aggregateId: uuid('aggregate_id').notNull(),
     eventType: text('event_type').notNull().$type<DomainEventType>(),
     payload: jsonb('payload').notNull().$type<Record<string, unknown>>(),
@@ -575,11 +562,10 @@ export const domainEvents = confirmation.table(
 );
 
 // --- audit events (staff/customer action history) ---------------------------
-// Split from domain_events (2026-07-26): audit rows are NOT outbox messages —
-// they have no delivery lifecycle, and they need actor attribution as a real
-// query dimension. domain_events stays a pure transactional outbox.
-// Legacy audit rows written to domain_events before the split remain there;
-// getOrderAuditLog merges both sources.
+// Distinct from domain_events: audit rows are NOT outbox messages — they have
+// no delivery lifecycle, and they carry actor attribution as a real query
+// dimension. domain_events stays a pure transactional outbox; getOrderAuditLog
+// merges both sources into the order timeline.
 export const auditEvents = confirmation.table(
   'audit_events',
   {

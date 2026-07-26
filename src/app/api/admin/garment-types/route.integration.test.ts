@@ -65,7 +65,6 @@ async function seedType(name = 'Hoodie', isActive = true) {
       name,
       isActive,
       orderOptions: [{ label: 'Zip Type', options: ['full-zip', 'pullover'], defaultOption: 'pullover' }],
-      sizes: [{ sizeRange: 'mens', sizes: ['S', 'M'] }],
     }),
   );
 }

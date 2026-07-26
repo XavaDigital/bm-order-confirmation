@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { snap, toGarmentDto, toSizingDto } from './mappers';
+import { toGarmentDto, toSizingDto } from './mappers';
 
 const garment = {
   name: 'Home Jersey',
@@ -57,26 +57,5 @@ describe('toSizingDto', () => {
     const row = toSizingDto(garment.sizing[0]);
     expect(row).toEqual({ size: 'M', playerName: 'Alex', playerNumber: '7', notes: 'sz note' });
     expect('rosterMemberId' in row).toBe(false);
-  });
-});
-
-describe('snap (snapshot key compat)', () => {
-  it('reads camelCase keys from new snapshots', () => {
-    expect(snap({ orderValueAmount: '10.00' }, 'orderValueAmount', 'order_value_amount')).toBe('10.00');
-  });
-
-  it('falls back to legacy snake_case keys from pre-migration snapshots', () => {
-    expect(snap({ order_value_amount: '10.00' }, 'orderValueAmount', 'order_value_amount')).toBe('10.00');
-  });
-
-  it('prefers the camelCase key when both are present, including explicit null', () => {
-    expect(snap({ orderValueAmount: 'new', order_value_amount: 'old' }, 'orderValueAmount', 'order_value_amount')).toBe('new');
-    expect(snap({ orderValueAmount: null, order_value_amount: 'old' }, 'orderValueAmount', 'order_value_amount')).toBeNull();
-  });
-
-  it('returns undefined for missing objects or keys', () => {
-    expect(snap(undefined, 'a', 'b')).toBeUndefined();
-    expect(snap(null, 'a', 'b')).toBeUndefined();
-    expect(snap({}, 'a', 'b')).toBeUndefined();
   });
 });

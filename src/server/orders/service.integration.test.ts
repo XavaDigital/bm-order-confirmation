@@ -371,7 +371,8 @@ describe('updateOrder', () => {
     const updateEvent = events.find((e) => e.eventType === 'order.updated');
     expect(updateEvent).toBeDefined();
     expect(updateEvent!.actorEmail).toBe('staff@x.com');
-    expect((updateEvent!.payload as { actorEmail: string }).actorEmail).toBe('staff@x.com');
+    // Actor lives ONLY in the column — payloads no longer duplicate it.
+    expect(updateEvent!.payload).not.toHaveProperty('actorEmail');
   });
 
   it('throws NotFoundError for an unknown id', async () => {

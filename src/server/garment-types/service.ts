@@ -41,11 +41,8 @@ export async function createGarmentType(input: CreateGarmentTypeInput) {
       .values({
         name: input.name,
         category: input.category ?? null,
-        // input.fabricOptions deliberately NOT persisted — legacy column is
-        // read-only (effectiveFabricFields adapts old rows); new rows use fabricFields
         fabricFields: input.fabricFields,
         orderOptions: input.orderOptions,
-        // input.sizes deliberately NOT persisted — sizes live on size charts now
         isActive: input.isActive,
         sortOrder: input.sortOrder,
       })
@@ -72,10 +69,8 @@ export async function updateGarmentType(id: string, patch: UpdateGarmentTypeInpu
       .set({
         ...(patch.name !== undefined && { name: patch.name }),
         ...(patch.category !== undefined && { category: patch.category ?? null }),
-        // patch.fabricOptions deliberately ignored — legacy read-only column
         ...(patch.fabricFields !== undefined && { fabricFields: patch.fabricFields }),
         ...(patch.orderOptions !== undefined && { orderOptions: patch.orderOptions }),
-        // patch.sizes deliberately ignored — sizes live on size charts now
         ...(patch.isActive !== undefined && { isActive: patch.isActive }),
         ...(patch.sortOrder !== undefined && { sortOrder: patch.sortOrder }),
         updatedAt: new Date(),

@@ -29,6 +29,7 @@ interface AuditEvent {
   id: string;
   eventType: string;
   payload: Record<string, unknown>;
+  actorEmail: string | null;
   status: string;
   createdAt: string;
 }
@@ -159,8 +160,8 @@ function EventDetail({ event }: { event: AuditEvent }) {
 
   const parts: string[] = [];
 
-  if (p.actorEmail && typeof p.actorEmail === 'string') {
-    parts.push(`by ${p.actorEmail}`);
+  if (event.actorEmail) {
+    parts.push(`by ${event.actorEmail}`);
   }
   if (p.to && typeof p.to === 'string') {
     parts.push(`→ ${p.to}`);

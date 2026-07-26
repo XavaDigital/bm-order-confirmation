@@ -17,7 +17,7 @@ import {
 import { resolveActiveToken } from '@/server/access/tokens';
 import { accessCodeMatches, isAccessCodeCookieValid } from '@/lib/access-code';
 import { uploadFile, signatureKey } from '@/lib/storage';
-import { emitDomainEvent } from '@/server/events/outbox';
+import { emitOrderEvent } from '@/server/events/outbox';
 import { toGarmentDto } from './mappers';
 
 // ---------------------------------------------------------------------------
@@ -129,7 +129,7 @@ export async function recordOrderViewed(
         .set({ status: 'viewed', updatedAt: new Date() })
         .where(and(eq(orders.id, orderId), eq(orders.status, 'sent')));
 
-      await emitDomainEvent(tx, {
+      await emitOrderEvent(tx, {
         aggregateId: orderId,
         eventType: 'order.viewed',
         payload: { orderId },
@@ -195,7 +195,7 @@ export async function requestOrderChanges(params: {
 
     if (updated.length === 0) throw new Error('already_confirmed');
 
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: order.id,
       eventType: 'order.changes_requested',
       payload: { comment: params.comment, orderNumber: order.orderNumber, customerEmail: order.customerEmail },
@@ -249,7 +249,7 @@ export async function requestColorSample(params: {
 
     if (updated.length === 0) return;
 
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: order.id,
       eventType: 'order.color_sample_requested',
       payload: { orderId: order.id, orderNumber: order.orderNumber, customerEmail: order.customerEmail },
@@ -287,10 +287,7 @@ interface ConfirmableOrder {
 /**
  * Build the immutable `confirmed_snapshot` jsonb — the durable record of what
  * the customer actually agreed to. Pure (no I/O); exported for tests.
- *
- * Keys are camelCase. Existing DB rows written before the camelCase migration
- * keep their legacy snake_case keys, so snapshot READERS must accept both —
- * use `snap()` from `./mappers` when reading.
+ * Keys are camelCase.
  */
 export function buildConfirmationSnapshot(
   order: ConfirmableOrder,
@@ -460,7 +457,7 @@ export async function confirmOrder(params: {
     // request was already made via requestColorSample() before this
     // confirmation — that action emits its own order.color_sample_requested
     // event at the time it happens, not here.
-    await emitDomainEvent(tx, {
+    await emitOrderEvent(tx, {
       aggregateId: order.id,
       eventType: 'order.confirmed',
       payload: {

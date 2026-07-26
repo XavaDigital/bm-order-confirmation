@@ -28,7 +28,6 @@ import { MockupUploader, type MockupImage } from './MockupUploader';
 import { SizeChartLinker } from './SizeChartLinker';
 import { postJson, patchJson, deleteJson, getJson } from '@/lib/api-fetch';
 import { unionChartSizes } from '@/lib/sizes';
-import { effectiveFabricFields } from '@/lib/fabric-fields';
 
 interface SizingRow {
   id?: string;
@@ -57,7 +56,6 @@ interface GarmentType {
   id: string;
   name: string;
   category: string | null;
-  fabricOptions: string[];
   fabricFields: GarmentTypeFabricField[];
   orderOptions: GarmentTypeOption[];
   sizeChartIds: string[];
@@ -279,7 +277,7 @@ export function GarmentsMasterDetail({ orderId, initialGarments }: Props) {
         const currentOptions = getEdit(garment, 'selectedOptions') ?? {};
         const currentSelectedFabrics = getEdit(garment, 'selectedFabrics') ?? {};
         const currentType = types.find((t) => t.id === currentTypeId) ?? null;
-        const fabricFields = currentType ? effectiveFabricFields(currentType) : [];
+        const fabricFields = currentType ? currentType.fabricFields : [];
         const typeChoices = types
           .filter((t) => t.isActive || t.id === currentTypeId)
           .map((t) => ({

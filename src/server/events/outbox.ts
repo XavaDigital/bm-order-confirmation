@@ -57,23 +57,6 @@ export type DomainEventType =
   | 'staff.password_reset_requested'
   | 'staff.password_reset_completed';
 
-export async function emitDomainEvent(
-  tx: Transaction,
-  params: {
-    aggregateId: string;
-    eventType: DomainEventType;
-    payload: Record<string, unknown>;
-    aggregateType?: 'order';
-  },
-): Promise<void> {
-  await tx.insert(domainEvents).values({
-    aggregateType: params.aggregateType ?? 'order',
-    aggregateId: params.aggregateId,
-    eventType: params.eventType,
-    payload: params.payload,
-  });
-}
-
 /**
  * Build an emitter bound to one aggregate type, so call sites can't fat-finger
  * (or forget) the aggregateType on every emit.
@@ -103,10 +86,9 @@ export const emitOrderEvent = makeEmitter('order');
  * Record an audit event (staff/customer action history).
  *
  * Writes to `audit_events` — NOT the outbox. Audit rows have no delivery
- * lifecycle and carry actor attribution as a real column. Pass `tx` when the
- * mutation runs in a transaction so the audit entry can't be lost between the
- * write and the record. Actor is lifted from params.actorEmail, falling back
- * to payload.actorEmail (the legacy call convention).
+ * lifecycle and carry actor attribution as a real column (`actorEmail` param —
+ * do not put the actor in the payload). Pass `tx` when the mutation runs in a
+ * transaction so the audit entry can't be lost between the write and the record.
  */
 export async function recordAuditEvent(
   params: {
@@ -122,9 +104,7 @@ export async function recordAuditEvent(
     aggregateType: params.aggregateType ?? 'order',
     aggregateId: params.aggregateId,
     eventType: params.eventType,
-    actorEmail:
-      params.actorEmail ??
-      (typeof params.payload.actorEmail === 'string' ? params.payload.actorEmail : null),
+    actorEmail: params.actorEmail ?? null,
     payload: params.payload,
   });
 }
@@ -166,9 +146,10 @@ export async function getChangesRequestedCount(orderId: string): Promise<number>
 /**
  * Fetch the audit log for a given order, newest first.
  *
- * Merges two sources: `audit_events` (all audit rows since the 2026-07-26
- * split) and `domain_events` (outbox rows — which ARE part of the order's
- * history — plus legacy audit rows written before the split).
+ * Merges two sources: `audit_events` (staff/customer action history) and
+ * `domain_events` (outbox rows — which ARE part of the order's history).
+ * Actor attribution: audit rows carry it as a real column; outbox rows carry
+ * it in the payload (the outbox schema has no actor column by design).
  */
 export async function getOrderAuditLog(orderId: string) {
   const [outboxRows, auditRows] = await Promise.all([
@@ -191,12 +172,15 @@ export async function getOrderAuditLog(orderId: string) {
       id: e.id,
       eventType: e.eventType,
       payload: e.payload,
+      actorEmail:
+        typeof e.payload?.actorEmail === 'string' ? (e.payload.actorEmail as string) : null,
       createdAt: e.createdAt,
     })),
     ...auditRows.map((e) => ({
       id: e.id,
       eventType: e.eventType,
       payload: e.payload,
+      actorEmail: e.actorEmail,
       createdAt: e.createdAt,
     })),
   ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());

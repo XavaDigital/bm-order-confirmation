@@ -23,10 +23,9 @@ import {
   App,
 } from 'antd';
 import { PlusOutlined, EditOutlined } from '@ant-design/icons';
-import type { GarmentTypeOption, GarmentTypeSizeRange, GarmentTypeFabricField } from '@/db/schema';
+import type { GarmentTypeOption, GarmentTypeFabricField } from '@/db/schema';
 import { OrderOptionsManager } from '@/components/admin/garment-types/OrderOptionsManager';
 import { FabricFieldsManager } from '@/components/admin/garment-types/FabricFieldsManager';
-import { effectiveFabricFields } from '@/lib/fabric-fields';
 import { postJson, patchJson } from '@/lib/api-fetch';
 import { useAdminResource } from '@/lib/use-admin-resource';
 
@@ -36,11 +35,8 @@ export interface GarmentTypeRow {
   id: string;
   name: string;
   category: string | null;
-  fabricOptions: string[];
   fabricFields: GarmentTypeFabricField[];
   orderOptions: GarmentTypeOption[];
-  /** Legacy — no longer edited; sizes live on size charts now. */
-  sizes: GarmentTypeSizeRange[];
   sizeChartIds: string[];
   isActive: boolean;
   sortOrder: number;
@@ -101,9 +97,7 @@ export function GarmentTypesView({ role }: Props) {
       isActive: row.isActive,
     });
     setOrderOptions(row.orderOptions);
-    // Legacy flat fabricOptions rows present as a single "Fabric" field;
-    // saving writes fabricFields, upgrading the row.
-    setFabricFields(effectiveFabricFields(row));
+    setFabricFields(row.fabricFields);
     setModalOpen(true);
   }
 
@@ -179,7 +173,7 @@ export function GarmentTypesView({ role }: Props) {
       title: 'Fabric fields',
       key: 'fabrics',
       render: (_: unknown, row: GarmentTypeRow) => {
-        const fields = effectiveFabricFields(row);
+        const fields = row.fabricFields;
         return fields.length > 0 ? (
           <Space wrap>
             {fields.map((f) => (

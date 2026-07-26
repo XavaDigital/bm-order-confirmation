@@ -25,13 +25,7 @@ import type { Transaction } from '@/db';
 import { generateToken, buildConfirmationUrl } from '@/lib/tokens';
 import { isUniqueViolation } from '@/lib/db-errors';
 import { pickDefined } from '@/lib/patch';
-import {
-  computeAccessExpiry,
-  insertToken,
-  mintToken,
-  resolveActiveToken,
-  revokeActiveTokens,
-} from '@/server/access/tokens';
+import { insertToken, mintToken, resolveActiveToken, revokeActiveTokens } from '@/server/access/tokens';
 import { generateAccessCode, hashAccessCode } from '@/lib/access-code';
 import { STALE_THRESHOLD_DAYS } from '@/lib/config';
 import { env } from '@/lib/env';
@@ -84,9 +78,6 @@ async function withOrderNumberRetry<T>(
     }
   }
 }
-
-// Re-exported for existing importers; canonical home is src/server/access/tokens.ts.
-export { computeAccessExpiry };
 
 async function loadOrderOrThrow(id: string) {
   const order = await db.query.orders.findFirst({ where: eq(orders.id, id) });
@@ -653,7 +644,8 @@ export async function updateOrder(
   await recordAuditEvent({
     aggregateId: id,
     eventType: 'order.updated',
-    payload: { fields: Object.keys(patch), actorEmail: meta?.actorEmail ?? null },
+    payload: { fields: Object.keys(patch) },
+    actorEmail: meta?.actorEmail ?? null,
   });
 }
 

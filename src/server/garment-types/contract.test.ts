@@ -64,9 +64,8 @@ describe('createGarmentTypeSchema', () => {
     const parsed = createGarmentTypeSchema.parse({ name: 'Pullover Hoodie' });
     expect(parsed).toMatchObject({
       name: 'Pullover Hoodie',
-      fabricOptions: [],
+      fabricFields: [],
       orderOptions: [],
-      sizes: [],
       sizeChartIds: [],
       isActive: true,
       sortOrder: 0,
@@ -84,26 +83,14 @@ describe('createGarmentTypeSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('rejects a size range without sizes', () => {
-    const result = createGarmentTypeSchema.safeParse({
-      name: 'Hoodie',
-      sizes: [{ sizeRange: 'mens', sizes: [] }],
-    });
-    expect(result.success).toBe(false);
-  });
-
   it('accepts a full valid payload', () => {
     const result = createGarmentTypeSchema.safeParse({
       name: 'Hoodie',
       category: 'Hoodies',
-      fabricOptions: ['Cotton Fleece', 'Poly Fleece'],
+      fabricFields: [{ label: 'Outer Fabric', options: ['Cotton Fleece', 'Poly Fleece'] }],
       orderOptions: [
         { label: 'Zip Type', type: 'select', options: ['full-zip', 'pullover'], defaultOption: 'pullover' },
         { label: 'Cord Color', type: 'text' },
-      ],
-      sizes: [
-        { sizeRange: 'mens', sizes: ['S', 'M', 'L'] },
-        { sizeRange: 'womens', sizes: ['8', '10', '12'] },
       ],
       sizeChartIds: ['4d0f1f3e-58a3-4a44-bb62-cf7c88a11a10'],
     });
@@ -149,13 +136,5 @@ describe('fabricFields', () => {
         ],
       }).success,
     ).toBe(false);
-  });
-
-  it('still accepts a legacy sizes payload for API compat', () => {
-    const result = createGarmentTypeSchema.parse({
-      name: 'Hoodie',
-      sizes: [{ sizeRange: 'mens', sizes: ['S', 'M'] }],
-    });
-    expect(result.sizes).toHaveLength(1);
   });
 });
