@@ -174,6 +174,18 @@ export const orders = confirmation.table(
     }),
     reprintReason: text('reprint_reason'),
 
+    // --- workflow stage (see workflow_stages) ---------------------------------
+    // Nullable with NO backfill: the read path resolves null (or a slug that no
+    // longer exists) to the default stage for the row's status, so every
+    // pre-existing row renders on the board correctly from day one.
+    workflowStageSlug: text('workflow_stage_slug'),
+    /**
+     * When the entity entered its current stage — the clock the stuck-job scans
+     * read. Stored rather than derived from domain_events, which would mean a
+     * max(created_at) scan per entity on every tick.
+     */
+    stageEnteredAt: timestamp('stage_entered_at', { withTimezone: true }),
+
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .defaultNow()
@@ -199,6 +211,12 @@ export const orders = confirmation.table(
     index('orders_source_order_idx')
       .on(t.sourceOrderId)
       .where(sql`${t.sourceOrderId} is not null`),
+    // Stuck-job scan reads (stage, entered-at). Partial: a row that has never
+    // been staged is not a candidate, and rows stay unstaged until the board
+    // is used on them.
+    index('orders_stage_idx')
+      .on(t.workflowStageSlug, t.stageEnteredAt)
+      .where(sql`${t.workflowStageSlug} is not null`),
   ],
 );
 
@@ -822,6 +840,12 @@ export const purchaseOrders = confirmation.table(
     receivedAt: timestamp('received_at', { withTimezone: true }),
     notes: text('notes'),
     createdBy: uuid('created_by').references(() => staffUsers.id),
+
+    // Workflow stage — same shape and same nullable-no-backfill reasoning as on
+    // `orders` (see there).
+    workflowStageSlug: text('workflow_stage_slug'),
+    stageEnteredAt: timestamp('stage_entered_at', { withTimezone: true }),
+
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .defaultNow()
@@ -832,6 +856,11 @@ export const purchaseOrders = confirmation.table(
     index('purchase_orders_order_idx').on(t.orderId),
     index('purchase_orders_supplier_idx').on(t.supplierId),
     index('purchase_orders_status_idx').on(t.status),
+    // The stuck-job scan reads (stage, entered-at) pairs; partial because a row
+    // that has never been staged is not a candidate.
+    index('purchase_orders_stage_idx')
+      .on(t.workflowStageSlug, t.stageEnteredAt)
+      .where(sql`${t.workflowStageSlug} is not null`),
   ],
 );
 
@@ -902,6 +931,163 @@ export const shipmentPurchaseOrders = confirmation.table(
   ],
 );
 
+// --- workflow: configurable stages over the fixed status enums ---------------
+// The `order_status` / `po_status` enums stay the state machine. A stage is a
+// configurable *column on a board* that sits UNDER one of those statuses, so
+// staff can add pre-production steps ("artwork", "digitising") without inventing
+// new statuses that every consumer of the enum would then have to understand.
+//
+// Every status has at least one seeded stage, so a board can always be rendered
+// from stages alone. Moving between stages inside one status group is a pure
+// stage move; crossing a group boundary also performs a status transition, and
+// that goes through the existing guard (`canTransition`).
+
+/** Which board a stage belongs to. */
+export type WorkflowBoardKey = 'order' | 'purchase_order';
+
+/** Whether one confirmation is enough, or every owner must confirm. */
+export type ConfirmationPolicy = 'any' | 'all';
+
+export const workflowStages = confirmation.table(
+  'workflow_stages',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    boardKey: text('board_key').notNull().$type<WorkflowBoardKey>(),
+    /**
+     * Stable identifier. Entities reference the SLUG, not the id, so a stage can
+     * be renamed or recoloured without touching every row that sits in it.
+     */
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    /** The enum status this stage sits under (`order_status` / `po_status`). */
+    statusKey: text('status_key').notNull(),
+    /**
+     * Set when leaving this stage should also move the entity's status forward.
+     * Null means the stage is one of several inside a single status group.
+     */
+    advancesToStatus: text('advances_to_status'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    color: text('color'),
+    isActive: boolean('is_active').notNull().default(true),
+    /** Nothing is expected to leave a terminal stage, so stuck-scans skip it. */
+    isTerminal: boolean('is_terminal').notNull().default(false),
+    // Null = inherit the app default, so tuning one stage does not mean
+    // restating the policy for all of them.
+    warnAfterHours: integer('warn_after_hours'),
+    urgentAfterHours: integer('urgent_after_hours'),
+    defaultConfirmationPolicy: text('default_confirmation_policy')
+      .notNull()
+      .default('any')
+      .$type<ConfirmationPolicy>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex('workflow_stages_board_slug_uq').on(t.boardKey, t.slug),
+    index('workflow_stages_board_sort_idx').on(t.boardKey, t.sortOrder),
+    index('workflow_stages_status_idx').on(t.boardKey, t.statusKey),
+  ],
+);
+
+// A step that has to happen while an entity sits in a stage. Blocking tasks must
+// all be satisfied before the entity can leave; non-blocking ones stay open and
+// follow the job (a colour sample can still be outstanding in production), which
+// is what makes "mostly sequential, some parallel" expressible without a DAG.
+export const workflowStageTasks = confirmation.table(
+  'workflow_stage_tasks',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    stageId: uuid('stage_id')
+      .notNull()
+      .references(() => workflowStages.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    isBlocking: boolean('is_blocking').notNull().default(true),
+    /** Null = inherit the stage's `defaultConfirmationPolicy`. */
+    confirmationPolicy: text('confirmation_policy').$type<ConfirmationPolicy>(),
+    /**
+     * Gate keys this task feeds. A gate is not a table: it is "every active task
+     * carrying this key is satisfied" (see GATE_CATALOG in the workflow server
+     * module), which keeps gates configurable without another join.
+     */
+    gateKeys: jsonb('gate_keys').$type<string[]>().notNull().default([]),
+    sortOrder: integer('sort_order').notNull().default(0),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex('workflow_stage_tasks_stage_slug_uq').on(t.stageId, t.slug),
+    index('workflow_stage_tasks_stage_sort_idx').on(t.stageId, t.sortOrder),
+  ],
+);
+
+// One row PER CONFIRMING USER — that is what makes an 'all' policy expressible
+// at all. Polymorphic on (entityType, entityId) with no FK, matching
+// audit_events: the same task set applies to orders and purchase orders.
+export const workflowTaskCompletions = confirmation.table(
+  'workflow_task_completions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => workflowStageTasks.id, { onDelete: 'cascade' }),
+    entityType: text('entity_type').notNull().$type<WorkflowBoardKey>(),
+    entityId: uuid('entity_id').notNull(),
+    /** Null for a system-recorded completion (a scan, an import). */
+    confirmedByStaffUserId: uuid('confirmed_by_staff_user_id').references(() => staffUsers.id),
+    // Denormalised so the trail survives a user being renamed or deactivated.
+    confirmedByEmail: text('confirmed_by_email'),
+    note: text('note'),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Two constraints, not one: Postgres treats NULLs as distinct, so a single
+    // unique including the nullable user column would not stop repeated system
+    // completions.
+    uniqueIndex('workflow_task_completions_user_uq')
+      .on(t.taskId, t.entityType, t.entityId, t.confirmedByStaffUserId)
+      .where(sql`${t.confirmedByStaffUserId} is not null`),
+    uniqueIndex('workflow_task_completions_system_uq')
+      .on(t.taskId, t.entityType, t.entityId)
+      .where(sql`${t.confirmedByStaffUserId} is null`),
+    index('workflow_task_completions_entity_idx').on(t.entityType, t.entityId),
+  ],
+);
+
+// Who owns what. A user owning a STAGE is a row with entityType
+// 'workflow_stage' — that is how "notify whoever owns this step" resolves
+// without a separate stage_owners table.
+export type AssignmentEntityType = 'order' | 'purchase_order' | 'workflow_stage';
+
+export const assignments = confirmation.table(
+  'assignments',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    staffUserId: uuid('staff_user_id')
+      .notNull()
+      .references(() => staffUsers.id, { onDelete: 'cascade' }),
+    entityType: text('entity_type').notNull().$type<AssignmentEntityType>(),
+    entityId: uuid('entity_id').notNull(),
+    /** Free-form ('owner', 'watcher'); the recipient rules read it. */
+    role: text('role').notNull().default('owner'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    createdBy: uuid('created_by').references(() => staffUsers.id),
+  },
+  (t) => [
+    uniqueIndex('assignments_unique_uq').on(t.staffUserId, t.entityType, t.entityId, t.role),
+    index('assignments_entity_idx').on(t.entityType, t.entityId),
+    index('assignments_user_idx').on(t.staffUserId),
+  ],
+);
+
 // --- relations (no DB migration needed — type-level only for db.query.* API) ---
 
 export const ordersRelations = relations(orders, ({ one, many }) => ({
@@ -949,6 +1135,39 @@ export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many })
   createdByUser: one(staffUsers, {
     fields: [purchaseOrders.createdBy],
     references: [staffUsers.id],
+  }),
+}));
+
+export const workflowStagesRelations = relations(workflowStages, ({ many }) => ({
+  tasks: many(workflowStageTasks),
+}));
+
+export const workflowStageTasksRelations = relations(workflowStageTasks, ({ one, many }) => ({
+  stage: one(workflowStages, {
+    fields: [workflowStageTasks.stageId],
+    references: [workflowStages.id],
+  }),
+  completions: many(workflowTaskCompletions),
+}));
+
+export const workflowTaskCompletionsRelations = relations(workflowTaskCompletions, ({ one }) => ({
+  task: one(workflowStageTasks, {
+    fields: [workflowTaskCompletions.taskId],
+    references: [workflowStageTasks.id],
+  }),
+  // Polymorphic on (entityType, entityId), so there is deliberately no relation
+  // to the entity itself — the service resolves it per board.
+  confirmedBy: one(staffUsers, {
+    fields: [workflowTaskCompletions.confirmedByStaffUserId],
+    references: [staffUsers.id],
+  }),
+}));
+
+export const assignmentsRelations = relations(assignments, ({ one }) => ({
+  staffUser: one(staffUsers, {
+    fields: [assignments.staffUserId],
+    references: [staffUsers.id],
+    relationName: 'assignee',
   }),
 }));
 

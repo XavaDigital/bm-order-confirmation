@@ -50,6 +50,15 @@ export type DomainEventType =
   | 'order.note_added'
   | 'note.edited'
   | 'note.deleted'
+  // Audit-only: a status set through the generic admin PATCH. Distinct from the
+  // customer-driven order.confirmed / order.changes_requested outbox events.
+  | 'order.status_changed'
+  // Workflow stage moves (audit-only; the board is a staff view, not a
+  // consumer-facing state machine).
+  | 'workflow.stage_entered'
+  | 'workflow.stage_exited'
+  | 'workflow.task_confirmed'
+  | 'workflow.task_reopened'
   | 'access_code.enabled'
   | 'access_code.disabled'
   | 'roster.member_added'

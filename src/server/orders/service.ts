@@ -31,6 +31,8 @@ import { generateAccessCode, hashAccessCode } from '@/lib/access-code';
 import { STALE_THRESHOLD_DAYS } from '@/lib/config';
 import { env } from '@/lib/env';
 import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
+import { canTransitionOrder, explainOrderTransition } from './status-machine';
+import type { OrderStatus } from '@/lib/status';
 import type { CreateOrderInput } from './contract';
 import type { UpdateOrderInput, AddGarmentInput, UpdateGarmentInput, UpsertSizingInput } from './admin-contract';
 
@@ -698,22 +700,57 @@ export async function updateOrder(
   patch: UpdateOrderInput,
   meta?: { actorEmail?: string },
 ) {
-  await loadOrderOrThrow(id);
+  const existing = await loadOrderOrThrow(id);
+
+  // A status arriving through the generic PATCH used to be written straight
+  // through, so a confirmed order could be silently reverted to draft with the
+  // customer's signature still on file and no event emitted. Validate it like
+  // any other transition.
+  const statusChanged = patch.status !== undefined && patch.status !== existing.status;
+  if (statusChanged) {
+    const to = patch.status as OrderStatus;
+    if (!canTransitionOrder(existing.status, to)) {
+      throw new ConflictError(
+        explainOrderTransition(existing.status, to) ??
+          `Cannot move an order from ${existing.status} to ${to}`,
+      );
+    }
+  }
 
   const { orderValueAmount, ...rest } = patch;
-  await db.update(orders).set({
-    ...pickDefined(rest),
-    ...(orderValueAmount !== undefined && {
-      orderValueAmount: orderValueAmount != null ? String(orderValueAmount) : null,
-    }),
-    updatedAt: new Date(),
-  }).where(eq(orders.id, id));
+  await db.transaction(async (tx) => {
+    await tx.update(orders).set({
+      ...pickDefined(rest),
+      ...(orderValueAmount !== undefined && {
+        orderValueAmount: orderValueAmount != null ? String(orderValueAmount) : null,
+      }),
+      updatedAt: new Date(),
+    }).where(eq(orders.id, id));
 
-  await recordAuditEvent({
-    aggregateId: id,
-    eventType: 'order.updated',
-    payload: { fields: Object.keys(patch) },
-    actorEmail: meta?.actorEmail ?? null,
+    await recordAuditEvent(
+      {
+        aggregateId: id,
+        eventType: 'order.updated',
+        payload: { fields: Object.keys(patch) },
+        actorEmail: meta?.actorEmail ?? null,
+      },
+      tx,
+    );
+
+    // A status change is history in its own right — the timeline showed only
+    // "order details updated" before, which hid the most consequential edit a
+    // PATCH can make.
+    if (statusChanged) {
+      await recordAuditEvent(
+        {
+          aggregateId: id,
+          eventType: 'order.status_changed',
+          payload: { from: existing.status, to: patch.status },
+          actorEmail: meta?.actorEmail ?? null,
+        },
+        tx,
+      );
+    }
   });
 }
 

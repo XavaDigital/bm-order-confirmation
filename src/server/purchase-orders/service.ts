@@ -382,55 +382,80 @@ export async function updatePurchaseOrder(
   return (await db.query.purchaseOrders.findFirst({ where: eq(purchaseOrders.id, id) }))!;
 }
 
-export async function updatePurchaseOrderStatus(
-  id: string,
+/**
+ * The status transition itself, inside a caller-supplied transaction.
+ *
+ * Split out from the public function below so a workflow stage move can write
+ * the stage and the status in ONE transaction. Two transactions would leave a
+ * window where a failure between them puts the board and the status permanently
+ * out of step — invisible until a customer asks where their order is.
+ *
+ * Validates the transition itself, so no caller can route around `canTransition`
+ * by reaching for the tx-aware form.
+ *
+ * The caller MUST call `syncOrderProductionStatus(po.orderId)` after the
+ * transaction commits — it is a network write-back and has no place inside a
+ * database transaction. The public wrapper does this; new callers must too.
+ */
+export async function updatePurchaseOrderStatusTx(
+  tx: Transaction,
+  po: { id: string; orderId: string; poNumber: string; status: PoStatus; sentAt: Date | null },
   nextStatus: PoStatus,
   meta?: ActorMeta,
 ) {
-  const po = await loadPoOrThrow(id);
   const from = po.status;
   if (!canTransition(from, nextStatus)) {
     throw new ConflictError(`Cannot move a ${from} purchase order to ${nextStatus}`);
   }
 
   const now = new Date();
-  const updated = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(purchaseOrders)
-      .set({
-        status: nextStatus,
-        // sentAt marks the FIRST send — a remake loop must not overwrite it.
-        ...(nextStatus === 'sent' && po.sentAt === null ? { sentAt: now } : {}),
-        ...(nextStatus === 'received' ? { receivedAt: now } : {}),
-        updatedAt: now,
-      })
-      .where(eq(purchaseOrders.id, id))
-      .returning();
+  const [row] = await tx
+    .update(purchaseOrders)
+    .set({
+      status: nextStatus,
+      // sentAt marks the FIRST send — a remake loop must not overwrite it.
+      ...(nextStatus === 'sent' && po.sentAt === null ? { sentAt: now } : {}),
+      ...(nextStatus === 'received' ? { receivedAt: now } : {}),
+      updatedAt: now,
+    })
+    .where(eq(purchaseOrders.id, po.id))
+    .returning();
 
+  await emitOrderEvent(tx, {
+    aggregateId: po.orderId,
+    eventType: 'po.status_changed',
+    payload: { poId: po.id, poNumber: po.poNumber, from, to: nextStatus },
+  });
+  if (nextStatus === 'cancelled') {
     await emitOrderEvent(tx, {
       aggregateId: po.orderId,
-      eventType: 'po.status_changed',
-      payload: { poId: id, poNumber: po.poNumber, from, to: nextStatus },
+      eventType: 'po.cancelled',
+      payload: { poId: po.id, poNumber: po.poNumber },
     });
-    if (nextStatus === 'cancelled') {
-      await emitOrderEvent(tx, {
-        aggregateId: po.orderId,
-        eventType: 'po.cancelled',
-        payload: { poId: id, poNumber: po.poNumber },
-      });
-    }
-    await recordAuditEvent(
-      {
-        aggregateId: po.orderId,
-        eventType: 'po.status_changed',
-        payload: { poId: id, poNumber: po.poNumber, from, to: nextStatus },
-        actorEmail: meta?.actorEmail ?? null,
-      },
-      tx,
-    );
+  }
+  await recordAuditEvent(
+    {
+      aggregateId: po.orderId,
+      eventType: 'po.status_changed',
+      payload: { poId: po.id, poNumber: po.poNumber, from, to: nextStatus },
+      actorEmail: meta?.actorEmail ?? null,
+    },
+    tx,
+  );
 
-    return row;
-  });
+  return row;
+}
+
+export async function updatePurchaseOrderStatus(
+  id: string,
+  nextStatus: PoStatus,
+  meta?: ActorMeta,
+) {
+  const po = await loadPoOrThrow(id);
+
+  const updated = await db.transaction((tx) =>
+    updatePurchaseOrderStatusTx(tx, po, nextStatus, meta),
+  );
 
   // Fire-and-forget hub write-back AFTER commit — dormant unless the hub is
   // configured and the order is platform-known (see hub-sync.ts).

@@ -330,7 +330,10 @@ describe('duplicateOrder', () => {
     const created = await createOrder(minimalInput({ garments: [{ name: 'Home Jersey' }] }));
     const source = await getOrderAdmin(created.orderId);
     await updateGarment(source!.garments[0].id, { name: 'Renamed Jersey' });
-    await updateOrder(created.orderId, { status: 'changes_requested' });
+    // 'sent', not 'changes_requested': a draft order has never had a customer
+    // link, so there is nothing for a customer to have requested changes to —
+    // canTransitionOrder rejects that edge.
+    await updateOrder(created.orderId, { status: 'sent' });
 
     const dup = await duplicateOrder(created.orderId);
     const dupOrder = await getOrderAdmin(dup.orderId);
@@ -1211,5 +1214,76 @@ describe('custom sizing columns', () => {
 
     expect(copy!.garments[0].sizingColumns).toEqual([colourColumn, sponsorColumn]);
     expect(copy!.garments[0].sizing[0].customValues).toEqual({ Colour: 'Navy' });
+  });
+});
+
+describe('updateOrder status transitions', () => {
+  // The hole this closes: PATCH used to write `status` straight through, so a
+  // confirmed order could be reverted to draft with the customer's signature
+  // still on file and nothing recorded.
+  it('refuses to revert a confirmed order', async () => {
+    const created = await createOrder(minimalInput());
+    await db
+      .update(schema.orders)
+      .set({ status: 'confirmed' })
+      .where(eq(schema.orders.id, created.orderId));
+
+    await expect(updateOrder(created.orderId, { status: 'draft' })).rejects.toThrow(
+      /only be cancelled/i,
+    );
+
+    const [row] = await db
+      .select()
+      .from(schema.orders)
+      .where(eq(schema.orders.id, created.orderId));
+    expect(row.status).toBe('confirmed');
+  });
+
+  it('refuses changes_requested on an order that was never sent', async () => {
+    const created = await createOrder(minimalInput());
+
+    await expect(
+      updateOrder(created.orderId, { status: 'changes_requested' }),
+    ).rejects.toThrow(/cannot move an order from draft/i);
+  });
+
+  it('allows a legal transition and records it as its own audit event', async () => {
+    const created = await createOrder(minimalInput());
+
+    await updateOrder(created.orderId, { status: 'sent' }, { actorEmail: 'staff@x.com' });
+
+    const audit = await db
+      .select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.eventType, 'order.status_changed'));
+    expect(audit).toHaveLength(1);
+    expect(audit[0].payload).toMatchObject({ from: 'draft', to: 'sent' });
+    expect(audit[0].actorEmail).toBe('staff@x.com');
+  });
+
+  // Re-sending the same status is a no-op, not a conflict — the UI can PATCH the
+  // whole form back without having to diff the status first.
+  it('accepts a patch that repeats the current status', async () => {
+    const created = await createOrder(minimalInput());
+
+    await expect(updateOrder(created.orderId, { status: 'draft' })).resolves.toBeUndefined();
+
+    const audit = await db
+      .select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.eventType, 'order.status_changed'));
+    expect(audit).toHaveLength(0);
+  });
+
+  it('leaves non-status fields working as before', async () => {
+    const created = await createOrder(minimalInput());
+
+    await updateOrder(created.orderId, { clubName: 'Wildcats' });
+
+    const [row] = await db
+      .select()
+      .from(schema.orders)
+      .where(eq(schema.orders.id, created.orderId));
+    expect(row.clubName).toBe('Wildcats');
   });
 });

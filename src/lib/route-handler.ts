@@ -128,7 +128,16 @@ export function defineRoute<P = Record<string, never>, B = undefined>(
         return NextResponse.json({ error: err.message }, { status: 404 });
       }
       if (isNamed(err, 'ConflictError')) {
-        return NextResponse.json({ error: err.message }, { status: 409 });
+        // A conflict often has a LIST behind it ("these three checks are still
+        // outstanding"). An error class may attach that as `details`, which is
+        // passed through so the UI can show the list rather than one sentence
+        // that makes the user go hunting. Omitted entirely when absent, so the
+        // common shape stays `{ error }`.
+        const details = (err as { details?: unknown }).details;
+        return NextResponse.json(
+          details === undefined ? { error: err.message } : { error: err.message, details },
+          { status: 409 },
+        );
       }
       if (isNamed(err, 'UnavailableError')) {
         // Misconfigured server dependency — log it too, since it needs an ops fix.
