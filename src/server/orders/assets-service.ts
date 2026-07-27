@@ -7,28 +7,23 @@
  */
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { orderAssets, garments, orders } from '@/db/schema';
+import { orderAssets } from '@/db/schema';
 import { pickDefined } from '@/lib/patch';
 import { recordAuditEvent } from '@/server/events/outbox';
-import { ConflictError, NotFoundError } from './service';
+import { NotFoundError } from './service';
+import { assertGarmentBelongsToOrder, assertOrderExists } from './guards';
 import type { CreateOrderAssetInput, UpdateOrderAssetInput } from './assets-contract';
 
 type ActorMeta = { actorEmail?: string | null };
 
-async function loadAssetOrThrow(id: string) {
+/**
+ * Load an asset and confirm it really is on that order, so an asset id from a
+ * different order is a 404 rather than a silent cross-order write.
+ */
+async function loadAssetOrThrow(orderId: string, id: string) {
   const asset = await db.query.orderAssets.findFirst({ where: eq(orderAssets.id, id) });
-  if (!asset) throw new NotFoundError('Asset');
+  if (!asset || asset.orderId !== orderId) throw new NotFoundError('Asset');
   return asset;
-}
-
-/** A tagged garment must belong to the same order — otherwise the tag would leak
- *  another order's garment name onto this order's purchase orders. */
-async function assertGarmentBelongsToOrder(orderId: string, garmentId: string) {
-  const garment = await db.query.garments.findFirst({
-    where: and(eq(garments.id, garmentId), eq(garments.orderId, orderId)),
-    columns: { id: true },
-  });
-  if (!garment) throw new ConflictError('That garment does not belong to this order');
 }
 
 export async function listOrderAssets(orderId: string) {
@@ -44,11 +39,7 @@ export async function createOrderAsset(
   input: CreateOrderAssetInput,
   meta?: ActorMeta & { actorStaffUserId?: string | null },
 ) {
-  const order = await db.query.orders.findFirst({
-    where: eq(orders.id, orderId),
-    columns: { id: true },
-  });
-  if (!order) throw new NotFoundError('Order');
+  await assertOrderExists(orderId);
   if (input.garmentId) await assertGarmentBelongsToOrder(orderId, input.garmentId);
 
   const asset = await db.transaction(async (tx) => {
@@ -89,11 +80,12 @@ export async function createOrderAsset(
 }
 
 export async function updateOrderAsset(
+  orderId: string,
   id: string,
   patch: UpdateOrderAssetInput,
   meta?: ActorMeta,
 ) {
-  const existing = await loadAssetOrThrow(id);
+  const existing = await loadAssetOrThrow(orderId, id);
   if (patch.garmentId) await assertGarmentBelongsToOrder(existing.orderId, patch.garmentId);
 
   const updated = await db.transaction(async (tx) => {
@@ -119,8 +111,8 @@ export async function updateOrderAsset(
   return updated;
 }
 
-export async function deleteOrderAsset(id: string, meta?: ActorMeta) {
-  const existing = await loadAssetOrThrow(id);
+export async function deleteOrderAsset(orderId: string, id: string, meta?: ActorMeta) {
+  const existing = await loadAssetOrThrow(orderId, id);
 
   await db.transaction(async (tx) => {
     await tx.delete(orderAssets).where(eq(orderAssets.id, id));

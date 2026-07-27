@@ -38,7 +38,12 @@ function garment(overrides: Partial<Parameters<typeof GarmentsMasterDetail>[0]['
 function renderView(initialGarments: ReturnType<typeof garment>[] = []) {
   return render(
     <AntdApp>
-      <GarmentsMasterDetail orderId="order-1" initialGarments={initialGarments} />
+      <GarmentsMasterDetail
+        orderId="order-1"
+        initialGarments={initialGarments}
+        currentUserId="staff-1"
+        isAdmin={false}
+      />
     </AntdApp>,
   );
 }

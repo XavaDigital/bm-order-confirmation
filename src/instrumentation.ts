@@ -6,9 +6,19 @@ export async function register() {
 
   // Recurring work runs in-process — this app is a long-lived container, so it
   // needs no external scheduler (see src/server/scheduler/runtime.ts for why,
-  // and for the guards that keep it out of builds, tests and the edge runtime).
-  const { startScheduler } = await import('@/server/scheduler/runtime');
-  startScheduler();
+  // and for the guards that keep it out of builds and tests).
+  //
+  // The runtime check MUST be here, ahead of the import, not just inside
+  // startScheduler(). Next compiles this file once per runtime and replaces
+  // `process.env.NEXT_RUNTIME` with a literal, so this makes the branch dead
+  // code in the edge bundle and webpack drops the whole graph behind it.
+  // Reaching the import unconditionally pulls the scheduler's job handlers —
+  // and through them nodemailer — into the edge bundle, where `crypto` and `fs`
+  // do not resolve and the build fails.
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { startScheduler } = await import('@/server/scheduler/runtime');
+    startScheduler();
+  }
 }
 
 /**

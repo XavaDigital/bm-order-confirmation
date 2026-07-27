@@ -37,6 +37,7 @@ import {
   HistoryOutlined,
   ShoppingCartOutlined,
   FolderOpenOutlined,
+  MessageOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
@@ -53,6 +54,7 @@ import { AuditLogTab } from '@/components/admin/orders/AuditLogTab';
 import { RosterPanel } from '@/components/admin/orders/RosterPanel';
 import { ProductionPanel } from '@/components/admin/orders/ProductionPanel';
 import { OrderAssetsPanel } from '@/components/admin/orders/OrderAssetsPanel';
+import { NotesThread } from '@/components/admin/orders/NotesThread';
 import { useProductionSummary } from '@/lib/use-production-summary';
 import type { MockupImage } from '@/components/admin/orders/MockupUploader';
 
@@ -106,13 +108,6 @@ export interface AdminOrderData {
   /** Set when this order is a reprint — the source order it reprints. */
   sourceOrder?: { id: string; orderNumber: string } | null;
   reprintReason?: string | null;
-  notes?: {
-    id: string;
-    body: string;
-    authorKind: 'staff' | 'email_flow' | 'system';
-    authorLabel: string | null;
-    createdAt: string;
-  }[];
   garments: GarmentData[];
   currentAccess: {
     id: string;
@@ -127,9 +122,12 @@ const CANCELLABLE_STATUSES = new Set(['sent', 'viewed', 'changes_requested']);
 
 interface Props {
   order: AdminOrderData;
+  /** Signed-in staff user — authors may edit/delete their own notes. */
+  currentUserId: string;
+  isAdmin: boolean;
 }
 
-export function OrderDetailView({ order }: Props) {
+export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
   const { message } = App.useApp();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -138,6 +136,9 @@ export function OrderDetailView({ order }: Props) {
   // Owned here (not in the panel) so the rail badge + garments warning stay in
   // step with it, and so an edit anywhere in the order can refresh all three.
   const production = useProductionSummary(order.id);
+  // Null until the thread reports in, so the rail shows "Notes" rather than
+  // "Notes (0)" before it has loaded.
+  const [noteCount, setNoteCount] = useState<number | null>(null);
   // Panels mount on first visit and stay mounted after (they hold state and
   // fetch their own data) — same semantics as the old Tabs lazy render.
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([initialTab]));
@@ -380,22 +381,6 @@ export function OrderDetailView({ order }: Props) {
           {/* Renders nothing unless the Sales Hub integration is configured */}
           <CustomerHubSelect value={hubCustomer} onSelect={setHubCustomer} />
           <OrderForm form={form} initialValues={initialValues} />
-          {(order.notes ?? []).length > 0 && (
-            <Card size="small" title="Notes">
-              <Space direction="vertical" style={{ width: '100%' }} size={8}>
-                {(order.notes ?? []).map((note) => (
-                  <div key={note.id}>
-                    <Typography.Text style={{ display: 'block' }}>{note.body}</Typography.Text>
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      {note.authorKind === 'email_flow' ? 'Email Flow' : note.authorKind}
-                      {note.authorLabel ? ` · ${note.authorLabel}` : ''} ·{' '}
-                      {formatDateTime(note.createdAt)}
-                    </Typography.Text>
-                  </div>
-                ))}
-              </Space>
-            </Card>
-          )}
           <Card
             size="small"
             style={{ borderColor: SEMANTIC.warning, background: 'rgba(250, 173, 20, 0.06)' }}
@@ -466,6 +451,8 @@ export function OrderDetailView({ order }: Props) {
           <GarmentsMasterDetail
             orderId={order.id}
             initialGarments={order.garments}
+            currentUserId={currentUserId}
+            isAdmin={isAdmin}
             onGarmentsChanged={production.reload}
           />
         </Space>
@@ -505,6 +492,19 @@ export function OrderDetailView({ order }: Props) {
         <OrderAssetsPanel
           orderId={order.id}
           garments={order.garments.map((g) => ({ id: g.id, name: g.name }))}
+        />
+      ),
+    },
+    {
+      key: 'notes',
+      label: noteCount === null ? 'Notes' : `Notes (${noteCount})`,
+      icon: <MessageOutlined />,
+      children: (
+        <NotesThread
+          orderId={order.id}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+          onCountChange={setNoteCount}
         />
       ),
     },

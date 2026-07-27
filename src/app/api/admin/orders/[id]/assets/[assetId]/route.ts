@@ -12,7 +12,7 @@ export const PATCH = defineRoute<
   schema: updateOrderAssetSchema,
   handler: async ({ params, body, session }) =>
     NextResponse.json(
-      await updateOrderAsset(params.assetId, body, { actorEmail: session!.email }),
+      await updateOrderAsset(params.id, params.assetId, body, { actorEmail: session!.email }),
     ),
 });
 
@@ -20,7 +20,7 @@ export const DELETE = defineRoute<{ id: string; assetId: string }>({
   auth: 'staff',
   tag: 'orders/[id]/assets/[assetId] DELETE',
   handler: async ({ params, session }) => {
-    await deleteOrderAsset(params.assetId, { actorEmail: session!.email });
+    await deleteOrderAsset(params.id, params.assetId, { actorEmail: session!.email });
     return NextResponse.json({ ok: true });
   },
 });

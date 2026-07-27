@@ -111,7 +111,7 @@ describe('order assets', () => {
     const { orderId } = await seedOrder();
     const asset = await createOrderAsset(orderId, { ...designAsset, notes: 'v1' }, {});
 
-    const updated = await updateOrderAsset(asset.id, { name: 'Front print v2', notes: null }, {});
+    const updated = await updateOrderAsset(orderId, asset.id, { name: 'Front print v2', notes: null }, {});
 
     expect(updated.name).toBe('Front print v2');
     expect(updated.notes).toBeNull();
@@ -121,7 +121,7 @@ describe('order assets', () => {
     const { orderId } = await seedOrder();
     const asset = await createOrderAsset(orderId, designAsset, {});
 
-    await deleteOrderAsset(asset.id, { actorEmail: 'staff@x.com' });
+    await deleteOrderAsset(orderId, asset.id, { actorEmail: 'staff@x.com' });
 
     expect(await listOrderAssets(orderId)).toHaveLength(0);
     const events = await db
@@ -133,8 +133,22 @@ describe('order assets', () => {
 
   it('throws NotFoundError for an unknown asset or order', async () => {
     const unknown = '00000000-0000-0000-0000-000000000000';
-    await expect(updateOrderAsset(unknown, { name: 'x' }, {})).rejects.toThrow('Asset not found');
+    await expect(updateOrderAsset(unknown, unknown, { name: 'x' }, {})).rejects.toThrow(
+      'Asset not found',
+    );
     await expect(createOrderAsset(unknown, designAsset, {})).rejects.toThrow('Order not found');
+  });
+
+  // An asset id from another order must not be reachable through this order's URL.
+  it('404s for an asset belonging to a different order', async () => {
+    const { orderId } = await seedOrder();
+    const other = await seedOrder();
+    const asset = await createOrderAsset(other.orderId, designAsset, {});
+
+    await expect(updateOrderAsset(orderId, asset.id, { name: 'x' }, {})).rejects.toThrow(
+      'Asset not found',
+    );
+    await expect(deleteOrderAsset(orderId, asset.id, {})).rejects.toThrow('Asset not found');
   });
 
   it('deletes assets when their garment goes (FK cascade)', async () => {

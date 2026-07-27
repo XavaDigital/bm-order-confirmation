@@ -18,7 +18,6 @@ import {
   garmentSizeChartLinks,
   garmentTypes,
   orderAccess,
-  orderNotes,
   orderAssets,
   domainEvents,
 } from '@/db/schema';
@@ -531,7 +530,6 @@ export async function getOrderAdmin(id: string) {
           sizeChartLinks: true,
         },
       },
-      notes: { orderBy: (n, { desc }) => [desc(n.createdAt)] },
       assets: {
         orderBy: (a, { asc }) => [asc(a.sortOrder), asc(a.createdAt)],
         with: { garment: { columns: { id: true, name: true } } },
@@ -716,38 +714,6 @@ export async function updateOrder(
     eventType: 'order.updated',
     payload: { fields: Object.keys(patch) },
     actorEmail: meta?.actorEmail ?? null,
-  });
-}
-
-/**
- * Add an attributed staff-only note to an order. Used by the admin UI and by
- * Email Flow via the inbound capability surface (POST /api/capability/v1/
- * orders/[id]/notes). Never exposed on the customer surface.
- */
-export async function addOrderNote(
-  orderId: string,
-  data: { body: string; authorKind: 'staff' | 'email_flow' | 'system'; authorLabel?: string | null },
-) {
-  await loadOrderOrThrow(orderId);
-
-  return db.transaction(async (tx) => {
-    const [note] = await tx
-      .insert(orderNotes)
-      .values({
-        orderId,
-        body: data.body,
-        authorKind: data.authorKind,
-        authorLabel: data.authorLabel ?? null,
-      })
-      .returning();
-
-    await emitOrderEvent(tx, {
-      aggregateId: orderId,
-      eventType: 'order.note_added',
-      payload: { noteId: note.id, authorKind: data.authorKind, authorLabel: data.authorLabel ?? null },
-    });
-
-    return note;
   });
 }
 

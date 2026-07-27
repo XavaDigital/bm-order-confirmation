@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { addOrderNote } from '@/server/orders/service';
+import { addOrderNote } from '@/server/orders/notes-service';
 import { defineRoute } from '@/lib/route-handler';
 
 const noteSchema = z.object({

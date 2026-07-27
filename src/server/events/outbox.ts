@@ -44,7 +44,12 @@ export type DomainEventType =
   | 'link.emailed'
   | 'order.updated'
   | 'order.duplicated'
+  // Notes: `order.note_added` is an outbox event (notification dispatch hangs
+  // off it). Edits and deletes are audit-only — they are staff action history,
+  // not something a consumer acts on.
   | 'order.note_added'
+  | 'note.edited'
+  | 'note.deleted'
   | 'access_code.enabled'
   | 'access_code.disabled'
   | 'roster.member_added'

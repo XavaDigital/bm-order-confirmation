@@ -205,11 +205,17 @@ export const orders = confirmation.table(
 /** What an order asset is, so the UI can group and label the list. */
 export type OrderAssetKind = 'design' | 'font' | 'other';
 
-// --- order notes (staff-only, attributed) ----------------------------------
-// Written by staff or relayed in from Email Flow via the inbound capability
-// surface. Separate from orders.internalNotes because these need attribution
-// + timestamps, and from generalNotes because that field is customer-visible.
-// Never exposed on /o/**.
+// --- order notes (staff-only, attributed, threaded) ------------------------
+// A chat on the order — and optionally on one garment of it — rather than a
+// log line, so staff can see who said what and reply. Written by staff or
+// relayed in from Email Flow via the inbound capability surface. Separate from
+// orders.internalNotes because these need attribution + timestamps, and from
+// generalNotes because that field is customer-visible. Never exposed on /o/**.
+//
+// `body` is plain text and stays notNull: it is what emails, previews and
+// search read, and it is all the Email-Flow path ever writes. `bodyHtml` holds
+// the sanitised rich text when a staff note came from the editor — readers
+// prefer it and fall back to `body`, so a note is always renderable.
 export const orderNotes = confirmation.table(
   'order_notes',
   {
@@ -217,12 +223,32 @@ export const orderNotes = confirmation.table(
     orderId: uuid('order_id')
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
+    // Null = a note on the order as a whole. Set = a note on this garment,
+    // which is the "notes on the specific garments" thread.
+    garmentId: uuid('garment_id').references(() => garments.id, { onDelete: 'cascade' }),
     body: text('body').notNull(),
+    bodyHtml: text('body_html'),
     authorKind: text('author_kind').notNull().$type<'staff' | 'email_flow' | 'system'>(),
     authorLabel: text('author_label'), // acting-user id / staff email
+    // The real actor, for notes written by a signed-in staff member. Nullable
+    // because Email-Flow and system notes have no staff row; no cascade, since
+    // deleting a user must not silently erase what they said.
+    authorStaffUserId: uuid('author_staff_user_id').references(() => staffUsers.id),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    // Soft delete: a removed note leaves a "deleted" placeholder in the thread
+    // rather than a hole, because a conversation that silently loses messages
+    // reads as a bug to the next person in it.
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
-  (t) => [index('order_notes_order_idx').on(t.orderId)],
+  (t) => [
+    index('order_notes_order_idx').on(t.orderId),
+    // The garment thread reads by garment; partial because most notes are
+    // order-wide and would otherwise sit in the index as nulls.
+    index('order_notes_garment_idx')
+      .on(t.garmentId, t.createdAt)
+      .where(sql`${t.garmentId} is not null`),
+  ],
 );
 
 // --- order assets (design files, font files) --------------------------------
@@ -975,6 +1001,11 @@ export const orderAssetsRelations = relations(orderAssets, ({ one }) => ({
 
 export const orderNotesRelations = relations(orderNotes, ({ one }) => ({
   order: one(orders, { fields: [orderNotes.orderId], references: [orders.id] }),
+  garment: one(garments, { fields: [orderNotes.garmentId], references: [garments.id] }),
+  author: one(staffUsers, {
+    fields: [orderNotes.authorStaffUserId],
+    references: [staffUsers.id],
+  }),
 }));
 
 export const garmentsRelations = relations(garments, ({ one, many }) => ({

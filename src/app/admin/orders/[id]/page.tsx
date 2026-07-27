@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { getSession } from '@/lib/session';
 import { getOrderAdmin } from '@/server/orders/service';
 import { signImageRefs } from '@/lib/signed-urls';
 import { getChangesRequestedComment, getChangesRequestedCount } from '@/server/events/outbox';
@@ -21,7 +22,7 @@ async function withSignedUrls(
 
 export default async function OrderDetailPage({ params }: Props) {
   const { id } = await params;
-  const order = await getOrderAdmin(id);
+  const [order, session] = await Promise.all([getOrderAdmin(id), getSession()]);
 
   if (!order) notFound();
 
@@ -57,13 +58,6 @@ export default async function OrderDetailPage({ params }: Props) {
     changesRequestedCount,
     hubCustomerId: order.hubCustomerId ?? null,
     hubCustomerName: order.hubCustomerName ?? null,
-    notes: order.notes.map((n) => ({
-      id: n.id,
-      body: n.body,
-      authorKind: n.authorKind,
-      authorLabel: n.authorLabel ?? null,
-      createdAt: n.createdAt.toISOString(),
-    })),
     sourceOrder: order.sourceOrder
       ? { id: order.sourceOrder.id, orderNumber: order.sourceOrder.orderNumber }
       : null,
@@ -108,5 +102,13 @@ export default async function OrderDetailPage({ params }: Props) {
       : null,
   };
 
-  return <OrderDetailView order={data} />;
+  // The note thread needs to know who is reading it: authors get edit/delete on
+  // their own notes, and admins get delete on anyone's.
+  return (
+    <OrderDetailView
+      order={data}
+      currentUserId={session.userId ?? ''}
+      isAdmin={session.role === 'admin'}
+    />
+  );
 }

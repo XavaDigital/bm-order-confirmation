@@ -66,10 +66,26 @@ function isNamed(err: unknown, suffix: string): err is Error {
   return err instanceof Error && err.name.endsWith(suffix);
 }
 
+/**
+ * The route context is declared as two overloads, and THE ORDER MATTERS.
+ *
+ * Next 15 generates a validator per route that rejects a handler whose context
+ * can be `undefined` (`Type 'undefined' is not assignable to type
+ * 'RouteContext'`), so a single optional parameter fails the build. It fails
+ * only in `npm run build` — `npm run typecheck` does not look at `.next/types`.
+ *
+ * TypeScript resolves `T extends (a: any, b: infer B) => any` against the LAST
+ * overload, so the required form must come second for Next to see it. Tests that
+ * invoke a param-less route as `POST(request)` match the first overload, which is
+ * honest: the implementation defaults the params to `{}` when no context arrives.
+ */
 export function defineRoute<P = Record<string, never>, B = undefined>(
   config: RouteConfig<P, B>,
-): (request: NextRequest, routeArgs?: { params: Promise<P> }) => Promise<NextResponse> {
-  return async (request, routeArgs) => {
+): {
+  (request: NextRequest): Promise<NextResponse>;
+  (request: NextRequest, routeArgs: { params: Promise<P> }): Promise<NextResponse>;
+} {
+  return async (request: NextRequest, routeArgs?: { params: Promise<P> }) => {
     try {
       let session: SessionData | null = null;
       let actingUser: string | null = null;

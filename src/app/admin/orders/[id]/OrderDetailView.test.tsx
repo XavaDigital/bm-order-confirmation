@@ -91,10 +91,14 @@ function baseOrder(overrides: Partial<AdminOrderData> = {}): AdminOrderData {
   };
 }
 
-function renderView(order: AdminOrderData) {
+function renderView(order: AdminOrderData, viewer?: { currentUserId?: string; isAdmin?: boolean }) {
   return render(
     <AntdApp>
-      <OrderDetailView order={order} />
+      <OrderDetailView
+        order={order}
+        currentUserId={viewer?.currentUserId ?? 'staff-1'}
+        isAdmin={viewer?.isAdmin ?? false}
+      />
     </AntdApp>,
   );
 }

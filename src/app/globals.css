@@ -29,3 +29,46 @@ body {
   outline: 2px solid var(--bm-primary-dark);
   outline-offset: 2px;
 }
+
+/* Rich-text note editor + rendered note bodies (RichTextEditor / NoteBody).
+   A contenteditable cannot show a real placeholder, so it is drawn from the
+   data attribute while the node is empty. */
+.bm-rich-editor:empty::before {
+  content: attr(data-placeholder);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* antd's reset zeroes list and heading margins; note bodies need them back, or
+   a bulleted note renders as an unindented run of lines. */
+.bm-rich-editor ul,
+.bm-rich-editor ol,
+.bm-note-body ul,
+.bm-note-body ol {
+  margin: 0.25em 0;
+  padding-inline-start: 1.4em;
+}
+
+.bm-rich-editor p,
+.bm-note-body p {
+  margin: 0 0 0.4em;
+}
+
+.bm-rich-editor p:last-child,
+.bm-note-body p:last-child {
+  margin-bottom: 0;
+}
+
+.bm-note-body blockquote,
+.bm-rich-editor blockquote {
+  margin: 0.4em 0;
+  padding-inline-start: 0.8em;
+  border-inline-start: 3px solid currentColor;
+  opacity: 0.75;
+}
+
+/* Long pasted URLs must wrap rather than widen the whole thread. */
+.bm-note-body,
+.bm-rich-editor {
+  overflow-wrap: anywhere;
+}
