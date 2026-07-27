@@ -230,53 +230,60 @@ Set `SMTP_*` and `MAIL_FROM`. Without this, confirmation links must be copied an
 shared manually. Staff notification emails (order confirmed, changes requested) are
 also disabled until SMTP is configured.
 
-### 6. Set up the scheduled jobs (Google Cloud Scheduler)
+### 6. Scheduled jobs — nothing to set up
 
-The outbox processor delivers domain events to their handlers (Google Ads conversion,
-staff email notifications) and drives the retry/redrive backoff described in
-[IMPROVEMENT_ROADMAP.md](./IMPROVEMENT_ROADMAP.md) 3.1. **Nothing is delivered until
-something calls it on a schedule** — staff confirmation and change-request emails simply
-never go out otherwise.
+Recurring work runs **in-process**. There is no external scheduler to configure,
+no extra secret, and no separate resource that can silently drift out of sync
+with the code that depends on it.
 
-**Decision (2026-07-27): Google Cloud Scheduler.** This supersedes the earlier
-Supabase `pg_cron` + `pg_net` decision (see the collapsed section below for that
-rationale, which was sound — the change is a deliberate move to keep scheduling with the
-rest of the fleet's GCP infrastructure, alongside bm-identity on Cloud Run, rather than
-splitting operational surface between the database and the cloud project).
+`src/server/scheduler/runtime.ts` is started once per server process from
+`src/instrumentation.ts` (`register()`), and currently drives:
 
-The endpoints accept **either** `Authorization: Bearer $CRON_SECRET` or
-`x-api-key: $INTERNAL_API_KEY`, and both `GET` and `POST` (schedulers differ on which
-they issue — a POST-only route would 405 forever and drain nothing).
+| Job | Every | What it does |
+|---|---|---|
+| `process-outbox` | 1 min | Delivers `domain_events` to their handlers (Google Ads conversion, staff notification emails) and drives the retry/backoff in [IMPROVEMENT_ROADMAP.md](./IMPROVEMENT_ROADMAP.md) 3.1 |
+| `purge-rate-limits` | 6 hrs | Deletes expired `rate_limits` windows |
 
-```bash
-# Outbox — every 5 minutes. The processor batches (BATCH_SIZE=20 per run) and uses
-# FOR UPDATE SKIP LOCKED, so overlapping runs are safe.
-gcloud scheduler jobs create http bm-order-confirmation-outbox   --location=<REGION>   --schedule="*/5 * * * *"   --uri="<APP_BASE_URL>/api/internal/process-outbox"   --http-method=GET   --headers="Authorization=Bearer <CRON_SECRET>"
-```
+**Why in-process rather than an external scheduler.** The app is a long-lived
+container (`Dockerfile`, `output: 'standalone'`), and it already needs a warm
+instance for the real-time notification stream — so a ticker costs no additional
+infrastructure. It also removes a whole class of failure: the outbox previously
+never drained in production because the cron endpoint exported `POST` while
+schedulers issue `GET`, a mismatch nothing surfaced. Code that ships with its own
+schedule cannot drift from the thing it drives.
 
-Verify with `gcloud scheduler jobs run bm-order-confirmation-outbox --location=<REGION>`
-and check the response body — it returns `{processed, delivered, failed, purgedRateLimits}`.
+Safety properties, so you can run more than one container without thinking about it:
 
-> If the `pg_cron` job below was ever scheduled, unschedule it so the two don't both
-> fire: `select cron.unschedule('process-outbox');` (harmless if both run — the SKIP
-> LOCKED claim prevents double-delivery — but it wastes requests and muddies debugging).
+- Every job is **idempotent** and time-based — a missed tick self-heals on the next.
+- `processOutbox` claims rows with `FOR UPDATE SKIP LOCKED`, so parallel runs
+  never double-deliver. The periodic scans added later take a Postgres advisory lock.
+- A job never overlaps itself (a slow run skips the next tick rather than stacking).
+- A throwing job logs and keeps its schedule; it never takes the process down.
+- First runs are jittered so a rolling deploy doesn't stampede the database.
+- Timers are `unref`'d and cleared on `SIGTERM`/`SIGINT`.
+
+The scheduler deliberately does **not** run during `next build`, in the edge
+runtime, or under test.
+
+**One caveat:** if the host scales to zero, in-process timers stop. If you deploy
+somewhere that does that, either keep a minimum of one warm instance (needed for
+real-time notifications anyway) or drive the endpoints externally as below.
 
 <details>
-<summary>Superseded: Supabase pg_cron / Vercel Cron / external cron</summary>
+<summary>Driving the jobs externally instead (optional)</summary>
 
-**Supabase pg_cron + pg_net** — the prior decision, scripted in
-[scripts/setup-outbox-cron.sql](./scripts/setup-outbox-cron.sql). Its rationale: the app
-is host-agnostic (PROJECT_BRIEF.md §2) while the Supabase database is the fixed part of
-the stack, so a DB-resident job survives a change of compute host. Still viable, and the
-script is kept for that reason.
+Set `SCHEDULER_DISABLED=1` so the instance doesn't double-run, then call the
+endpoints on a schedule. Both accept `GET` or `POST`, and authenticate with
+either `Authorization: Bearer $CRON_SECRET` or `x-api-key: $INTERNAL_API_KEY`:
 
-**Vercel Cron** — needs `vercel.json`; not applicable while the app deploys as a
-standalone container (`output: 'standalone'`, see `next.config.ts`).
-
-**External cron (Railway, cron-job.org, etc.)**:
 ```bash
 curl -X POST https://your-app.com/api/internal/process-outbox   -H "x-api-key: your-INTERNAL_API_KEY"
 ```
+
+The same endpoints are useful for forcing a tick while debugging, whether or not
+the in-process scheduler is enabled. [scripts/setup-outbox-cron.sql](./scripts/setup-outbox-cron.sql)
+holds a Supabase `pg_cron` variant (superseded, kept because a DB-resident job
+outlives a change of compute host).
 </details>
 
 ### 7. Configure Google Ads (optional)

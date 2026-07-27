@@ -14,8 +14,14 @@ const schema = z.object({
 
   // Set only if using Vercel Cron to trigger /api/internal/process-outbox.
   // Vercel sets this automatically as a project env var and sends it as
-  // `Authorization: Bearer $CRON_SECRET` on cron-triggered requests.
+  // `Authorization: Bearer $CRON_SECRET` on cron-triggered requests. Only
+  // needed if an EXTERNAL scheduler drives /api/internal/** — recurring work
+  // normally runs in-process (src/server/scheduler/runtime.ts).
   CRON_SECRET: z.string().optional(),
+
+  // Set to '1' to stop this instance running the in-process scheduler — for
+  // running an external scheduler instead, or for a worker/web split.
+  SCHEDULER_DISABLED: z.string().optional(),
 
   // Customer magic-link lifetime, in days. Unset → links never expire
   // (today's behavior). Suggested value once enabled: 30.

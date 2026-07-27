@@ -1,10 +1,13 @@
 -- Outbox processor scheduler — roadmap 3.2.
 --
--- ⚠️ SUPERSEDED (2026-07-27): scheduling moved to Google Cloud Scheduler — see
+-- ⚠️ SUPERSEDED (2026-07-27): recurring work now runs IN-PROCESS
+-- (src/server/scheduler/runtime.ts) — no external scheduler required. See
 -- README §6. This script is kept because its rationale still holds if the app
--- ever needs a scheduler that outlives the compute host. If this job WAS ever
--- scheduled, unschedule it so it doesn't fire alongside Cloud Scheduler:
+-- ever runs somewhere that scales to zero. If this job WAS ever scheduled,
+-- unschedule it so it doesn't fire alongside the in-process scheduler:
 --     select cron.unschedule('process-outbox');
+-- (Harmless if both run — the outbox's SKIP LOCKED claim prevents double
+-- delivery — but it wastes requests and muddies debugging.)
 --
 -- Original decision: Supabase pg_cron + pg_net, not Vercel Cron or an external cron
 -- service. The app is deliberately host-agnostic (PROJECT_BRIEF.md §2 — AWS
