@@ -258,6 +258,9 @@ export function PoPdf({
           <View style={s.colHalf}>
             <Text style={s.sectionTitle}>Reference</Text>
             <LabelValueRow label="Our order" value={snapshot.orderNumber} />
+            {snapshot.reprintOfOrderNumber && (
+              <LabelValueRow label="Reprint of" value={snapshot.reprintOfOrderNumber} />
+            )}
             <LabelValueRow
               label="PO issued"
               value={new Date(createdAt).toLocaleDateString('en-NZ', {
@@ -349,6 +352,28 @@ export function PoPdf({
           })}
           <Text style={s.grandTotal}>Total pieces: {grandTotal}</Text>
         </View>
+
+        {(snapshot.assets ?? []).length > 0 && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Design &amp; font files</Text>
+            {(snapshot.assets ?? []).map((asset, i) => (
+              <View key={`${asset.url}-${i}`} style={s.row}>
+                <Text style={s.label}>
+                  {asset.kind === 'font' ? 'Font' : asset.kind === 'design' ? 'Design' : 'File'}
+                </Text>
+                <Text style={s.value}>
+                  {[
+                    asset.garmentName ? `${asset.name} (${asset.garmentName})` : asset.name,
+                    asset.url,
+                    asset.notes,
+                  ]
+                    .filter(Boolean)
+                    .join('\n')}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
 
         {notes && (
           <View style={s.section}>

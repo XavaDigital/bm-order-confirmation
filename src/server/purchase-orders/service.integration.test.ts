@@ -525,3 +525,104 @@ describe('listPurchaseOrders / listRevisions', () => {
     );
   });
 });
+
+/**
+ * What the factory is allowed to see. These tests exist because the separation
+ * is a convention, not something the types enforce: a stray `?? order.deadlineDate`
+ * or a helpful prefill in the create modal would leak confidential commercial
+ * detail to a supplier and nothing else would catch it.
+ */
+describe('factory-facing data boundary', () => {
+  /** An order carrying every field that must NOT reach a supplier. */
+  async function seedConfidentialOrder() {
+    const created = await createOrder(
+      createOrderSchema.parse({
+        customer: {
+          name: 'Jane Coach',
+          email: 'jane@example.com',
+          clubName: 'Confidential Club',
+        },
+        // What the CUSTOMER was promised.
+        deadlineDate: '2026-09-30',
+        orderValue: { amount: 4200, currency: 'NZD' },
+        generalNotes: 'customer-facing note',
+        garments: [{ name: 'Jersey', sizing: [{ size: 'M', playerName: 'Alex' }] }],
+      }),
+    );
+    const garments = await db.query.garments.findMany({
+      where: eq(schema.garments.orderId, created.orderId),
+    });
+    return { orderId: created.orderId, garmentId: garments[0].id };
+  }
+
+  it('never derives the PO deadline from the customer deadline', async () => {
+    const supplier = await seedSupplier();
+    const { orderId, garmentId } = await seedConfidentialOrder();
+
+    const po = await createPurchaseOrder({
+      orderId,
+      supplierId: supplier.id,
+      garmentIds: [garmentId],
+      // Staff deliberately did not set a factory deadline.
+    });
+
+    expect(po.deadlineDate).toBeNull();
+  });
+
+  it('keeps the two deadlines independent when both are set', async () => {
+    const supplier = await seedSupplier();
+    const { orderId, garmentId } = await seedConfidentialOrder();
+
+    const po = await createPurchaseOrder({
+      orderId,
+      supplierId: supplier.id,
+      garmentIds: [garmentId],
+      deadlineDate: '2026-08-15', // the factory works to its own, earlier date
+    });
+
+    expect(po.deadlineDate).toBe('2026-08-15');
+  });
+
+  /**
+   * An allowlist, not a sample. Adding a field to the snapshot should fail here
+   * until someone consciously decides the supplier may see it.
+   */
+  it('snapshots exactly the agreed fields and nothing else', async () => {
+    const supplier = await seedSupplier();
+    const { orderId, garmentId } = await seedConfidentialOrder();
+
+    const po = await createPurchaseOrder({
+      orderId,
+      supplierId: supplier.id,
+      garmentIds: [garmentId],
+    });
+
+    const snapshot = po.revision.snapshot;
+    expect(Object.keys(snapshot).sort()).toEqual([
+      'assets',
+      'garments',
+      'orderNumber',
+      'reprintOfOrderNumber',
+    ]);
+    expect(Object.keys(snapshot.garments[0]).sort()).toEqual([
+      'fabrics',
+      'garmentId',
+      'garmentTypeId',
+      'garmentTypeName',
+      'lines',
+      'name',
+      'notes',
+      'selectedFabrics',
+      'selectedOptions',
+      'sizingColumns',
+    ]);
+
+    // Spot-check the specific things that must never be in there.
+    const serialized = JSON.stringify(snapshot);
+    expect(serialized).not.toContain('Confidential Club');
+    expect(serialized).not.toContain('2026-09-30');
+    expect(serialized).not.toContain('4200');
+    expect(serialized).not.toContain('customer-facing note');
+    expect(serialized).not.toContain('jane@example.com');
+  });
+});

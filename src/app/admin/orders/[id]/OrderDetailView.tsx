@@ -17,6 +17,7 @@ import {
   Menu,
   Grid,
   Segmented,
+  Modal,
   Tag,
 } from 'antd';
 import {
@@ -35,6 +36,7 @@ import {
   TeamOutlined,
   HistoryOutlined,
   ShoppingCartOutlined,
+  FolderOpenOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
@@ -50,6 +52,7 @@ import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
 import { AuditLogTab } from '@/components/admin/orders/AuditLogTab';
 import { RosterPanel } from '@/components/admin/orders/RosterPanel';
 import { ProductionPanel } from '@/components/admin/orders/ProductionPanel';
+import { OrderAssetsPanel } from '@/components/admin/orders/OrderAssetsPanel';
 import { useProductionSummary } from '@/lib/use-production-summary';
 import type { MockupImage } from '@/components/admin/orders/MockupUploader';
 
@@ -100,6 +103,9 @@ export interface AdminOrderData {
   changesRequestedCount: number;
   hubCustomerId?: string | null;
   hubCustomerName?: string | null;
+  /** Set when this order is a reprint — the source order it reprints. */
+  sourceOrder?: { id: string; orderNumber: string } | null;
+  reprintReason?: string | null;
   notes?: {
     id: string;
     body: string;
@@ -142,6 +148,9 @@ export function OrderDetailView({ order }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [resending, setResending] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
+  const [reprintOpen, setReprintOpen] = useState(false);
+  const [isReprint, setIsReprint] = useState(true);
+  const [reprintReason, setReprintReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
   const [colorSampleRequestedAt, setColorSampleRequestedAt] = useState(order.colorSampleRequestedAt);
   const [resolvingColorSample, setResolvingColorSample] = useState(false);
@@ -241,15 +250,19 @@ export function OrderDetailView({ order }: Props) {
     }
   }
 
-  async function duplicateOrder() {
+  async function duplicateOrder(options?: { reprint?: boolean; reprintReason?: string | null }) {
     setDuplicating(true);
     try {
       const data = await postJson<{ orderId: string; orderNumber: string }>(
         `/api/admin/orders/${order.id}/duplicate`,
-        undefined,
+        { reprint: options?.reprint ?? false, reprintReason: options?.reprintReason ?? null },
         'Failed to duplicate order',
       );
-      message.success(`Created ${data.orderNumber} from this order`);
+      message.success(
+        options?.reprint
+          ? `Created reprint ${data.orderNumber} of this order`
+          : `Created ${data.orderNumber} from this order`,
+      );
       router.push(`/admin/orders/${data.orderId}`);
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Failed to duplicate order');
@@ -485,6 +498,17 @@ export function OrderDetailView({ order }: Props) {
       children: <RosterPanel orderId={order.id} customerEmail={order.customerEmail} />,
     },
     {
+      key: 'files',
+      label: 'Design Files',
+      icon: <FolderOpenOutlined />,
+      children: (
+        <OrderAssetsPanel
+          orderId={order.id}
+          garments={order.garments.map((g) => ({ id: g.id, name: g.name }))}
+        />
+      ),
+    },
+    {
       key: 'production',
       label: production.attention.needsAttention ? (
         <Space size={6}>
@@ -537,6 +561,47 @@ export function OrderDetailView({ order }: Props) {
         ]}
       />
 
+      <Modal
+        open={reprintOpen}
+        title="Duplicate this order"
+        okText={isReprint ? 'Create reprint' : 'Create duplicate'}
+        confirmLoading={duplicating}
+        onCancel={() => setReprintOpen(false)}
+        onOk={() => {
+          setReprintOpen(false);
+          void duplicateOrder({
+            reprint: isReprint,
+            reprintReason: isReprint && reprintReason.trim() ? reprintReason.trim() : null,
+          });
+        }}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Segmented
+            value={isReprint ? 'reprint' : 'duplicate'}
+            onChange={(value) => setIsReprint(value === 'reprint')}
+            options={[
+              { label: 'Reprint of this order', value: 'reprint' },
+              { label: 'Plain duplicate', value: 'duplicate' },
+            ]}
+            block
+          />
+          <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+            {isReprint
+              ? 'Links the new order to this one, so the factory is told which job to reuse the production layout from. Design and font files carry over.'
+              : 'An unlinked copy. Use this for a similar-but-separate job — nothing will reference this order.'}
+          </Typography.Text>
+          {isReprint && (
+            <Input.TextArea
+              rows={2}
+              maxLength={500}
+              value={reprintReason}
+              onChange={(e) => setReprintReason(e.target.value)}
+              placeholder="Why is this being reprinted? (optional — e.g. customer reordering same kit)"
+            />
+          )}
+        </Space>
+      </Modal>
+
       <div
         style={{
           marginBottom: 24,
@@ -553,6 +618,15 @@ export function OrderDetailView({ order }: Props) {
           {order.orderNumber}
         </Typography.Title>
         <OrderStatusBadge status={currentStatus} />
+        {order.sourceOrder && (
+          <Tooltip title={order.reprintReason ?? 'Reprint of an earlier order'}>
+            <Link href={`/admin/orders/${order.sourceOrder.id}`}>
+              <Tag icon={<CopyOutlined />} color="cyan">
+                Reprint of {order.sourceOrder.orderNumber}
+              </Tag>
+            </Link>
+          </Tooltip>
+        )}
         {hubCustomer && (
           <Tooltip title="Linked to a Sales Hub customer">
             <Tag icon={<LinkOutlined />} color="geekblue">
@@ -587,8 +661,12 @@ export function OrderDetailView({ order }: Props) {
                 Download PDF
               </Button>
             )}
-            <Tooltip title="Creates a new draft order pre-filled with this order's customer, garments, sizing, and size charts (mock-ups are not copied)">
-              <Button icon={<CopyOutlined />} loading={duplicating} onClick={duplicateOrder}>
+            <Tooltip title="Creates a new draft order pre-filled with this order's customer, garments, sizing, size charts and design files (mock-ups are not copied)">
+              <Button
+                icon={<CopyOutlined />}
+                loading={duplicating}
+                onClick={() => setReprintOpen(true)}
+              >
                 Duplicate
               </Button>
             </Tooltip>

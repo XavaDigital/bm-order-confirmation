@@ -25,6 +25,7 @@ import { pickDefined } from '@/lib/patch';
 import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
 import { ConflictError, NotFoundError } from '@/server/orders/service';
 import { syncOrderProductionStatus } from './hub-sync';
+import { loadPoAssets } from '@/server/orders/assets-service';
 import { supplierCodeOrFallback } from '@/server/suppliers/service';
 import {
   canTransition,
@@ -106,7 +107,11 @@ export async function generatePoNumber(
 // ---------------------------------------------------------------------------
 
 export async function createPurchaseOrder(input: CreatePurchaseOrderInput, meta?: ActorMeta) {
-  const order = await db.query.orders.findFirst({ where: eq(orders.id, input.orderId) });
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, input.orderId),
+    // sourceOrder: a reprint tells the factory which job to reuse the layout from.
+    with: { sourceOrder: { columns: { orderNumber: true } } },
+  });
   if (!order) throw new NotFoundError('Order');
 
   const supplier = await db.query.suppliers.findFirst({
@@ -129,7 +134,11 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput, meta?
     throw new ConflictError('Selected garments have no sizing rows');
   }
 
-  const snapshot = buildPoSnapshot(order, selected);
+  const snapshot = buildPoSnapshot(
+    { orderNumber: order.orderNumber, reprintOfOrderNumber: order.sourceOrder?.orderNumber ?? null },
+    selected,
+    await loadPoAssets(order.id),
+  );
 
   const create = () =>
     db.transaction(async (tx) => {
@@ -558,7 +567,10 @@ export async function issueRevision(id: string, input: IssueRevisionInput, meta?
     throw new ConflictError(`Cannot revise a ${po.status} purchase order`);
   }
 
-  const order = await db.query.orders.findFirst({ where: eq(orders.id, po.orderId) });
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, po.orderId),
+    with: { sourceOrder: { columns: { orderNumber: true } } },
+  });
   if (!order) throw new NotFoundError('Order');
 
   const latest = await db.query.purchaseOrderRevisions.findFirst({
@@ -591,7 +603,11 @@ export async function issueRevision(id: string, input: IssueRevisionInput, meta?
     throw new ConflictError('No garments to snapshot — the previous scope is no longer on the order');
   }
 
-  const snapshot = buildPoSnapshot(order, selected);
+  const snapshot = buildPoSnapshot(
+    { orderNumber: order.orderNumber, reprintOfOrderNumber: order.sourceOrder?.orderNumber ?? null },
+    selected,
+    await loadPoAssets(order.id),
+  );
   const revisionNumber = latest.revisionNumber + 1;
 
   return db.transaction(async (tx) => {

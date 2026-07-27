@@ -10,7 +10,7 @@
  * Variance and coverage match by these ids ONLY, never by size-string
  * similarity: a row whose id is gone was deleted, full stop.
  */
-import type { GarmentTypeOption, PoSnapshot, PoSnapshotGarment, PoSnapshotLine } from '@/db/schema';
+import type { GarmentTypeOption, PoSnapshotAsset, PoSnapshot, PoSnapshotGarment, PoSnapshotLine } from '@/db/schema';
 
 // ---------------------------------------------------------------------------
 // Live-row input shapes (structural — drizzle query results satisfy them)
@@ -67,11 +67,19 @@ function normalizeFabrics(fabrics: unknown): string[] {
  * type id alongside the denormalized type name for the supplier PDF.
  */
 export function buildPoSnapshot(
-  order: { orderNumber: string },
+  order: {
+    orderNumber: string;
+    /** Set when this order is a reprint — the factory reuses the prior layout. */
+    reprintOfOrderNumber?: string | null;
+  },
   garments: LiveGarment[],
+  /** Assets flagged includeOnPo, captured so a regenerated PDF still matches. */
+  assets: PoSnapshotAsset[] = [],
 ): PoSnapshot {
   return {
     orderNumber: order.orderNumber,
+    reprintOfOrderNumber: order.reprintOfOrderNumber ?? null,
+    assets,
     garments: garments.map(
       (g): PoSnapshotGarment => ({
         garmentId: g.id,

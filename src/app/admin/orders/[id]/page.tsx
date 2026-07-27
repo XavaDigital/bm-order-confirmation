@@ -64,6 +64,10 @@ export default async function OrderDetailPage({ params }: Props) {
       authorLabel: n.authorLabel ?? null,
       createdAt: n.createdAt.toISOString(),
     })),
+    sourceOrder: order.sourceOrder
+      ? { id: order.sourceOrder.id, orderNumber: order.sourceOrder.orderNumber }
+      : null,
+    reprintReason: order.reprintReason ?? null,
     garments: garments.map((g) => ({
       id: g.id,
       name: g.name,

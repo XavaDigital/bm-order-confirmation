@@ -359,7 +359,7 @@ describe('OrderDetailView', () => {
     );
   });
 
-  it('duplicating an order POSTs and navigates to the new order', async () => {
+  it('duplicating as a reprint POSTs the reprint flag and navigates', async () => {
     const user = userEvent.setup();
     const { fetchMock } = installMockFetch([
       {
@@ -371,13 +371,60 @@ describe('OrderDetailView', () => {
     renderView(baseOrder());
 
     await user.click(screen.getByRole('button', { name: /duplicate/i }));
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/admin/orders/order-1/duplicate',
-      expect.objectContaining({ method: 'POST' }),
+    // The modal defaults to "reprint" — the common case.
+    await user.type(
+      await screen.findByPlaceholderText(/why is this being reprinted/i),
+      'Same kit again',
     );
-    expect(await screen.findByText('Created OC-2 from this order')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /create reprint/i }));
+
+    const call = fetchMock.mock.calls.find(
+      ([url]) => url === '/api/admin/orders/order-1/duplicate',
+    );
+    expect(JSON.parse(call![1]!.body as string)).toEqual({
+      reprint: true,
+      reprintReason: 'Same kit again',
+    });
+    expect(await screen.findByText('Created reprint OC-2 of this order')).toBeInTheDocument();
     await vi.waitFor(() => expect(pushMock).toHaveBeenCalledWith('/admin/orders/order-2'));
+  });
+
+  it('duplicating plainly records no reprint link', async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = installMockFetch([
+      {
+        match: '/api/admin/orders/order-1/duplicate',
+        method: 'POST',
+        response: { orderId: 'order-3', orderNumber: 'OC-3' },
+      },
+    ]);
+    renderView(baseOrder());
+
+    await user.click(screen.getByRole('button', { name: /duplicate/i }));
+    await user.click(await screen.findByText('Plain duplicate'));
+    await user.click(screen.getByRole('button', { name: /create duplicate/i }));
+
+    const call = fetchMock.mock.calls.find(
+      ([url]) => url === '/api/admin/orders/order-1/duplicate',
+    );
+    expect(JSON.parse(call![1]!.body as string)).toEqual({
+      reprint: false,
+      reprintReason: null,
+    });
+    expect(await screen.findByText('Created OC-3 from this order')).toBeInTheDocument();
+  });
+
+  it('shows the reprint origin in the header when the order is a reprint', () => {
+    renderView(
+      baseOrder({
+        sourceOrder: { id: 'order-0', orderNumber: 'OC-0' },
+        reprintReason: 'Customer reordering',
+      }),
+    );
+
+    const chip = screen.getByText(/Reprint of OC-0/);
+    expect(chip).toBeInTheDocument();
+    expect(chip.closest('a')).toHaveAttribute('href', '/admin/orders/order-0');
   });
 
   it('shows an error message when duplicating fails', async () => {
@@ -393,6 +440,7 @@ describe('OrderDetailView', () => {
     renderView(baseOrder());
 
     await user.click(screen.getByRole('button', { name: /duplicate/i }));
+    await user.click(await screen.findByRole('button', { name: /create reprint/i }));
 
     expect(await screen.findByText('No garments to copy')).toBeInTheDocument();
     expect(pushMock).not.toHaveBeenCalled();

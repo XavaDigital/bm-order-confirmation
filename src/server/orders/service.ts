@@ -19,6 +19,7 @@ import {
   garmentTypes,
   orderAccess,
   orderNotes,
+  orderAssets,
   domainEvents,
 } from '@/db/schema';
 import type { Transaction } from '@/db';
@@ -531,6 +532,11 @@ export async function getOrderAdmin(id: string) {
         },
       },
       notes: { orderBy: (n, { desc }) => [desc(n.createdAt)] },
+      assets: {
+        orderBy: (a, { asc }) => [asc(a.sortOrder), asc(a.createdAt)],
+        with: { garment: { columns: { id: true, name: true } } },
+      },
+      sourceOrder: { columns: { id: true, orderNumber: true } },
     },
   });
 
@@ -585,10 +591,11 @@ export async function getOrderById(id: string) {
 export async function duplicateOrder(
   id: string,
   createdBy?: string,
-  meta?: { actorEmail?: string },
+  meta?: { actorEmail?: string; reprint?: boolean; reprintReason?: string | null },
 ): Promise<CreateOrderResult> {
   const source = await getOrderAdmin(id);
   if (!source) throw new NotFoundError('Order');
+  const isReprint = meta?.reprint === true;
 
   const rawToken = generateToken();
   let createdOrderId = '';
@@ -618,6 +625,10 @@ export async function duplicateOrder(
         // Same customer, same hub association
         hubCustomerId: source.hubCustomerId ?? null,
         hubCustomerName: source.hubCustomerName ?? null,
+        // A reprint records what it reprints; a plain duplicate does not, so
+        // "reprint of" never appears on an unrelated copy.
+        sourceOrderId: isReprint ? source.id : null,
+        reprintReason: isReprint ? (meta?.reprintReason ?? null) : null,
       })
       .returning({ id: orders.id });
 
@@ -641,14 +652,35 @@ export async function duplicateOrder(
       });
     }
 
+    // Design/font links carry forward (unlike mock-ups, whose storage keys are
+    // per-order). For a reprint this is the point: same artwork, same fonts.
+    if (source.assets.length > 0) {
+      await tx.insert(orderAssets).values(
+        source.assets.map((asset) => ({
+          orderId,
+          // Garment ids belong to the SOURCE order's garments, so a tagged
+          // asset becomes order-wide on the copy rather than dangling.
+          garmentId: null,
+          kind: asset.kind,
+          name: asset.name,
+          url: asset.url,
+          notes: asset.notes,
+          includeOnPo: asset.includeOnPo,
+          sortOrder: asset.sortOrder,
+          createdBy: createdBy ?? null,
+        })),
+      );
+    }
+
     await insertToken(tx, orderAccess, rawToken, { orderId });
 
     await emitOrderEvent(tx, {
       aggregateId: orderId,
-      eventType: 'order.duplicated',
+      eventType: isReprint ? 'order.reprint_created' : 'order.duplicated',
       payload: {
         sourceOrderId: id,
         sourceOrderNumber: source.orderNumber,
+        ...(isReprint ? { reprintReason: meta?.reprintReason ?? null } : {}),
         actorEmail: meta?.actorEmail ?? null,
       },
     });

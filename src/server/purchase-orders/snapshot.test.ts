@@ -34,6 +34,8 @@ describe('buildPoSnapshot', () => {
 
     expect(snapshot).toEqual({
       orderNumber: 'OC-AB12CD34',
+      reprintOfOrderNumber: null,
+      assets: [],
       garments: [
         {
           garmentId: 'g-1',
@@ -443,5 +445,41 @@ describe('custom sizing columns', () => {
     expect(variance.garments[0].status).toBe('unchanged');
     expect(variance.garments[0].lines).toHaveLength(0);
     expect(variance.hasVariance).toBe(false);
+  });
+});
+
+describe('factory-facing context', () => {
+  it('captures assets and the reprint reference into the snapshot', () => {
+    const snapshot = buildPoSnapshot(
+      { orderNumber: 'OC-2', reprintOfOrderNumber: 'OC-1' },
+      [liveGarment()],
+      [
+        {
+          kind: 'design',
+          name: 'Front print',
+          url: 'https://drive.example/abc',
+          notes: null,
+          garmentName: 'Team Hoodie',
+        },
+      ],
+    );
+
+    expect(snapshot.reprintOfOrderNumber).toBe('OC-1');
+    expect(snapshot.assets).toEqual([
+      {
+        kind: 'design',
+        name: 'Front print',
+        url: 'https://drive.example/abc',
+        notes: null,
+        garmentName: 'Team Hoodie',
+      },
+    ]);
+  });
+
+  it('defaults to no assets and no reprint reference', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [liveGarment()]);
+
+    expect(snapshot.assets).toEqual([]);
+    expect(snapshot.reprintOfOrderNumber).toBeNull();
   });
 });

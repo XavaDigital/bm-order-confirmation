@@ -127,6 +127,13 @@
       "when": 1785087226499,
       "tag": "0017_handy_peter_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785151114163,
+      "tag": "0018_shallow_wild_pack",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,7 @@
 import { sql, relations } from 'drizzle-orm';
 // Type-only import — erased at runtime, so no module cycle with the outbox.
 import type { DomainEventType } from '@/server/events/outbox';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
   pgSchema,
   uuid,
@@ -164,6 +165,15 @@ export const orders = confirmation.table(
     hubCustomerId: uuid('hub_customer_id'),
     hubCustomerName: text('hub_customer_name'),
 
+    // Set when this order was created as a REPRINT of another (a repeat job).
+    // A real self-FK (same table, same DB, so it can be enforced — unlike
+    // hubCustomerId which is a cross-database hint). `set null` rather than
+    // cascade: deleting the original must never delete the reprint.
+    sourceOrderId: uuid('source_order_id').references((): AnyPgColumn => orders.id, {
+      onDelete: 'set null',
+    }),
+    reprintReason: text('reprint_reason'),
+
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .defaultNow()
@@ -184,8 +194,16 @@ export const orders = confirmation.table(
     index('orders_color_sample_idx')
       .on(t.colorSampleRequestedAt)
       .where(sql`${t.colorSampleRequestedAt} is not null`),
+    // "show me the reprints of this order" — a small partial index, since most
+    // orders are not reprints.
+    index('orders_source_order_idx')
+      .on(t.sourceOrderId)
+      .where(sql`${t.sourceOrderId} is not null`),
   ],
 );
+
+/** What an order asset is, so the UI can group and label the list. */
+export type OrderAssetKind = 'design' | 'font' | 'other';
 
 // --- order notes (staff-only, attributed) ----------------------------------
 // Written by staff or relayed in from Email Flow via the inbound capability
@@ -205,6 +223,43 @@ export const orderNotes = confirmation.table(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [index('order_notes_order_idx').on(t.orderId)],
+);
+
+// --- order assets (design files, font files) --------------------------------
+// Named links to artwork the factory and the next reprint need — Drive links
+// today, so this stores a URL rather than a storageKey (uploads would use
+// src/lib/storage.ts instead). Order-level with an OPTIONAL garment tag: most
+// jobs have order-wide artwork, but a multi-garment order can pin a file to the
+// garment it belongs to. Reprints copy these forward — that's the point of them.
+export const orderAssets = confirmation.table(
+  'order_assets',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    // Null = applies to the whole order. Cascades so deleting a garment doesn't
+    // strand its asset rows.
+    garmentId: uuid('garment_id').references(() => garments.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull().$type<OrderAssetKind>(),
+    name: text('name').notNull(),
+    url: text('url').notNull(),
+    notes: text('notes'),
+    // Included in the PO documents sent to the supplier. Off by default —
+    // an internal working file is not automatically factory-facing.
+    includeOnPo: boolean('include_on_po').notNull().default(false),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdBy: uuid('created_by').references(() => staffUsers.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index('order_assets_order_idx').on(t.orderId, t.sortOrder),
+    index('order_assets_garment_idx').on(t.garmentId),
+  ],
 );
 
 // --- shared access-token column set -----------------------------------------
@@ -698,10 +753,24 @@ export interface PoSnapshotGarment {
   lines: PoSnapshotLine[];
 }
 
+/** A factory-facing asset link, captured at revision time. */
+export interface PoSnapshotAsset {
+  kind: OrderAssetKind;
+  name: string;
+  url: string;
+  notes: string | null;
+  /** Garment this file belongs to, when it was tagged to one. */
+  garmentName: string | null;
+}
+
 /** The immutable content of one PO revision — what the supplier was sent. */
 export interface PoSnapshot {
   orderNumber: string;
   garments: PoSnapshotGarment[];
+  /** Assets flagged includeOnPo when this revision was cut. */
+  assets?: PoSnapshotAsset[];
+  /** "Reprint of OC-…" reference, so the factory can reuse the prior layout. */
+  reprintOfOrderNumber?: string | null;
 }
 
 export const purchaseOrders = confirmation.table(
@@ -815,6 +884,7 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
   rosterMembers: many(rosterMembers),
   rosterAccess: many(rosterAccess),
   notes: many(orderNotes),
+  assets: many(orderAssets),
   purchaseOrders: many(purchaseOrders),
   confirmation: one(confirmations, {
     fields: [orders.id],
@@ -826,6 +896,14 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     fields: [orders.createdBy],
     references: [staffUsers.id],
   }),
+  // The order this one reprints. `relationName` is required because both sides
+  // point at the same table.
+  sourceOrder: one(orders, {
+    fields: [orders.sourceOrderId],
+    references: [orders.id],
+    relationName: 'reprints',
+  }),
+  reprints: many(orders, { relationName: 'reprints' }),
 }));
 
 export const confirmationsRelations = relations(confirmations, ({ one }) => ({
@@ -890,11 +968,17 @@ export const auditEventsRelations = relations(auditEvents, ({ one }) => ({
   }),
 }));
 
+export const orderAssetsRelations = relations(orderAssets, ({ one }) => ({
+  order: one(orders, { fields: [orderAssets.orderId], references: [orders.id] }),
+  garment: one(garments, { fields: [orderAssets.garmentId], references: [garments.id] }),
+}));
+
 export const orderNotesRelations = relations(orderNotes, ({ one }) => ({
   order: one(orders, { fields: [orderNotes.orderId], references: [orders.id] }),
 }));
 
 export const garmentsRelations = relations(garments, ({ one, many }) => ({
+  assets: many(orderAssets),
   order: one(orders, { fields: [garments.orderId], references: [orders.id] }),
   sizing: many(garmentSizing),
   images: many(mockupImages),

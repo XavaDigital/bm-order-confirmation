@@ -94,6 +94,9 @@ function buildSummarySheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
     labelCell(sheet, row++, 'Reason for amendment', neutralizeFormula(props.revisionReason));
   }
   labelCell(sheet, row++, 'Our order', props.snapshot.orderNumber);
+  if (props.snapshot.reprintOfOrderNumber) {
+    labelCell(sheet, row++, 'Reprint of', props.snapshot.reprintOfOrderNumber);
+  }
   labelCell(sheet, row++, 'PO issued', props.createdAt.slice(0, 10));
   if (props.deadlineDate) labelCell(sheet, row++, 'Deadline', props.deadlineDate);
   if (props.expectedShipDate) labelCell(sheet, row++, 'Expected ship', props.expectedShipDate);
@@ -115,6 +118,28 @@ function buildSummarySheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
     notesCell.alignment = { wrapText: true, vertical: 'top' };
     sheet.mergeCells(`A${row}:C${row}`);
     row++;
+  }
+
+  const assets = props.snapshot.assets ?? [];
+  if (assets.length > 0) {
+    row++;
+    sectionTitle(sheet, row++, 'Design & font files');
+    const assetHeader = sheet.getRow(row++);
+    assetHeader.values = ['Type', 'Name', 'Link'];
+    styleTableHeader(assetHeader);
+    for (const asset of assets) {
+      const label = asset.garmentName
+        ? `${asset.name} (${asset.garmentName})`
+        : asset.name;
+      const assetRow = sheet.getRow(row++);
+      assetRow.values = [
+        asset.kind,
+        neutralizeFormula(label),
+        // Left as text, not a hyperlink object: Excel's HYPERLINK handling is
+        // one more thing to sanitise, and a plain URL is copy-pasteable.
+        neutralizeFormula(asset.url),
+      ];
+    }
   }
 
   // Flat Garment/Size/Quantity table — pivots and sums directly in Excel.

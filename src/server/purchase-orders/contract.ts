@@ -73,6 +73,12 @@ export const createPurchaseOrderSchema = z.object({
   supplierId: z.string().uuid(),
   /** The garments (of that order) this PO covers — snapshot scope. */
   garmentIds: z.array(z.string().uuid()).min(1),
+  /**
+   * The FACTORY-facing deadline staff choose for this PO. Deliberately distinct
+   * from `orders.deadlineDate`, which is what the CUSTOMER was promised and must
+   * never reach the supplier. Nothing derives one from the other — see the
+   * regression test in service.integration.test.ts.
+   */
   deadlineDate: dateString.optional(),
   expectedShipDate: dateString.optional(),
   notes: z.string().max(2000).optional(),
