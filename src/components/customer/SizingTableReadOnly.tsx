@@ -2,16 +2,20 @@
 
 import { Space, Table, Tag, Typography } from 'antd';
 import type { ColumnType } from 'antd/es/table';
+import type { GarmentTypeOption } from '@/db/schema';
 
 export interface SizingRow {
   size: string | null;
   playerName: string | null;
   playerNumber: string | null;
   notes: string | null;
+  customValues?: Record<string, string> | null;
   viaTeamRoster?: boolean;
 }
 
-const columns: ColumnType<SizingRow & { _key: string }>[] = [
+const dash = <Typography.Text type="secondary">—</Typography.Text>;
+
+const baseColumns: ColumnType<SizingRow & { _key: string }>[] = [
   {
     title: 'Size',
     dataIndex: 'size',
@@ -38,14 +42,22 @@ const columns: ColumnType<SizingRow & { _key: string }>[] = [
     width: 60,
     render: (v: string | null) => v ?? <Typography.Text type="secondary">—</Typography.Text>,
   },
-  {
-    title: 'Notes',
-    dataIndex: 'notes',
-    render: (v: string | null) => v ?? <Typography.Text type="secondary">—</Typography.Text>,
-  },
 ];
 
-export function SizingTableReadOnly({ rows }: { rows: SizingRow[] }) {
+const notesColumn: ColumnType<SizingRow & { _key: string }> = {
+  title: 'Notes',
+  dataIndex: 'notes',
+  render: (v: string | null) => v ?? dash,
+};
+
+export function SizingTableReadOnly({
+  rows,
+  sizingColumns = [],
+}: {
+  rows: SizingRow[];
+  /** The garment's custom columns, rendered between # and Notes. */
+  sizingColumns?: GarmentTypeOption[];
+}) {
   if (rows.length === 0) {
     return (
       <Typography.Text type="secondary" style={{ fontSize: 13 }}>
@@ -55,6 +67,18 @@ export function SizingTableReadOnly({ rows }: { rows: SizingRow[] }) {
   }
 
   const data = rows.map((r, i) => ({ ...r, _key: String(i) }));
+
+  const columns: ColumnType<SizingRow & { _key: string }>[] = [
+    ...baseColumns,
+    ...sizingColumns.map(
+      (column): ColumnType<SizingRow & { _key: string }> => ({
+        title: column.label,
+        key: `custom:${column.label}`,
+        render: (_: unknown, record: SizingRow) => record.customValues?.[column.label] ?? dash,
+      }),
+    ),
+    notesColumn,
+  ];
 
   return (
     <Table

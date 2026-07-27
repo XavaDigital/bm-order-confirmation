@@ -169,6 +169,7 @@ interface SizingRow {
   playerName?: string | null;
   playerNumber?: string | null;
   notes?: string | null;
+  customValues?: Record<string, string> | null;
 }
 
 interface GarmentData {
@@ -177,6 +178,7 @@ interface GarmentData {
   notes: string | null;
   selectedOptions?: Record<string, string> | null;
   selectedFabrics?: Record<string, string> | null;
+  sizingColumns?: { label: string }[];
   sizing: SizingRow[];
 }
 
@@ -291,6 +293,11 @@ export function OrderPdf({
                         <Text style={s.col}>Size</Text>
                         <Text style={s.col}>Player Name</Text>
                         <Text style={s.col}>Number</Text>
+                        {(g.sizingColumns ?? []).map((c) => (
+                          <Text key={c.label} style={s.col}>
+                            {c.label}
+                          </Text>
+                        ))}
                         <Text style={s.col}>Notes</Text>
                       </View>
                       {g.sizing.map((row, ri) => (
@@ -298,6 +305,11 @@ export function OrderPdf({
                           <Text style={s.col}>{row.size ?? '—'}</Text>
                           <Text style={s.col}>{row.playerName ?? '—'}</Text>
                           <Text style={s.col}>{row.playerNumber ?? '—'}</Text>
+                          {(g.sizingColumns ?? []).map((c) => (
+                            <Text key={c.label} style={s.col}>
+                              {row.customValues?.[c.label] ?? '—'}
+                            </Text>
+                          ))}
                           <Text style={s.col}>{row.notes ?? ''}</Text>
                         </View>
                       ))}

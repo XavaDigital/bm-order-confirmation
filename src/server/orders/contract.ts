@@ -9,6 +9,11 @@
  * every order source.
  */
 import { z } from 'zod';
+import { garmentTypeOptionSchema } from '@/server/garment-types/contract';
+
+// {label: chosenValue} maps for garment-type option picks, fabric-field picks
+// and custom sizing-column values — shared with the admin garment contracts.
+export const selectedValuesSchema = z.record(z.string().max(300));
 
 // The ONE sizing-row shape — the admin update contract derives from this
 // (nullable fields clear values; null and undefined both land as column NULL).
@@ -17,11 +22,12 @@ export const sizingRowSchema = z.object({
   playerName: z.string().nullish(),
   playerNumber: z.string().nullish(),
   notes: z.string().nullish(),
+  // Values for the garment's user-defined sizing columns ({label: value}).
+  // Unknown labels are dropped on write — the garment's column definitions are
+  // the allowlist, so a stale client can't smuggle arbitrary keys in.
+  customValues: selectedValuesSchema.nullish(),
 });
 
-// {label: chosenValue} maps for garment-type option picks and fabric-field
-// picks — shared with the admin garment contracts.
-export const selectedValuesSchema = z.record(z.string().max(300));
 
 export const garmentSchema = z.object({
   name: z.string().min(1),
@@ -38,6 +44,8 @@ export const garmentSchema = z.object({
   selectedOptions: selectedValuesSchema.optional(),
   // fabric picks per type fabric field ({fieldLabel: chosenFabric})
   selectedFabrics: selectedValuesSchema.optional(),
+  // extra sizing-table columns for this garment; defaults from the garment type
+  sizingColumns: z.array(garmentTypeOptionSchema).max(20).optional(),
 });
 
 export const createOrderSchema = z.object({

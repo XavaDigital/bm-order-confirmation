@@ -147,6 +147,16 @@ function buildSummarySheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
 
 function buildLinesSheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
   const sheet = wb.addWorksheet('Lines');
+
+  // Custom columns vary per garment, so the flat sheet carries the union of
+  // them (first-seen order); a garment without a given column leaves it blank.
+  const customLabels: string[] = [];
+  for (const garment of props.snapshot.garments) {
+    for (const column of garment.sizingColumns ?? []) {
+      if (!customLabels.includes(column.label)) customLabels.push(column.label);
+    }
+  }
+
   sheet.columns = [
     { header: 'Garment', key: 'garment', width: 26 },
     { header: 'Garment Type', key: 'type', width: 18 },
@@ -155,6 +165,7 @@ function buildLinesSheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
     { header: 'Size', key: 'size', width: 12 },
     { header: 'Player Name', key: 'playerName', width: 22 },
     { header: 'Number', key: 'playerNumber', width: 10 },
+    ...customLabels.map((label) => ({ header: label, key: `custom:${label}`, width: 18 })),
     { header: 'Notes', key: 'notes', width: 30 },
   ];
   styleTableHeader(sheet.getRow(1));
@@ -167,6 +178,10 @@ function buildLinesSheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
     const options = flattenMap(garment.selectedOptions);
 
     for (const line of garment.lines) {
+      const custom: Record<string, string> = {};
+      for (const label of customLabels) {
+        custom[`custom:${label}`] = neutralizeFormula(line.customValues?.[label]);
+      }
       sheet.addRow({
         garment: neutralizeFormula(garment.name),
         type: neutralizeFormula(garment.garmentTypeName),
@@ -176,6 +191,7 @@ function buildLinesSheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
         size: line.size?.trim() ? neutralizeFormula(line.size) : NO_SIZE_LABEL,
         playerName: neutralizeFormula(line.playerName),
         playerNumber: neutralizeFormula(line.playerNumber),
+        ...custom,
         notes: neutralizeFormula(line.notes),
       });
     }
@@ -184,7 +200,10 @@ function buildLinesSheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
   // Frozen header + autofilter so the factory can sort/filter immediately.
   sheet.views = [{ state: 'frozen', ySplit: 1 }];
   if (sheet.rowCount > 1) {
-    sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 8 } };
+    sheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: sheet.columns.length },
+    };
   }
 }
 

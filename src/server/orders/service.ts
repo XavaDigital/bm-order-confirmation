@@ -22,6 +22,7 @@ import {
   domainEvents,
 } from '@/db/schema';
 import type { Transaction } from '@/db';
+import type { GarmentTypeOption } from '@/db/schema';
 import { generateToken, buildConfirmationUrl } from '@/lib/tokens';
 import { isUniqueViolation } from '@/lib/db-errors';
 import { pickDefined } from '@/lib/patch';
@@ -104,6 +105,26 @@ async function nextSortOrder(
   return Number(maxSort) + 1;
 }
 
+/**
+ * Keep only values whose label matches one of the garment's defined sizing
+ * columns, and drop empties. The definitions are the allowlist, so a stale or
+ * hostile client can't write arbitrary keys into the jsonb; returns null when
+ * nothing survives, matching the "null when empty" convention used by
+ * garments.selectedOptions.
+ */
+export function pickCustomValues(
+  values: Record<string, string> | null | undefined,
+  columns: GarmentTypeOption[],
+): Record<string, string> | null {
+  if (!values || columns.length === 0) return null;
+  const allowed = new Set(columns.map((c) => c.label));
+  const out: Record<string, string> = {};
+  for (const [label, value] of Object.entries(values)) {
+    if (allowed.has(label) && value !== '') out[label] = value;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 /** Everything hanging off one garment row — shared by create and duplicate. */
 type GarmentTreeInput = {
   name: string;
@@ -113,11 +134,13 @@ type GarmentTreeInput = {
   garmentTypeId?: string | null;
   selectedOptions?: Record<string, string> | null;
   selectedFabrics?: Record<string, string> | null;
+  sizingColumns?: GarmentTypeOption[];
   sizing: {
     size?: string | null;
     playerName?: string | null;
     playerNumber?: string | null;
     notes?: string | null;
+    customValues?: Record<string, string> | null;
     sortOrder?: number;
   }[];
   mockupStorageKeys?: string[];
@@ -143,10 +166,12 @@ async function insertGarmentTree(
         g.selectedOptions && Object.keys(g.selectedOptions).length > 0 ? g.selectedOptions : null,
       selectedFabrics:
         g.selectedFabrics && Object.keys(g.selectedFabrics).length > 0 ? g.selectedFabrics : null,
+      sizingColumns: g.sizingColumns ?? [],
     })
     .returning({ id: garments.id });
 
   if (g.sizing.length) {
+    const columns = g.sizingColumns ?? [];
     await tx.insert(garmentSizing).values(
       g.sizing.map((row, j) => ({
         garmentId: garment.id,
@@ -154,6 +179,7 @@ async function insertGarmentTree(
         playerName: row.playerName ?? null,
         playerNumber: row.playerNumber ?? null,
         notes: row.notes ?? null,
+        customValues: pickCustomValues(row.customValues, columns),
         sortOrder: row.sortOrder ?? j,
       })),
     );
@@ -185,7 +211,11 @@ async function insertGarmentTree(
 async function resolveGarmentTypePreset(
   tx: Transaction | typeof db,
   garmentTypeId: string,
-): Promise<{ chartIds: string[]; optionDefaults: Record<string, string> }> {
+): Promise<{
+  chartIds: string[];
+  optionDefaults: Record<string, string>;
+  sizingColumns: GarmentTypeOption[];
+}> {
   const type = await tx.query.garmentTypes.findFirst({
     where: eq(garmentTypes.id, garmentTypeId),
     with: { sizeChartLinks: { columns: { sizeChartId: true } } },
@@ -197,7 +227,13 @@ async function resolveGarmentTypePreset(
     if (opt.type === 'select' && opt.defaultOption) optionDefaults[opt.label] = opt.defaultOption;
     if (opt.type === 'text' && opt.defaultValue) optionDefaults[opt.label] = opt.defaultValue;
   }
-  return { chartIds: type.sizeChartLinks.map((l) => l.sizeChartId), optionDefaults };
+  return {
+    chartIds: type.sizeChartLinks.map((l) => l.sizeChartId),
+    optionDefaults,
+    // Copied onto the garment; the garment owns its copy from then on, so
+    // editing the type never rewrites live orders.
+    sizingColumns: type.sizingColumns ?? [],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +304,7 @@ export async function createOrder(
         garmentTypeId: g.garmentTypeId,
         selectedOptions,
         selectedFabrics: g.selectedFabrics,
+        sizingColumns: g.sizingColumns ?? preset?.sizingColumns ?? [],
         sizing: g.sizing ?? [],
         mockupStorageKeys: g.mockupStorageKeys,
         chartIds,
@@ -598,6 +635,7 @@ export async function duplicateOrder(
         garmentTypeId: g.garmentTypeId,
         selectedOptions: g.selectedOptions,
         selectedFabrics: g.selectedFabrics,
+        sizingColumns: g.sizingColumns ?? [],
         sizing: g.sizing,
         chartIds: g.sizeChartLinks.map((l) => l.sizeChartId),
       });
@@ -724,6 +762,7 @@ export async function addGarment(
       garmentTypeId: data.garmentTypeId,
       selectedOptions,
       selectedFabrics: data.selectedFabrics,
+      sizingColumns: data.sizingColumns ?? preset?.sizingColumns ?? [],
       sizing: [],
       chartIds: preset?.chartIds ?? [],
     });
@@ -813,12 +852,16 @@ export async function upsertSizingRows(
     const keptIds = new Set<string>();
     const inserts: (typeof garmentSizing.$inferInsert)[] = [];
 
+    // The garment's own column definitions are the allowlist for customValues.
+    const columns = garment.sizingColumns ?? [];
+
     for (const [i, row] of rows.entries()) {
       const values = {
         size: row.size ?? null,
         playerName: row.playerName ?? null,
         playerNumber: row.playerNumber ?? null,
         notes: row.notes ?? null,
+        customValues: pickCustomValues(row.customValues, columns),
         sortOrder: row.sortOrder ?? i,
       };
       // An id we don't recognize for THIS garment is untrusted input — insert

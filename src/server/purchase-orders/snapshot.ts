@@ -10,7 +10,7 @@
  * Variance and coverage match by these ids ONLY, never by size-string
  * similarity: a row whose id is gone was deleted, full stop.
  */
-import type { PoSnapshot, PoSnapshotGarment, PoSnapshotLine } from '@/db/schema';
+import type { GarmentTypeOption, PoSnapshot, PoSnapshotGarment, PoSnapshotLine } from '@/db/schema';
 
 // ---------------------------------------------------------------------------
 // Live-row input shapes (structural — drizzle query results satisfy them)
@@ -22,6 +22,8 @@ export interface LiveSizingRow {
   playerName: string | null;
   playerNumber: string | null;
   notes: string | null;
+  /** Values for the garment's user-defined sizing columns ({label: value}). */
+  customValues?: Record<string, string> | null;
 }
 
 export interface LiveGarment {
@@ -33,6 +35,8 @@ export interface LiveGarment {
   garmentType?: { name: string } | null;
   selectedFabrics?: Record<string, string> | null;
   selectedOptions?: Record<string, string> | null;
+  /** The garment's user-defined sizing-column definitions. */
+  sizingColumns?: GarmentTypeOption[] | null;
   notes: string | null;
   sizing: LiveSizingRow[];
 }
@@ -48,6 +52,7 @@ function toSnapshotLine(row: LiveSizingRow): PoSnapshotLine {
     playerName: row.playerName ?? null,
     playerNumber: row.playerNumber ?? null,
     notes: row.notes ?? null,
+    customValues: row.customValues ?? null,
   };
 }
 
@@ -76,6 +81,7 @@ export function buildPoSnapshot(
         fabrics: normalizeFabrics(g.fabrics),
         selectedFabrics: g.selectedFabrics ?? null,
         selectedOptions: g.selectedOptions ?? null,
+        sizingColumns: g.sizingColumns ?? [],
         notes: g.notes ?? null,
         lines: g.sizing.map(toSnapshotLine),
       }),
@@ -158,6 +164,24 @@ function jsonEqual(a: unknown, b: unknown): boolean {
 
 const LINE_FIELDS = ['size', 'playerName', 'playerNumber', 'notes'] as const;
 
+/** Per-column diff of two customValues maps, as individual field changes. */
+function customValueChanges(
+  from: Record<string, string> | null | undefined,
+  to: Record<string, string> | null | undefined,
+): PoFieldChange[] {
+  const a = from ?? {};
+  const b = to ?? {};
+  const labels = new Set([...Object.keys(a), ...Object.keys(b)]);
+  const changes: PoFieldChange[] = [];
+  for (const label of labels) {
+    const before = a[label] ?? null;
+    const after = b[label] ?? null;
+    // Report the column by name so the variance UI reads "Colour: Navy → Red".
+    if (before !== after) changes.push({ field: label, from: before, to: after });
+  }
+  return changes;
+}
+
 /**
  * Compare LIVE garment rows against a revision snapshot, matched by ids only.
  *
@@ -204,6 +228,7 @@ export function detectVariance(currentGarments: LiveGarment[], snapshot: PoSnaps
         const to = liveRow[field] ?? null;
         if (from !== to) lineChanges.push({ field, from, to });
       }
+      lineChanges.push(...customValueChanges(snapLine.customValues, liveRow.customValues));
       if (lineChanges.length > 0) {
         lines.push({
           sizingRowId: snapLine.sizingRowId,

@@ -23,9 +23,22 @@ describe('toGarmentDto', () => {
       garmentTypeName: 'Pullover Hoodie',
       selectedOptions: { 'Zip Type': 'pullover' },
       selectedFabrics: { 'Outer Fabric': 'Cotton Fleece' },
+      sizingColumns: [],
       sizing: [
-        { size: 'M', playerName: 'Alex', playerNumber: '7', notes: 'sz note' },
-        { size: null, playerName: null, playerNumber: null, notes: null },
+        {
+          size: 'M',
+          playerName: 'Alex',
+          playerNumber: '7',
+          notes: 'sz note',
+          customValues: null,
+        },
+        {
+          size: null,
+          playerName: null,
+          playerNumber: null,
+          notes: null,
+          customValues: null,
+        },
       ],
     });
   });
@@ -39,6 +52,7 @@ describe('toGarmentDto', () => {
       garmentTypeName: null,
       selectedOptions: null,
       selectedFabrics: null,
+      sizingColumns: [],
       sizing: [],
     });
   });
@@ -55,7 +69,13 @@ describe('toGarmentDto', () => {
 describe('toSizingDto', () => {
   it('never carries rosterMemberId through', () => {
     const row = toSizingDto(garment.sizing[0]);
-    expect(row).toEqual({ size: 'M', playerName: 'Alex', playerNumber: '7', notes: 'sz note' });
+    expect(row).toEqual({
+      size: 'M',
+      playerName: 'Alex',
+      playerNumber: '7',
+      notes: 'sz note',
+      customValues: null,
+    });
     expect('rosterMemberId' in row).toBe(false);
   });
 });

@@ -338,6 +338,10 @@ export const garmentTypes = confirmation.table(
     // Labeled fabric slots, each with its own pick-list (one pick per slot).
     fabricFields: jsonb('fabric_fields').$type<GarmentTypeFabricField[]>().notNull().default([]),
     orderOptions: jsonb('order_options').$type<GarmentTypeOption[]>().notNull().default([]),
+    // Default EXTRA sizing-table columns for garments of this type (Colour,
+    // Variation, …). Copied onto a garment at create time; the garment owns its
+    // copy from then on, so editing the type never rewrites live orders.
+    sizingColumns: jsonb('sizing_columns').$type<GarmentTypeOption[]>().notNull().default([]),
     // Deactivate-never-delete (Sales Hub dictionary convention): existing
     // garments keep pointing at retired types.
     isActive: boolean('is_active').notNull().default(true),
@@ -392,6 +396,12 @@ export const garments = confirmation.table(
     // Fabric picks per type fabric field ({fieldLabel: chosenFabric}). Null
     // for typeless garments, which keep the legacy free-text `fabrics` list.
     selectedFabrics: jsonb('selected_fabrics').$type<Record<string, string>>(),
+    // EXTRA columns on this garment's sizing table beyond size/player/number/
+    // notes — e.g. Colour, Variation, Sponsor. Same shape as a garment type's
+    // orderOptions, so the select-vs-text editor is reused verbatim. Defined
+    // per garment (added on the fly) and optionally saved onto the garment type
+    // as a reusable default; values live in garment_sizing.customValues.
+    sizingColumns: jsonb('sizing_columns').$type<GarmentTypeOption[]>().notNull().default([]),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .defaultNow()
@@ -413,6 +423,10 @@ export const garmentSizing = confirmation.table(
     playerName: text('player_name'),
     playerNumber: text('player_number'),
     notes: text('notes'),
+    // Values for this garment's user-defined sizingColumns ({label: value}).
+    // Null when the garment has no custom columns — same "null when empty"
+    // convention as garments.selectedOptions.
+    customValues: jsonb('custom_values').$type<Record<string, string>>(),
     sortOrder: integer('sort_order').notNull().default(0),
     // Set when this row was submitted by a team member via the roster flow
     // rather than typed by staff. Null for all pre-existing/staff-entered rows.
@@ -663,6 +677,8 @@ export interface PoSnapshotLine {
   playerName: string | null;
   playerNumber: string | null;
   notes: string | null;
+  /** Values for the garment's user-defined sizing columns ({label: value}). */
+  customValues?: Record<string, string> | null;
 }
 
 export interface PoSnapshotGarment {
@@ -674,6 +690,10 @@ export interface PoSnapshotGarment {
   fabrics: string[];
   selectedFabrics: Record<string, string> | null;
   selectedOptions: Record<string, string> | null;
+  /** Column definitions in force when this revision was cut — the supplier
+   *  documents render exactly these, in this order, even if the garment's
+   *  columns change later. */
+  sizingColumns?: GarmentTypeOption[];
   notes: string | null;
   lines: PoSnapshotLine[];
 }

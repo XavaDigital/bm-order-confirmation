@@ -7,6 +7,7 @@
 import type { SizeChartSize } from '@/db/schema';
 import type { GalleryImage } from '@/components/customer/MockupGallery';
 import type { SizingRow } from '@/components/customer/SizingTableReadOnly';
+import type { GarmentTypeOption } from '@/db/schema';
 
 /** A reference size chart attached to a garment, with short-lived signed URLs. */
 export interface SizeChartLink {
@@ -25,6 +26,7 @@ export interface OrderGarment {
   garmentTypeName?: string | null;
   selectedOptions?: Record<string, string> | null;
   selectedFabrics?: Record<string, string> | null;
+  sizingColumns?: GarmentTypeOption[];
   sizing: SizingRow[];
   images: GalleryImage[];
   sizeCharts: SizeChartLink[];

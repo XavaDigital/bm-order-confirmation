@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { sizingRowSchema as baseSizingRowSchema, selectedValuesSchema } from './contract';
+import { garmentTypeOptionSchema } from '@/server/garment-types/contract';
 
 export const updateOrderSchema = z.object({
   customerName: z.string().min(1).optional(),
@@ -29,6 +30,8 @@ export const addGarmentSchema = z.object({
   garmentTypeId: z.string().uuid().optional(),
   selectedOptions: selectedValuesSchema.optional(),
   selectedFabrics: selectedValuesSchema.optional(),
+  // Extra sizing-table columns; defaults from the garment type when omitted.
+  sizingColumns: z.array(garmentTypeOptionSchema).max(20).optional(),
 });
 
 export const updateGarmentSchema = addGarmentSchema
@@ -38,6 +41,7 @@ export const updateGarmentSchema = addGarmentSchema
     garmentTypeId: z.string().uuid().nullable().optional(),
     selectedOptions: selectedValuesSchema.nullable().optional(),
     selectedFabrics: selectedValuesSchema.nullable().optional(),
+    sizingColumns: z.array(garmentTypeOptionSchema).max(20).optional(),
   })
   .partial();
 

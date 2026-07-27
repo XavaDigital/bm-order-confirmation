@@ -312,6 +312,12 @@ export function PoPdf({
                         <Text style={s.col}>Size</Text>
                         <Text style={s.col}>Player Name</Text>
                         <Text style={s.col}>Number</Text>
+                        {/* Custom columns as captured in THIS revision. */}
+                        {(g.sizingColumns ?? []).map((c) => (
+                          <Text key={c.label} style={s.col}>
+                            {c.label}
+                          </Text>
+                        ))}
                         <Text style={s.col}>Notes</Text>
                       </View>
                       {g.lines.map((row, ri) => (
@@ -322,6 +328,11 @@ export function PoPdf({
                           <Text style={s.col}>{row.size ?? '—'}</Text>
                           <Text style={s.col}>{row.playerName ?? '—'}</Text>
                           <Text style={s.col}>{row.playerNumber ?? '—'}</Text>
+                          {(g.sizingColumns ?? []).map((c) => (
+                            <Text key={c.label} style={s.col}>
+                              {row.customValues?.[c.label] ?? '—'}
+                            </Text>
+                          ))}
                           <Text style={s.col}>{row.notes ?? ''}</Text>
                         </View>
                       ))}

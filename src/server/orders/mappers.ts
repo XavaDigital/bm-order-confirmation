@@ -3,12 +3,15 @@
  * PDF route, and the confirmation snapshot builder. Keep this module free of
  * I/O (no db, no storage) so it stays trivially unit-testable.
  */
+import type { GarmentTypeOption } from '@/db/schema';
 
 export interface GarmentSizingDto {
   size: string | null;
   playerName: string | null;
   playerNumber: string | null;
   notes: string | null;
+  /** Values for the garment's custom sizing columns ({label: value}). */
+  customValues: Record<string, string> | null;
   /** Only present when mapped with `{ rosterFlags: true }`. */
   viaTeamRoster?: boolean;
 }
@@ -20,6 +23,8 @@ export interface GarmentDto {
   garmentTypeName: string | null;
   selectedOptions: Record<string, string> | null;
   selectedFabrics: Record<string, string> | null;
+  /** Custom sizing-column definitions, so a reader knows the column order. */
+  sizingColumns: GarmentTypeOption[];
   sizing: GarmentSizingDto[];
 }
 
@@ -28,6 +33,7 @@ interface SizingRecord {
   playerName: string | null;
   playerNumber: string | null;
   notes: string | null;
+  customValues?: Record<string, string> | null;
   rosterMemberId?: string | null;
 }
 
@@ -37,6 +43,7 @@ interface GarmentRecord {
   notes: string | null;
   selectedOptions?: Record<string, string> | null;
   selectedFabrics?: Record<string, string> | null;
+  sizingColumns?: GarmentTypeOption[] | null;
   garmentType?: { name: string } | null;
   sizing: SizingRecord[];
 }
@@ -47,6 +54,7 @@ export function toSizingDto(row: SizingRecord): GarmentSizingDto {
     playerName: row.playerName ?? null,
     playerNumber: row.playerNumber ?? null,
     notes: row.notes ?? null,
+    customValues: row.customValues ?? null,
   };
 }
 
@@ -68,6 +76,7 @@ export function toGarmentDto(
     garmentTypeName: garment.garmentType?.name ?? null,
     selectedOptions: garment.selectedOptions ?? null,
     selectedFabrics: garment.selectedFabrics ?? null,
+    sizingColumns: garment.sizingColumns ?? [],
     sizing: garment.sizing.map((row) =>
       opts.rosterFlags
         ? {

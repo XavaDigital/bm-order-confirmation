@@ -47,6 +47,8 @@ import {
   NotFoundError,
   ConflictError,
 } from './service';
+import { createGarmentType } from '@/server/garment-types/service';
+import { createGarmentTypeSchema } from '@/server/garment-types/contract';
 import { tokensMatch } from '@/lib/tokens';
 import { accessCodeMatches } from '@/lib/access-code';
 
@@ -1122,5 +1124,92 @@ describe('getStaleOrders', () => {
     expect(stale[1].id).toBe(a.orderId);
 
     expect(await getStaleOrders(1)).toHaveLength(1);
+  });
+});
+
+describe('custom sizing columns', () => {
+  const colourColumn = { label: 'Colour', type: 'select' as const, options: ['Navy', 'Red'] };
+  const sponsorColumn = { label: 'Sponsor', type: 'text' as const };
+
+  async function seedGarmentWithColumns() {
+    const created = await createOrder(
+      minimalInput({ garments: [{ name: 'Jersey', sizing: [{ size: 'M' }] }] }),
+    );
+    const order = await getOrderAdmin(created.orderId);
+    const garmentId = order!.garments[0].id;
+    await updateGarment(garmentId, { sizingColumns: [colourColumn, sponsorColumn] });
+    return { orderId: created.orderId, garmentId };
+  }
+
+  it('stores values for defined columns and keeps row ids stable', async () => {
+    const { garmentId } = await seedGarmentWithColumns();
+    const [existing] = await db.query.garmentSizing.findMany({
+      where: eq(schema.garmentSizing.garmentId, garmentId),
+    });
+
+    const saved = await upsertSizingRows(garmentId, [
+      { id: existing.id, size: 'M', customValues: { Colour: 'Navy', Sponsor: 'Acme' } },
+    ]);
+
+    expect(saved).toHaveLength(1);
+    expect(saved[0].id).toBe(existing.id);
+    expect(saved[0].customValues).toEqual({ Colour: 'Navy', Sponsor: 'Acme' });
+  });
+
+  // The garment's column definitions are the allowlist — a stale or hostile
+  // client must not be able to write arbitrary keys into the jsonb.
+  it('drops values whose label is not a defined column', async () => {
+    const { garmentId } = await seedGarmentWithColumns();
+
+    const saved = await upsertSizingRows(garmentId, [
+      { size: 'M', customValues: { Colour: 'Red', Smuggled: 'nope' } },
+    ]);
+
+    expect(saved[0].customValues).toEqual({ Colour: 'Red' });
+  });
+
+  it('stores null rather than an empty object when nothing survives', async () => {
+    const { garmentId } = await seedGarmentWithColumns();
+
+    const saved = await upsertSizingRows(garmentId, [
+      { size: 'M', customValues: { Unknown: 'x' } },
+    ]);
+
+    expect(saved[0].customValues).toBeNull();
+  });
+
+  it('ignores custom values entirely when the garment defines no columns', async () => {
+    const created = await createOrder(
+      minimalInput({ garments: [{ name: 'Plain', sizing: [{ size: 'S' }] }] }),
+    );
+    const order = await getOrderAdmin(created.orderId);
+
+    const saved = await upsertSizingRows(order!.garments[0].id, [
+      { size: 'S', customValues: { Colour: 'Navy' } },
+    ]);
+
+    expect(saved[0].customValues).toBeNull();
+  });
+
+  it('seeds a new garment from its garment type columns', async () => {
+    const type = await createGarmentType(
+      createGarmentTypeSchema.parse({ name: 'Hoodie', sizingColumns: [colourColumn] }),
+    );
+    const created = await createOrder(minimalInput());
+
+    const garment = await addGarment(created.orderId, { name: 'Typed', garmentTypeId: type.id });
+
+    expect(garment.sizingColumns).toEqual([colourColumn]);
+  });
+
+  it('carries columns and values onto a duplicated order', async () => {
+    const { orderId, garmentId } = await seedGarmentWithColumns();
+    await upsertSizingRows(garmentId, [{ size: 'L', customValues: { Colour: 'Navy' } }]);
+
+    const dup = await duplicateOrder(orderId);
+    const copy = await getOrderAdmin(dup.orderId);
+
+    expect(copy!.garments[0].sizingColumns).toEqual([colourColumn, sponsorColumn]);
+    expect(copy!.garments[0].sizing[0].customValues).toEqual({ Colour: 'Navy' });
   });
 });

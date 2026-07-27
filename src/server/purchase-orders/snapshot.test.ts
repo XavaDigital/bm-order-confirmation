@@ -43,10 +43,25 @@ describe('buildPoSnapshot', () => {
           fabrics: ['Cotton Fleece'],
           selectedFabrics: { 'Outer Fabric': 'Cotton Fleece' },
           selectedOptions: { 'Zip Type': 'pullover' },
+          sizingColumns: [],
           notes: 'front print',
           lines: [
-            { sizingRowId: 'row-1', size: 'M', playerName: 'Alice', playerNumber: '7', notes: null },
-            { sizingRowId: 'row-2', size: 'L', playerName: 'Bob', playerNumber: '8', notes: 'long sleeve' },
+            {
+              sizingRowId: 'row-1',
+              size: 'M',
+              playerName: 'Alice',
+              playerNumber: '7',
+              notes: null,
+              customValues: null,
+            },
+            {
+              sizingRowId: 'row-2',
+              size: 'L',
+              playerName: 'Bob',
+              playerNumber: '8',
+              notes: 'long sleeve',
+              customValues: null,
+            },
           ],
         },
       ],
@@ -296,5 +311,137 @@ describe('computeCoverage', () => {
       rowToPos: {},
       uncoveredByGarment: {},
     });
+  });
+});
+
+describe('custom sizing columns', () => {
+  const columns = [
+    { label: 'Colour', type: 'select' as const, options: ['Navy', 'Red'] },
+    { label: 'Sponsor', type: 'text' as const },
+  ];
+
+  it('captures the column definitions and per-line values into the snapshot', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({
+        sizingColumns: columns,
+        sizing: [
+          {
+            id: 'row-1',
+            size: 'M',
+            playerName: null,
+            playerNumber: null,
+            notes: null,
+            customValues: { Colour: 'Navy', Sponsor: 'Acme' },
+          },
+        ],
+      }),
+    ]);
+
+    expect(snapshot.garments[0].sizingColumns).toEqual(columns);
+    expect(snapshot.garments[0].lines[0].customValues).toEqual({
+      Colour: 'Navy',
+      Sponsor: 'Acme',
+    });
+  });
+
+  it('reports a changed custom value as variance, named by its column', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({
+        sizingColumns: columns,
+        sizing: [
+          {
+            id: 'row-1',
+            size: 'M',
+            playerName: null,
+            playerNumber: null,
+            notes: null,
+            customValues: { Colour: 'Navy' },
+          },
+        ],
+      }),
+    ]);
+
+    const variance = detectVariance(
+      [
+        liveGarment({
+          sizingColumns: columns,
+          sizing: [
+            {
+              id: 'row-1',
+              size: 'M',
+              playerName: null,
+              playerNumber: null,
+              notes: null,
+              customValues: { Colour: 'Red' },
+            },
+          ],
+        }),
+      ],
+      snapshot,
+    );
+
+    const line = variance.garments[0].lines[0];
+    expect(line.change).toBe('modified');
+    expect(line.fieldChanges).toEqual([{ field: 'Colour', from: 'Navy', to: 'Red' }]);
+    expect(variance.hasVariance).toBe(true);
+  });
+
+  it('reports a newly filled custom value as variance', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({
+        sizingColumns: columns,
+        sizing: [
+          { id: 'row-1', size: 'M', playerName: null, playerNumber: null, notes: null },
+        ],
+      }),
+    ]);
+
+    const variance = detectVariance(
+      [
+        liveGarment({
+          sizingColumns: columns,
+          sizing: [
+            {
+              id: 'row-1',
+              size: 'M',
+              playerName: null,
+              playerNumber: null,
+              notes: null,
+              customValues: { Sponsor: 'Acme' },
+            },
+          ],
+        }),
+      ],
+      snapshot,
+    );
+
+    expect(variance.garments[0].lines[0].fieldChanges).toEqual([
+      { field: 'Sponsor', from: null, to: 'Acme' },
+    ]);
+  });
+
+  it('does not report variance when custom values are unchanged', () => {
+    const rows = [
+      {
+        id: 'row-1',
+        size: 'M',
+        playerName: null,
+        playerNumber: null,
+        notes: null,
+        customValues: { Colour: 'Navy' },
+      },
+    ];
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({ sizingColumns: columns, sizing: rows }),
+    ]);
+
+    const variance = detectVariance(
+      [liveGarment({ sizingColumns: columns, sizing: rows })],
+      snapshot,
+    );
+
+    expect(variance.garments[0].status).toBe('unchanged');
+    expect(variance.garments[0].lines).toHaveLength(0);
+    expect(variance.hasVariance).toBe(false);
   });
 });

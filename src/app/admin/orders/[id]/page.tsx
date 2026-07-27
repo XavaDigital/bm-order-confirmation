@@ -76,6 +76,7 @@ export default async function OrderDetailPage({ params }: Props) {
         playerName: s.playerName ?? null,
         playerNumber: s.playerNumber ?? null,
         notes: s.notes ?? null,
+        customValues: s.customValues ?? null,
         sortOrder: s.sortOrder,
       })),
       images: g.images.map((img) => ({
@@ -89,6 +90,7 @@ export default async function OrderDetailPage({ params }: Props) {
       garmentTypeId: g.garmentTypeId ?? null,
       selectedOptions: g.selectedOptions ?? null,
       selectedFabrics: g.selectedFabrics ?? null,
+      sizingColumns: g.sizingColumns ?? [],
     })),
     currentAccess: order.currentAccess
       ? {

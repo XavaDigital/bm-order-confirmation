@@ -68,6 +68,12 @@ export const createGarmentTypeSchema = z.object({
     .max(30)
     .default([])
     .refine(uniqueLabels, { message: 'Option labels must be unique' }),
+  // Default extra columns for the sizing table of garments of this type.
+  sizingColumns: z
+    .array(garmentTypeOptionSchema)
+    .max(20)
+    .default([])
+    .refine(uniqueLabels, { message: 'Sizing column labels must be unique' }),
   sizeChartIds: z.array(z.string().uuid()).max(20).default([]),
   isActive: z.boolean().default(true),
   sortOrder: z.number().int().min(0).default(0),

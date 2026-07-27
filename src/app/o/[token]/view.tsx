@@ -436,7 +436,7 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
             <Text style={{ ...FIELD_LABEL_STYLE, marginBottom: 10 }}>
               Sizing
             </Text>
-            <SizingTableReadOnly rows={garment.sizing} />
+            <SizingTableReadOnly rows={garment.sizing} sizingColumns={garment.sizingColumns} />
           </div>
 
           {/* Size charts */}

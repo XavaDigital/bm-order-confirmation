@@ -43,6 +43,7 @@ export async function createGarmentType(input: CreateGarmentTypeInput) {
         category: input.category ?? null,
         fabricFields: input.fabricFields,
         orderOptions: input.orderOptions,
+        sizingColumns: input.sizingColumns,
         isActive: input.isActive,
         sortOrder: input.sortOrder,
       })
@@ -71,6 +72,7 @@ export async function updateGarmentType(id: string, patch: UpdateGarmentTypeInpu
         ...(patch.category !== undefined && { category: patch.category ?? null }),
         ...(patch.fabricFields !== undefined && { fabricFields: patch.fabricFields }),
         ...(patch.orderOptions !== undefined && { orderOptions: patch.orderOptions }),
+        ...(patch.sizingColumns !== undefined && { sizingColumns: patch.sizingColumns }),
         ...(patch.isActive !== undefined && { isActive: patch.isActive }),
         ...(patch.sortOrder !== undefined && { sortOrder: patch.sortOrder }),
         updatedAt: new Date(),

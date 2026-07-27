@@ -35,6 +35,7 @@ interface SizingRow {
   playerName?: string | null;
   playerNumber?: string | null;
   notes?: string | null;
+  customValues?: Record<string, string> | null;
   sortOrder?: number;
 }
 
@@ -50,6 +51,7 @@ interface Garment {
   garmentTypeId?: string | null;
   selectedOptions?: Record<string, string> | null;
   selectedFabrics?: Record<string, string> | null;
+  sizingColumns?: GarmentTypeOption[];
 }
 
 interface GarmentType {
@@ -138,6 +140,24 @@ export function GarmentsMasterDetail({ orderId, initialGarments, onGarmentsChang
       ...prev,
       [garmentId]: { ...(prev[garmentId] ?? {}), ...patch },
     }));
+  }
+
+  /**
+   * Column definitions are structure rather than a draft field edit, so they
+   * PATCH immediately — otherwise a staff member adds a column, types values
+   * into it, and loses the column if they never hit "Save garment".
+   */
+  async function saveSizingColumns(garmentId: string, columns: GarmentTypeOption[]) {
+    await patchJson(
+      `/api/admin/orders/${orderId}/garments/${garmentId}`,
+      { sizingColumns: columns },
+      'Failed to save the column',
+    );
+    setGarments((prev) =>
+      prev.map((g) => (g.id === garmentId ? { ...g, sizingColumns: columns } : g)),
+    );
+    message.success('Columns updated');
+    onGarmentsChanged?.();
   }
 
   async function saveGarment(garment: Garment) {
@@ -502,6 +522,8 @@ export function GarmentsMasterDetail({ orderId, initialGarments, onGarmentsChang
                 initialRows={garment.sizing}
                 allowedSizes={allowedSizes}
                 onSaved={onGarmentsChanged}
+                sizingColumns={garment.sizingColumns ?? []}
+                onColumnsChange={(columns) => saveSizingColumns(garment.id, columns)}
               />
             </div>
 

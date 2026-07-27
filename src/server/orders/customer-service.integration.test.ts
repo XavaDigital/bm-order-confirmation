@@ -562,6 +562,7 @@ describe('confirmOrder', () => {
         playerName: 'Alex Player',
         playerNumber: '7',
         notes: null,
+        customValues: null,
       },
     ]);
   });
@@ -809,7 +810,10 @@ describe('buildConfirmationSnapshot (pure)', () => {
       garmentTypeName: 'Pullover Hoodie',
       selectedOptions: { 'Zip Type': 'pullover' },
       selectedFabrics: { 'Outer Fabric': 'Cotton Fleece' },
-      sizing: [{ size: 'M', playerName: 'Alex', playerNumber: '7', notes: null }],
+      sizingColumns: [],
+      sizing: [
+        { size: 'M', playerName: 'Alex', playerNumber: '7', notes: null, customValues: null },
+      ],
       sizeChartNames: ['Adult Unisex'],
       mockupImageCaptions: ['front'],
     });

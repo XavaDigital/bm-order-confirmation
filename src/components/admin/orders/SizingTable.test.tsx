@@ -97,7 +97,15 @@ describe('SizingTable', () => {
         // Saved rows carry their id so the server updates in place (stable
         // UUIDs for roster attribution + PO snapshots).
         body: JSON.stringify([
-          { id: 'row-1', size: 'M', playerName: 'Alice', playerNumber: null, notes: null, sortOrder: 0 },
+          {
+            id: 'row-1',
+            size: 'M',
+            playerName: 'Alice',
+            playerNumber: null,
+            notes: null,
+            customValues: {},
+            sortOrder: 0,
+          },
         ]),
       }),
     );
@@ -145,5 +153,111 @@ describe('SizingTable', () => {
     await user.click(screen.getByRole('button', { name: /save sizing/i }));
 
     expect(await screen.findByText(/failed to save sizing/i)).toBeInTheDocument();
+  });
+
+  describe('custom columns', () => {
+    const colour = { label: 'Colour', type: 'select' as const, options: ['Navy', 'Red'] };
+    const sponsor = { label: 'Sponsor', type: 'text' as const };
+
+    it('renders a column per definition, between # and Notes', () => {
+      renderTable({
+        initialRows: [{ id: 'row-1', size: 'M', playerName: '', playerNumber: '', notes: '' }],
+        sizingColumns: [colour, sponsor],
+      });
+
+      const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '');
+      const colourIdx = headers.findIndex((h) => h.includes('Colour'));
+      const notesIdx = headers.findIndex((h) => h.includes('Notes'));
+      const numberIdx = headers.findIndex((h) => h.trim() === '#');
+      expect(colourIdx).toBeGreaterThan(numberIdx);
+      expect(colourIdx).toBeLessThan(notesIdx);
+      expect(headers.some((h) => h.includes('Sponsor'))).toBe(true);
+    });
+
+    it('pre-fills existing custom values', () => {
+      renderTable({
+        initialRows: [
+          {
+            id: 'row-1',
+            size: 'M',
+            playerName: '',
+            playerNumber: '',
+            notes: '',
+            customValues: { Sponsor: 'Acme Ltd' },
+          },
+        ],
+        sizingColumns: [sponsor],
+      });
+
+      expect(screen.getByDisplayValue('Acme Ltd')).toBeInTheDocument();
+    });
+
+    it('sends edited custom values in the save payload', async () => {
+      const user = userEvent.setup();
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ ok: true, rows: [] }),
+      } as Response);
+      renderTable({
+        initialRows: [{ id: 'row-1', size: 'M', playerName: '', playerNumber: '', notes: '' }],
+        sizingColumns: [sponsor],
+      });
+
+      await user.type(screen.getByPlaceholderText('Sponsor'), 'Acme');
+      await user.click(screen.getByRole('button', { name: /save sizing/i }));
+
+      const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
+      expect(body[0].customValues).toEqual({ Sponsor: 'Acme' });
+    });
+
+    it('hides the column controls when the garment cannot be edited', () => {
+      renderTable({ initialRows: [], sizingColumns: [colour] });
+
+      // No onColumnsChange -> read-only columns, no add/edit/remove affordances.
+      expect(screen.queryByRole('button', { name: /add column/i })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Edit column Colour' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('adds a free-text column through the modal', async () => {
+      const user = userEvent.setup();
+      const onColumnsChange = vi.fn().mockResolvedValue(undefined);
+      renderTable({ initialRows: [], sizingColumns: [], onColumnsChange });
+
+      // Two buttons match /add column/i once the modal is open (the toolbar
+      // trigger and the modal's OK) — the modal's is last in the DOM.
+      await user.click(screen.getByRole('button', { name: /add column/i }));
+      await user.type(screen.getByPlaceholderText(/e.g. Colour/i), 'Flag');
+      const okButtons = screen.getAllByRole('button', { name: /add column/i });
+      await user.click(okButtons[okButtons.length - 1]);
+
+      expect(onColumnsChange).toHaveBeenCalledWith([{ label: 'Flag', type: 'text' }]);
+    });
+
+    it('rejects a duplicate column name', async () => {
+      const user = userEvent.setup();
+      const onColumnsChange = vi.fn();
+      renderTable({ initialRows: [], sizingColumns: [sponsor], onColumnsChange });
+
+      await user.click(screen.getByRole('button', { name: /add column/i }));
+      await user.type(screen.getByPlaceholderText(/e.g. Colour/i), 'sponsor');
+      const okButtons = screen.getAllByRole('button', { name: /add column/i });
+      await user.click(okButtons[okButtons.length - 1]);
+
+      expect(await screen.findByText(/already exists on this garment/i)).toBeInTheDocument();
+      expect(onColumnsChange).not.toHaveBeenCalled();
+    });
+
+    it('removing a column persists the shorter set', async () => {
+      const user = userEvent.setup();
+      const onColumnsChange = vi.fn().mockResolvedValue(undefined);
+      renderTable({ initialRows: [], sizingColumns: [colour, sponsor], onColumnsChange });
+
+      await user.click(screen.getByRole('button', { name: 'Remove column Colour' }));
+      await user.click(await screen.findByRole('button', { name: 'Remove' }));
+
+      expect(onColumnsChange).toHaveBeenCalledWith([sponsor]);
+    });
   });
 });
