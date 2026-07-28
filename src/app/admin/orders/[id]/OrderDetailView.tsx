@@ -37,6 +37,7 @@ import {
   HistoryOutlined,
   ShoppingCartOutlined,
   FolderOpenOutlined,
+  CheckSquareOutlined,
   MessageOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
@@ -55,6 +56,7 @@ import { RosterPanel } from '@/components/admin/orders/RosterPanel';
 import { ProductionPanel } from '@/components/admin/orders/ProductionPanel';
 import { OrderAssetsPanel } from '@/components/admin/orders/OrderAssetsPanel';
 import { NotesThread } from '@/components/admin/orders/NotesThread';
+import { StageChecklist } from '@/components/admin/workflow/StageChecklist';
 import { useProductionSummary } from '@/lib/use-production-summary';
 import type { MockupImage } from '@/components/admin/orders/MockupUploader';
 
@@ -492,6 +494,19 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
         <OrderAssetsPanel
           orderId={order.id}
           garments={order.garments.map((g) => ({ id: g.id, name: g.name }))}
+        />
+      ),
+    },
+    {
+      key: 'checklist',
+      label: 'Checklist',
+      icon: <CheckSquareOutlined />,
+      children: (
+        <StageChecklist
+          boardKey="order"
+          entityId={order.id}
+          isAdmin={isAdmin}
+          onAdvanced={() => router.refresh()}
         />
       ),
     },

@@ -26,6 +26,7 @@ import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
 import { ConflictError, NotFoundError } from '@/server/orders/service';
 import { syncOrderProductionStatus } from './hub-sync';
 import { loadPoAssets } from '@/server/orders/assets-service';
+import { assertGateOpen } from '@/server/workflow/gates';
 import { supplierCodeOrFallback } from '@/server/suppliers/service';
 import {
   canTransition,
@@ -46,6 +47,12 @@ import {
 export interface ActorMeta {
   actorStaffUserId?: string | null;
   actorEmail?: string | null;
+  /**
+   * Set to send a PO despite an outstanding pre-production check. Requires a
+   * reason, which is audited — an override with no reason is indistinguishable
+   * from having no gate at all.
+   */
+  gateOverrideReason?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -519,6 +526,19 @@ export async function sendPurchaseOrder(
   }
   const supplierEmail = po.supplier.email;
   if (!supplierEmail) throw new ConflictError('Supplier has no email address');
+
+  // Gate check goes HERE: after the cheap validity checks, before the PDF render
+  // and the email. Rendering first would waste the work; checking earlier would
+  // report a gate problem on a PO that could not be sent anyway.
+  //
+  // Evaluated against the ORDER's checklist — pre-production steps live on the
+  // job, so a second PO for the same order faces the same checks as the first.
+  await assertGateOpen('po_send', 'order', po.orderId, {
+    override: meta.gateOverrideReason
+      ? { reason: meta.gateOverrideReason, actorEmail: meta.actorEmail }
+      : undefined,
+    context: { poId: po.id, poNumber: po.poNumber },
+  });
 
   const latest = po.revisions[0]; // rev 1 always exists
 

@@ -59,7 +59,7 @@ beforeEach(async () => {
   session.email = 'staff@example.com';
 });
 
-async function seedPo(opts: { supplierEmail?: string | null } = {}) {
+async function seedPo(opts: { supplierEmail?: string | null; satisfyGate?: boolean } = {}) {
   const [supplier] = await db
     .insert(schema.suppliers)
     .values({
@@ -83,12 +83,35 @@ async function seedPo(opts: { supplierEmail?: string | null } = {}) {
     supplierId: supplier.id,
     garmentIds: [garment.id],
   });
+  // Sending is gated on the order's pre-production checklist (migration 0020
+  // seeds five tasks carrying `po_send`). These tests are about the SEND, so
+  // satisfy the gate unless a test is specifically exercising it.
+  if (opts.satisfyGate !== false) await satisfyPoSendGate(created.orderId);
   return { po, orderId: created.orderId, orderNumber: created.orderNumber };
 }
 
-function postRequest(id: string) {
+/** Tick every task feeding the po_send gate for this order. */
+async function satisfyPoSendGate(orderId: string) {
+  const tasks = await db.select().from(schema.workflowStageTasks);
+  const gated = tasks.filter((task) => task.gateKeys.includes('po_send'));
+  if (gated.length === 0) return;
+  await db.insert(schema.workflowTaskCompletions).values(
+    gated.map((task) => ({
+      taskId: task.id,
+      entityType: 'order' as const,
+      entityId: orderId,
+      confirmedByStaffUserId: null,
+      confirmedByEmail: 'seed@example.com',
+    })),
+  );
+}
+
+function postRequest(id: string, body?: unknown) {
   return new NextRequest(`http://localhost/api/admin/purchase-orders/${id}/send`, {
     method: 'POST',
+    ...(body === undefined
+      ? {}
+      : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
   });
 }
 
@@ -210,5 +233,99 @@ describe('POST /api/admin/purchase-orders/[id]/send', () => {
     }))!;
     expect(updated.status).toBe('draft');
     expect(updated.sentAt).toBeNull();
+  });
+});
+
+/**
+ * The check the plan named as highest-value for this phase: a gated send must
+ * return 409 AND send no email. A gate that blocks the status but still emails
+ * the factory would be worse than no gate at all.
+ */
+describe('POST /api/admin/purchase-orders/[id]/send — pre-production gate', () => {
+  it('refuses to send while checks are outstanding, and sends no email', async () => {
+    const { po } = await seedPo({ satisfyGate: false });
+
+    const res = await POST(postRequest(po.id), withId(po.id));
+    const json = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(json.error).toMatch(/blocked by outstanding checks/i);
+    expect(sendSupplierPoEmail).not.toHaveBeenCalled();
+
+    const after = (await db.query.purchaseOrders.findFirst({
+      where: eq(schema.purchaseOrders.id, po.id),
+    }))!;
+    expect(after.status).toBe('draft');
+    expect(after.sentAt).toBeNull();
+  });
+
+  it('lists the outstanding checks so the UI can show them', async () => {
+    const { po } = await seedPo({ satisfyGate: false });
+
+    const json = await (await POST(postRequest(po.id), withId(po.id))).json();
+
+    expect(json.details.gateKey).toBe('po_send');
+    expect(json.details.outstanding.map((t: { slug: string }) => t.slug)).toContain(
+      'artwork_approved',
+    );
+  });
+
+  it('sends once the checks are satisfied', async () => {
+    const { po, orderId } = await seedPo({ satisfyGate: false });
+    await satisfyPoSendGate(orderId);
+
+    const res = await POST(postRequest(po.id), withId(po.id));
+
+    expect(res.status).toBe(200);
+    expect(sendSupplierPoEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets an admin override with a reason, and records why', async () => {
+    const { po, orderId } = await seedPo({ satisfyGate: false });
+    const session = (await getSession()) as unknown as Record<string, unknown>;
+    session.role = 'admin';
+
+    const res = await POST(
+      postRequest(po.id, { overrideReason: 'Customer accepted the risk in writing' }),
+      withId(po.id),
+    );
+
+    expect(res.status).toBe(200);
+    expect(sendSupplierPoEmail).toHaveBeenCalledTimes(1);
+
+    const audit = await db
+      .select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.eventType, 'workflow.gate_overridden'));
+    expect(audit).toHaveLength(1);
+    expect(audit[0].payload).toMatchObject({
+      gateKey: 'po_send',
+      reason: 'Customer accepted the risk in writing',
+      poNumber: po.poNumber,
+    });
+    expect(audit[0].actorEmail).toBe('staff@example.com');
+  });
+
+  // Skipping a safety check is a management decision, not a routine one.
+  it('refuses an override from a non-admin, and sends no email', async () => {
+    const { po } = await seedPo({ satisfyGate: false });
+    const session = (await getSession()) as unknown as Record<string, unknown>;
+    session.role = 'sales';
+
+    const res = await POST(postRequest(po.id, { overrideReason: 'in a hurry' }), withId(po.id));
+
+    expect(res.status).toBe(403);
+    expect(sendSupplierPoEmail).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty override reason at the contract', async () => {
+    const { po } = await seedPo({ satisfyGate: false });
+    const session = (await getSession()) as unknown as Record<string, unknown>;
+    session.role = 'admin';
+
+    const res = await POST(postRequest(po.id, { overrideReason: '   ' }), withId(po.id));
+
+    expect(res.status).toBe(400);
+    expect(sendSupplierPoEmail).not.toHaveBeenCalled();
   });
 });

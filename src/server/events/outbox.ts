@@ -59,6 +59,8 @@ export type DomainEventType =
   | 'workflow.stage_exited'
   | 'workflow.task_confirmed'
   | 'workflow.task_reopened'
+  | 'workflow.owners_changed'
+  | 'workflow.gate_overridden'
   | 'access_code.enabled'
   | 'access_code.disabled'
   | 'roster.member_added'
