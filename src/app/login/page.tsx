@@ -25,7 +25,8 @@ export default async function LoginPage({
   // Read on the server and passed down, rather than a NEXT_PUBLIC_ inline: the
   // client id is public, but this keeps env.ts the single validated source and
   // means switching the seam on is a restart, not a rebuild.
-  const clientId = isIdentityConfigured() ? env.GOOGLE_LOGIN_CLIENT_ID : '';
+  const ssoActive = isIdentityConfigured();
+  const clientId = ssoActive ? env.GOOGLE_LOGIN_CLIENT_ID : '';
   const deniedMessage = denied ? DENIED_MESSAGES[denied] : null;
 
   return (
@@ -33,8 +34,12 @@ export default async function LoginPage({
       {deniedMessage && (
         <Alert type="warning" showIcon message={deniedMessage} style={{ marginBottom: 12 }} />
       )}
-      <GoogleSignIn clientId={clientId} />
-      <LoginForm />
+      <GoogleSignIn clientId={clientId} showDivider={false} />
+      {/* Password sign-in is refused server-side once identity is configured
+          (it is a second door identity cannot revoke), so the form is hidden
+          rather than left to fail on submit. It reappears wherever the seam is
+          switched off — local dev and standalone deployments. */}
+      {!ssoActive && <LoginForm />}
     </Suspense>
   );
 }

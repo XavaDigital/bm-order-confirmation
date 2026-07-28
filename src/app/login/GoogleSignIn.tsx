@@ -21,6 +21,8 @@ interface Props {
   clientId: string;
   /** Where to go after a successful sign-in. */
   next?: string;
+  /** Show the "or" divider — only meaningful when something follows it. */
+  showDivider?: boolean;
 }
 
 interface GoogleCredentialResponse {
@@ -45,7 +47,7 @@ declare global {
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 
-export function GoogleSignIn({ clientId, next }: Props) {
+export function GoogleSignIn({ clientId, next, showDivider = false }: Props) {
   const router = useRouter();
   const buttonRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -131,9 +133,11 @@ export function GoogleSignIn({ clientId, next }: Props) {
         aria-label="Sign in with Google"
         style={{ display: 'flex', justifyContent: 'center', minHeight: ready ? undefined : 40 }}
       />
-      <Divider plain style={{ margin: '4px 0' }}>
-        or
-      </Divider>
+      {showDivider && (
+        <Divider plain style={{ margin: '4px 0' }}>
+          or
+        </Divider>
+      )}
     </Space>
   );
 }
