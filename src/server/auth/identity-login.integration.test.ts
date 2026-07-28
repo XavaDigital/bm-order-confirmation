@@ -38,7 +38,7 @@ function identityUser(overrides: Record<string, unknown> = {}) {
     avatarUrl: null,
     googleLinked: true,
     createdAt: '2026-01-01T00:00:00Z',
-    grants: { 'order-confirmation': { role: 'sales' } },
+    grants: { 'bm-orders': { role: 'sales' } },
     ...overrides,
   };
 }
@@ -159,7 +159,7 @@ describe('loginWithIdentity — bridging', () => {
 describe('loginWithIdentity — roles', () => {
   it('takes the role from this app’s grant', async () => {
     const local = await seedLocal({ role: 'sales' });
-    resolves(identityUser({ grants: { 'order-confirmation': { role: 'admin' } } }), 'admin');
+    resolves(identityUser({ grants: { 'bm-orders': { role: 'admin' } } }), 'admin');
 
     const user = await loginWithIdentity('credential');
 
@@ -184,7 +184,7 @@ describe('loginWithIdentity — roles', () => {
    */
   it('never demotes on a role it does not understand', async () => {
     const local = await seedLocal({ role: 'admin' });
-    resolves(identityUser({ grants: { 'order-confirmation': { role: 'superuser' } } }), 'superuser');
+    resolves(identityUser({ grants: { 'bm-orders': { role: 'superuser' } } }), 'superuser');
 
     const user = await loginWithIdentity('credential');
 
