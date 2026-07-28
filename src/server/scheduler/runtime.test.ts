@@ -184,6 +184,15 @@ describe('scheduledJobs', () => {
     expect(purge?.intervalMs).toBeGreaterThan(60_000);
   });
 
+  // Hourly rather than per-minute: these measure days, and the notification
+  // claim ledger buckets by day, so a tighter cadence would only add load.
+  it('runs the workflow scans hourly', () => {
+    const scans = scheduledJobs().find((j) => j.name === 'workflow-scans');
+
+    expect(scans).toBeDefined();
+    expect(scans!.intervalMs).toBe(60 * 60_000);
+  });
+
   it('has a unique name per job (names key the logs)', () => {
     const names = scheduledJobs().map((j) => j.name);
     expect(new Set(names).size).toBe(names.length);

@@ -77,6 +77,25 @@ export const NOTIFICATION_CATALOG: readonly NotificationDefinition[] = [
     defaultRules: [{ kind: 'order_owner' }, { kind: 'po_creator' }],
   },
   {
+    key: 'workflow.stuck',
+    label: 'Work has sat too long',
+    description:
+      'Sent to the owners of a stage when a job has been in it past its warn threshold. At most once a day per job while it stays stuck.',
+    eventType: 'workflow.stuck',
+    defaultEnabled: true,
+    defaultEmailEnabled: true,
+    defaultRules: [{ kind: 'stage_owners' }],
+  },
+  {
+    key: 'workflow.reminder',
+    label: 'A reminder you set comes due',
+    description: 'Goes to whoever set the reminder, whatever the rules say.',
+    eventType: 'workflow.reminder',
+    defaultEnabled: true,
+    defaultEmailEnabled: true,
+    defaultRules: [],
+  },
+  {
     key: 'workflow.gate_overridden',
     label: 'A pre-production gate is overridden',
     description:

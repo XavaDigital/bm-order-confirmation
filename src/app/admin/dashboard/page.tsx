@@ -1,7 +1,8 @@
 import { db } from '@/db';
-import { orders } from '@/db/schema';
+import { orders, purchaseOrders } from '@/db/schema';
 import { count, sum, desc, asc, and, gte, lte, inArray, ne, sql, isNotNull } from 'drizzle-orm';
 import { getStaleOrders } from '@/server/orders/service';
+import { findStuckEntities } from '@/server/workflow/board';
 import { listFailedEvents } from '@/server/events/processor';
 import { getSession } from '@/lib/session';
 import { DashboardView } from './DashboardView';
@@ -109,6 +110,32 @@ async function getDashboardData() {
     return { date: key, label, count: trendMap[key] ?? 0 };
   });
 
+  // Work waiting on US, as opposed to staleOrders (waiting on the customer).
+  // Both boards, newest pain first, with the parent order resolved so the row
+  // can link somewhere useful.
+  const [stuckOrders, stuckPos] = await Promise.all([
+    findStuckEntities('order'),
+    findStuckEntities('purchase_order'),
+  ]);
+  const poOrderIds =
+    stuckPos.length > 0
+      ? await db
+          .select({ id: purchaseOrders.id, orderId: purchaseOrders.orderId })
+          .from(purchaseOrders)
+          .where(inArray(purchaseOrders.id, stuckPos.map((p) => p.entityId)))
+      : [];
+  const orderIdByPo = new Map(poOrderIds.map((row) => [row.id, row.orderId]));
+
+  const stuckInProduction = [
+    ...stuckOrders.map((entity) => ({ ...entity, orderId: entity.entityId })),
+    ...stuckPos.map((entity) => ({
+      ...entity,
+      orderId: orderIdByPo.get(entity.entityId) ?? null,
+    })),
+  ]
+    .sort((a, b) => b.hoursInStage - a.hoursInStage)
+    .slice(0, 10);
+
   return {
     counts,
     totalValueNZD: valueRow?.total ? Number(valueRow.total) : 0,
@@ -118,6 +145,7 @@ async function getDashboardData() {
     })),
     trend,
     staleOrders,
+    stuckInProduction,
     upcomingDeadlines: upcomingDeadlineRows,
     colorSampleHolds: colorSampleHoldRows.map((o) => ({
       ...o,

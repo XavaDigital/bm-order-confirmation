@@ -25,6 +25,7 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof DashboardView>
     trend: [],
     recentOrders: [],
     staleOrders: [],
+    stuckInProduction: [],
     upcomingDeadlines: [],
     colorSampleHolds: [],
     role: 'sales' as const,
@@ -319,5 +320,47 @@ describe('DashboardView', () => {
 
     expect(await screen.findByText('Event not found or not failed/dead')).toBeInTheDocument();
     expect(screen.getByText('order.confirmed')).toBeInTheDocument();
+  });
+});
+
+describe('DashboardView — Stuck in Production', () => {
+  const stuck = {
+    entityId: 'e1',
+    reference: 'OC-1001',
+    stageSlug: 'artwork',
+    hoursInStage: 120,
+    urgency: 'warn' as const,
+    orderId: 'o1',
+  };
+
+  it('shows an empty state when nothing is overdue', () => {
+    render(<DashboardView {...baseProps({ stuckInProduction: [] })} />);
+
+    expect(screen.getByText(/nothing overdue/i)).toBeInTheDocument();
+  });
+
+  it('lists a stuck job with the stage it is waiting in', () => {
+    render(<DashboardView {...baseProps({ stuckInProduction: [stuck] })} />);
+
+    expect(screen.getByText('OC-1001')).toBeInTheDocument();
+    expect(screen.getByText('Waiting in artwork')).toBeInTheDocument();
+    expect(screen.getByText('5 days')).toBeInTheDocument();
+  });
+
+  it('links to the order checklist, where the work actually is', () => {
+    render(<DashboardView {...baseProps({ stuckInProduction: [stuck] })} />);
+
+    const link = screen.getAllByRole('link').find((a) => a.getAttribute('href')?.includes('o1'));
+    expect(link).toHaveAttribute('href', '/admin/orders/o1?tab=checklist');
+  });
+
+  it('renders a purchase order with no resolvable parent without a link', () => {
+    render(
+      <DashboardView
+        {...baseProps({ stuckInProduction: [{ ...stuck, reference: 'PO-9', orderId: null }] })}
+      />,
+    );
+
+    expect(screen.getByText('PO-9')).toBeInTheDocument();
   });
 });

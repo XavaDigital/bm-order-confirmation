@@ -35,6 +35,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
 import { orderStatusMeta } from '@/lib/status';
 import { postJson } from '@/lib/api-fetch';
+import { SnoozeButton } from '@/components/admin/workflow/SnoozeButton';
 import { SEMANTIC } from '@/lib/semantic-colors';
 
 const { Text } = Typography;
@@ -89,6 +90,15 @@ type FailedEvent = {
   nextAttemptAt: string | null;
 };
 
+export interface StuckEntity {
+  entityId: string;
+  reference: string;
+  stageSlug: string;
+  hoursInStage: number;
+  urgency: 'ok' | 'warn' | 'urgent';
+  orderId: string | null;
+}
+
 interface Props {
   counts: {
     draft: number;
@@ -103,6 +113,11 @@ interface Props {
   trend: Array<{ date: string; label: string; count: number }>;
   recentOrders: RecentOrder[];
   staleOrders: StaleOrder[];
+  /**
+   * Work sitting past its stage threshold — the production-side counterpart to
+   * "Needs Follow-up", which only sees orders waiting on the CUSTOMER.
+   */
+  stuckInProduction: StuckEntity[];
   upcomingDeadlines: UpcomingDeadline[];
   colorSampleHolds: ColorSampleHold[];
   role: 'sales' | 'admin';
@@ -200,7 +215,7 @@ function DashboardOrderListItem({
   );
 }
 
-export function DashboardView({ counts, totalValueNZD, trend, recentOrders, staleOrders, upcomingDeadlines, colorSampleHolds, role, failedEvents }: Props) {
+export function DashboardView({ counts, totalValueNZD, trend, recentOrders, staleOrders, stuckInProduction, upcomingDeadlines, colorSampleHolds, role, failedEvents }: Props) {
   const { message } = App.useApp();
   const [events, setEvents] = useState(failedEvents);
   const [retryingId, setRetryingId] = useState<string | null>(null);
@@ -395,6 +410,73 @@ export function DashboardView({ counts, totalValueNZD, trend, recentOrders, stal
                 <Text type="secondary">No orders yet</Text>
               </div>
             )}
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Stuck in production: the counterpart to Needs Follow-up, which only
+          watches orders waiting on the CUSTOMER. This one watches work waiting
+          on US. */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24}>
+          <Card
+            title={
+              <Space size={8}>
+                <ClockCircleOutlined
+                  style={{
+                    color: stuckInProduction.length > 0 ? SEMANTIC.warning : undefined,
+                  }}
+                />
+                Stuck in Production
+                {stuckInProduction.length > 0 && (
+                  <Badge
+                    count={stuckInProduction.length}
+                    style={{ backgroundColor: SEMANTIC.warning }}
+                  />
+                )}
+              </Space>
+            }
+            styles={{ body: { padding: 0 } }}
+          >
+            <List
+              dataSource={stuckInProduction}
+              renderItem={(entity) => (
+                <List.Item
+                  style={{ padding: '10px 20px' }}
+                  actions={[
+                    // Snoozing is per-user, so it belongs next to the nag rather
+                    // than in a settings screen. No refresh on change: a snooze
+                    // suppresses future NOTIFICATIONS, it does not un-stick the
+                    // job, so the row is still correct as it stands.
+                    <SnoozeButton
+                      key="snooze"
+                      entityType={entity.entityId === entity.orderId ? 'order' : 'purchase_order'}
+                      entityId={entity.entityId}
+                    />,
+                    entity.orderId ? (
+                      <Link key="open" href={`/admin/orders/${entity.orderId}?tab=checklist`}>
+                        <Button type="link" size="small" icon={<EyeOutlined />} style={{ padding: 0 }}>
+                          Open
+                        </Button>
+                      </Link>
+                    ) : (
+                      <span key="none" />
+                    ),
+                  ]}
+                >
+                  <List.Item.Meta
+                    title={entity.reference}
+                    description={`Waiting in ${entity.stageSlug}`}
+                  />
+                  <Tag color={entity.urgency === 'urgent' ? 'error' : 'warning'}>
+                    {Math.floor(entity.hoursInStage / 24)} days
+                  </Tag>
+                </List.Item>
+              )}
+              locale={{
+                emptyText: 'Nothing overdue — every job is inside its expected time.',
+              }}
+            />
           </Card>
         </Col>
       </Row>

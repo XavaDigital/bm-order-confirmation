@@ -61,8 +61,17 @@ export function scheduledJobs(): ScheduledJob[] {
         return purgeExpiredRateLimits();
       },
     },
-    // Phase 6 adds the time-driven scans here (stuck stages, stale orders, due
-    // reminders) as a single hourly job guarded by an advisory lock.
+    {
+      // Hourly, not every minute: these are "this has sat too long" checks
+      // measured in days, and the notification claim ledger buckets by day
+      // anyway, so a tighter cadence would only add load.
+      name: 'workflow-scans',
+      intervalMs: HOUR,
+      run: async () => {
+        const { runWorkflowScans } = await import('@/server/workflow/scans');
+        return runWorkflowScans();
+      },
+    },
   ];
 }
 

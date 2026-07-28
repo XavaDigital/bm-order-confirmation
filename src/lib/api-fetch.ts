@@ -42,6 +42,12 @@ export async function patchJson<T>(url: string, body: unknown, fallbackMessage =
   return parseOrThrow<T>(res, fallbackMessage);
 }
 
+/** PUT — replace-in-place semantics (workflow assignees, snoozes/reminders). */
+export async function putJson<T>(url: string, body: unknown, fallbackMessage = 'Request failed'): Promise<T> {
+  const res = await fetch(url, jsonInit('PUT', body));
+  return parseOrThrow<T>(res, fallbackMessage);
+}
+
 export async function deleteJson<T>(url: string, body?: unknown, fallbackMessage = 'Request failed'): Promise<T> {
   const res = await fetch(url, body === undefined ? { method: 'DELETE' } : jsonInit('DELETE', body));
   return parseOrThrow<T>(res, fallbackMessage);

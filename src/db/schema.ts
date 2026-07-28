@@ -1216,6 +1216,49 @@ export const inboxItems = confirmation.table(
   ],
 );
 
+/**
+ * Reminders and snoozes on a piece of work.
+ *
+ * Both kinds live in one table because they are the same shape and the scan
+ * reads them together: a `snooze` suppresses nagging until `dueAt`, a `reminder`
+ * asks to be resurfaced at `dueAt`.
+ *
+ * Snoozes are PER USER, not per entity. On a shared board a global snooze would
+ * let one person silence a job for the whole team, which is how a nagging system
+ * becomes a lying one.
+ */
+export type ReminderKind = 'snooze' | 'reminder';
+
+export const workflowReminders = confirmation.table(
+  'workflow_reminders',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    entityType: text('entity_type').notNull().$type<'order' | 'purchase_order'>(),
+    entityId: uuid('entity_id').notNull(),
+    staffUserId: uuid('staff_user_id')
+      .notNull()
+      .references(() => staffUsers.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull().$type<ReminderKind>(),
+    dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
+    note: text('note'),
+    /** Null while live. Set when it fires, or when the user clears it. */
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // One LIVE row per person per entity per kind, so re-snoozing extends the
+    // existing row instead of stacking duplicates that all fire later.
+    uniqueIndex('workflow_reminders_live_uq')
+      .on(t.entityType, t.entityId, t.staffUserId, t.kind)
+      .where(sql`${t.resolvedAt} is null`),
+    // The due scan: live rows whose time has come.
+    index('workflow_reminders_due_idx')
+      .on(t.dueAt)
+      .where(sql`${t.resolvedAt} is null`),
+    index('workflow_reminders_user_idx').on(t.staffUserId, t.dueAt),
+  ],
+);
+
 // --- relations (no DB migration needed — type-level only for db.query.* API) ---
 
 export const ordersRelations = relations(orders, ({ one, many }) => ({

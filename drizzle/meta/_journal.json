@@ -155,6 +155,13 @@
       "when": 1785206965546,
       "tag": "0021_tough_vector",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1785209871263,
+      "tag": "0022_sudden_inertia",
+      "breakpoints": true
     }
   ]
 }

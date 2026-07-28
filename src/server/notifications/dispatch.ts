@@ -35,6 +35,14 @@ export interface DispatchContext {
   actorEmail?: string | null;
   /** Already told by another handler — used to avoid double-telling. */
   excludeStaffUserIds?: string[];
+  /**
+   * Bypass rule resolution entirely and notify exactly these people.
+   *
+   * For notifications whose recipient is a property of the thing itself rather
+   * than a policy — a reminder goes to whoever set it, and no admin config
+   * should be able to redirect that somewhere else.
+   */
+  forceRecipientIds?: string[];
   title: string;
   body?: string | null;
   href?: string | null;
@@ -268,8 +276,13 @@ export async function dispatchNotification(
   }
   if (!settings.enabled) return { notified: [], skipped: 'disabled' };
 
-  const rules = await resolveRules(key, settings.definition.defaultRules, executor);
-  const recipients = await resolveRecipients(rules, context, executor);
+  const recipients = context.forceRecipientIds
+    ? await activeUsers(context.forceRecipientIds, executor)
+    : await resolveRecipients(
+        await resolveRules(key, settings.definition.defaultRules, executor),
+        context,
+        executor,
+      );
   if (recipients.length === 0) return { notified: [], skipped: 'no-recipients' };
 
   const notified: string[] = [];
