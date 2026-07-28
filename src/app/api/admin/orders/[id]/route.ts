@@ -5,7 +5,7 @@ import { notFound } from '@/lib/api-responses';
 import { defineRoute } from '@/lib/route-handler';
 
 export const GET = defineRoute<{ id: string }>({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'orders/[id] GET',
   handler: async ({ params }) => {
     const order = await getOrderAdmin(params.id);

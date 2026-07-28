@@ -6,6 +6,7 @@
  * building is picking from presets instead of retyping strings. Modeled on
  * Sales Hub's Products page. Sales role gets a read-only view.
  */
+import type { StaffRole } from '@/lib/roles';
 import { useState } from 'react';
 import {
   Card,
@@ -55,7 +56,7 @@ interface FormValues {
 }
 
 interface Props {
-  role: 'sales' | 'admin';
+  role: StaffRole;
 }
 
 export function GarmentTypesView({ role }: Props) {

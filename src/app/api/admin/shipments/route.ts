@@ -10,7 +10,7 @@ import { defineRoute } from '@/lib/route-handler';
 // All staff can manage shipments — logistics is a day-to-day sales/production
 // task, unlike the admin-only reference-data surfaces (suppliers, types).
 export const GET = defineRoute({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'shipments GET',
   handler: async ({ request }) => {
     const sp = request.nextUrl.searchParams;

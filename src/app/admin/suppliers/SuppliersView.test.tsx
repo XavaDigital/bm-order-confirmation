@@ -1,3 +1,4 @@
+import type { StaffRole } from '@/lib/roles';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -31,7 +32,7 @@ function supplier(overrides: Partial<SupplierRow> = {}): SupplierRow {
   };
 }
 
-function renderView(role: 'sales' | 'admin', suppliers: SupplierRow[]) {
+function renderView(role: StaffRole, suppliers: SupplierRow[]) {
   vi.mocked(getJson).mockResolvedValueOnce(suppliers);
   return render(
     <AntdApp>

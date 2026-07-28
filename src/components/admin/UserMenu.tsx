@@ -1,5 +1,6 @@
 'use client';
 
+import type { StaffRole } from '@/lib/roles';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Dropdown, Avatar, Typography } from 'antd';
@@ -11,7 +12,7 @@ import { postJson } from '@/lib/api-fetch';
 interface UserMenuProps {
   name: string;
   email: string;
-  role: 'sales' | 'admin';
+  role: StaffRole;
 }
 
 export function UserMenu({ name, email, role }: UserMenuProps) {

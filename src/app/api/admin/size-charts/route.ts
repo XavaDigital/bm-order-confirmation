@@ -18,7 +18,7 @@ const ALLOWED_TYPES: Record<string, string> = {
 const MAX_BYTES = 20 * 1024 * 1024; // 20 MB
 
 export const GET = defineRoute({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'size-charts GET',
   handler: async () => NextResponse.json(await listSizeCharts()),
 });

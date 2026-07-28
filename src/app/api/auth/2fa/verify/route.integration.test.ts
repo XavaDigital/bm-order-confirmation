@@ -70,6 +70,7 @@ async function seedMfaStaff() {
 async function setPendingSession(userId: string) {
   const session = (await getSession()) as unknown as Record<string, unknown>;
   session.userId = userId;
+  session.role = 'sales';
   session.mfaPending = true;
 }
 

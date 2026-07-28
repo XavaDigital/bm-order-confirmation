@@ -27,7 +27,10 @@ import {
 export const confirmation = pgSchema('confirmation');
 
 // --- enums -----------------------------------------------------------------
-export const staffRole = confirmation.enum('staff_role', ['sales', 'admin']);
+// Order matters only for readability; the ordering that decides access lives in
+// src/lib/roles.ts. 'none' is the fail-closed fallback for an identity role this
+// app does not understand — never a role anyone is deliberately given.
+export const staffRole = confirmation.enum('staff_role', ['none', 'viewer', 'sales', 'admin']);
 export const orderSource = confirmation.enum('order_source', [
   'internal_admin',
   'platform',

@@ -4,7 +4,7 @@ import { createOrderSchema } from '@/server/orders/contract';
 import { defineRoute } from '@/lib/route-handler';
 
 export const GET = defineRoute({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'orders GET',
   handler: async ({ request }) => {
     const { searchParams } = request.nextUrl;

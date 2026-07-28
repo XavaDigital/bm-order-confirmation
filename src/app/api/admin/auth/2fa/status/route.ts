@@ -5,7 +5,7 @@ import { staffUsers } from '@/db/schema';
 import { defineRoute } from '@/lib/route-handler';
 
 export const GET = defineRoute({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'admin/auth/2fa/status GET',
   handler: async ({ session }) => {
     const user = await db.query.staffUsers.findFirst({

@@ -6,7 +6,7 @@ import { defineRoute } from '@/lib/route-handler';
 // GET is available to all staff (the PO flow needs the supplier list);
 // mutations are admin-only, matching the garment-types convention.
 export const GET = defineRoute({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'suppliers GET',
   handler: async ({ request }) => {
     const activeOnly = request.nextUrl.searchParams.get('active') === '1';

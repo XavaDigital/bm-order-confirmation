@@ -4,7 +4,7 @@ import { issueRevision, listRevisions } from '@/server/purchase-orders/service';
 import { issueRevisionSchema } from '@/server/purchase-orders/contract';
 
 export const GET = defineRoute<{ id: string }>({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'purchase-orders [id]/revisions GET',
   handler: async ({ params }) => NextResponse.json(await listRevisions(params.id)),
 });

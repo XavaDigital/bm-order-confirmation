@@ -1,5 +1,6 @@
 'use client';
 
+import type { StaffRole } from '@/lib/roles';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -29,11 +30,11 @@ const HEADER_HEIGHT = 64;
 const SIDER_WIDTH = 250;
 
 interface AppShellProps {
-  user: { name: string; email: string; role: 'sales' | 'admin' };
+  user: { name: string; email: string; role: StaffRole };
   children: React.ReactNode;
 }
 
-function buildNavItems(role: 'sales' | 'admin') {
+function buildNavItems(role: StaffRole) {
   const items = [
     {
       key: '/admin/dashboard',

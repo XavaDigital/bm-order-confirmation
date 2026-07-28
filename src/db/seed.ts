@@ -13,6 +13,17 @@ import { staffUsers } from './schema';
 import { hashPassword } from '@/lib/password';
 
 async function seed() {
+  // Fleet access contract, point 9: no env-var admin. This script predates the
+  // identity seam and exists to bootstrap a STANDALONE deployment; once identity
+  // is the source of truth it must not be able to mint an admin behind its back.
+  if (process.env.IDENTITY_API_URL && process.env.IDENTITY_API_SECRET) {
+    console.error(
+      'Refusing to seed an admin: this app uses bm-identity for access. ' +
+        'Grant the person a role in the identity console instead.',
+    );
+    process.exit(1);
+  }
+
   const email = process.env.SEED_ADMIN_EMAIL?.trim();
   const password = process.env.SEED_ADMIN_PASSWORD;
   const name = process.env.SEED_ADMIN_NAME?.trim() ?? 'Admin';

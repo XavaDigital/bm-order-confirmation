@@ -11,7 +11,7 @@ import { defineRoute } from '@/lib/route-handler';
  * tick them.
  */
 export const GET = defineRoute({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'admin/workflow/checklist GET',
   handler: async ({ request }) => {
     const url = new URL(request.url);

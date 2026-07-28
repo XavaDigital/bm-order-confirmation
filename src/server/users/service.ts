@@ -1,3 +1,4 @@
+import type { StaffRole } from '@/lib/roles';
 import { eq, desc, and, isNull, or } from 'drizzle-orm';
 import { db } from '@/db';
 import { staffUsers } from '@/db/schema';
@@ -53,7 +54,7 @@ export type StaffUserRow = {
   id: string;
   email: string;
   name: string;
-  role: 'sales' | 'admin';
+  role: StaffRole;
   isActive: boolean;
   isPending: boolean; // true = invited but not yet accepted
   lastLoginAt: Date | null; // null = never logged in
@@ -93,7 +94,7 @@ const PLACEHOLDER_HASH = '$2b$12$invitedplaceholderhashXXXXXXXXXXXXXXXXXXXXXXXXX
 export async function inviteUser(
   name: string,
   email: string,
-  role: 'sales' | 'admin',
+  role: StaffRole,
 ): Promise<{ rawToken: string; setupUrl: string }> {
   const existing = await db.query.staffUsers.findFirst({
     where: eq(staffUsers.email, email.toLowerCase().trim()),

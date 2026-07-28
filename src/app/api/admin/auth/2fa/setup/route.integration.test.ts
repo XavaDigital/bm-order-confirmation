@@ -66,6 +66,7 @@ async function seedStaff(overrides: Partial<typeof schema.staffUsers.$inferInser
 async function setSession(userId: string, email: string) {
   const session = (await getSession()) as unknown as Record<string, unknown>;
   session.userId = userId;
+  session.role = 'sales';
   session.email = email;
 }
 

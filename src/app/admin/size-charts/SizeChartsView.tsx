@@ -1,5 +1,6 @@
 'use client';
 
+import type { StaffRole } from '@/lib/roles';
 import { useState } from 'react';
 import {
   Table,
@@ -63,7 +64,7 @@ function fileTypeTag(storageKey: string | null) {
 }
 
 interface SizeChartsViewProps {
-  role: 'sales' | 'admin';
+  role: StaffRole;
 }
 
 export function SizeChartsView({ role }: SizeChartsViewProps) {

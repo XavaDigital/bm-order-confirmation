@@ -56,6 +56,7 @@ afterEach(async () => {
 beforeEach(async () => {
   const session = (await getSession()) as unknown as Record<string, unknown>;
   session.userId = 'staff-1';
+  session.role = 'sales';
   session.email = 'staff@example.com';
 });
 

@@ -1,5 +1,6 @@
 'use client';
 
+import type { StaffRole } from '@/lib/roles';
 import { useState } from 'react';
 import {
   Table, Button, Tag, Modal, Form, Input, Select, App,
@@ -20,7 +21,7 @@ interface StaffUser {
   id: string;
   email: string;
   name: string;
-  role: 'sales' | 'admin';
+  role: StaffRole;
   isActive: boolean;
   isPending: boolean;
   lastLoginAt: string | null;
@@ -42,7 +43,7 @@ export function UsersView({ currentUserId }: UsersViewProps) {
   const [setupUrl, setSetupUrl] = useState<string | null>(null);
   const [form] = Form.useForm();
 
-  async function handleInvite(values: { name: string; email: string; role: 'sales' | 'admin' }) {
+  async function handleInvite(values: { name: string; email: string; role: StaffRole }) {
     setInviting(true);
     try {
       const data = await postJson<{ setupUrl?: string }>('/api/admin/users', values, 'Failed to invite user');
@@ -64,7 +65,7 @@ export function UsersView({ currentUserId }: UsersViewProps) {
     }
   }
 
-  async function handleRoleChange(id: string, role: 'sales' | 'admin') {
+  async function handleRoleChange(id: string, role: StaffRole) {
     try {
       await patchJson(`/api/admin/users/${id}`, { role }, 'Failed to update role');
       setUsers((prev) => (prev ?? []).map((u) => (u.id === id ? { ...u, role } : u)));

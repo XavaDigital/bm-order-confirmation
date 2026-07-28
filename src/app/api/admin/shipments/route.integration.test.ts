@@ -1,3 +1,4 @@
+import type { StaffRole } from '@/lib/roles';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -52,7 +53,7 @@ afterEach(async () => {
   for (const key of Object.keys(session)) delete session[key];
 });
 
-async function setSession(role: 'sales' | 'admin') {
+async function setSession(role: StaffRole) {
   const session = (await getSession()) as unknown as Record<string, unknown>;
   // Routes stamp createdBy from the session — must be a real staff row.
   const [user] = await db

@@ -45,6 +45,7 @@ export const POST = defineRoute<Record<string, never>, typeof bodySchema._type>(
       session.email = user.email;
       session.name = user.name;
       session.role = user.role;
+      session.identityUserId = user.identityUserId ?? null;
       // Google has already verified the person; a second factor would be asking
       // them to prove the same thing twice.
       session.mfaPending = false;

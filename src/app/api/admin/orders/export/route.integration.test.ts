@@ -59,6 +59,7 @@ describe('GET /api/admin/orders/export', () => {
   it('returns a CSV attachment with a header row and one row per order', async () => {
     const session = (await getSession()) as unknown as Record<string, unknown>;
     session.userId = 'staff-1';
+    session.role = 'sales';
 
     await createOrder(minimalInput({ customer: { name: 'Jane Coach', email: 'jane@example.com', clubName: 'Wildcats' } }));
     await createOrder(minimalInput({ customer: { name: 'Bob Coach', email: 'bob@example.com' } }));
@@ -79,6 +80,7 @@ describe('GET /api/admin/orders/export', () => {
   it('filters by status and search query params, same as the list endpoint', async () => {
     const session = (await getSession()) as unknown as Record<string, unknown>;
     session.userId = 'staff-1';
+    session.role = 'sales';
 
     await createOrder(minimalInput({ customer: { name: 'Alpha Club', email: 'a@example.com' } }));
     await createOrder(minimalInput({ customer: { name: 'Beta Club', email: 'b@example.com' } }));
@@ -94,6 +96,7 @@ describe('GET /api/admin/orders/export', () => {
   it('applies sortBy and sortDir query params, same as the list endpoint', async () => {
     const session = (await getSession()) as unknown as Record<string, unknown>;
     session.userId = 'staff-1';
+    session.role = 'sales';
 
     await createOrder(minimalInput({ customer: { name: 'A', email: 'a@example.com' }, orderValue: { amount: 20, currency: 'NZD' } }));
     await createOrder(minimalInput({ customer: { name: 'B', email: 'b@example.com' }, orderValue: { amount: 5, currency: 'NZD' } }));
@@ -110,6 +113,7 @@ describe('GET /api/admin/orders/export', () => {
   it('neutralizes a leading formula character in customer-supplied text', async () => {
     const session = (await getSession()) as unknown as Record<string, unknown>;
     session.userId = 'staff-1';
+    session.role = 'sales';
 
     await createOrder(minimalInput({ customer: { name: '=cmd|/c calc', email: 'jane@example.com' } }));
 

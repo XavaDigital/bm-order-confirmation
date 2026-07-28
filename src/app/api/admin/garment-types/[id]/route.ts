@@ -4,7 +4,7 @@ import { updateGarmentTypeSchema } from '@/server/garment-types/contract';
 import { defineRoute } from '@/lib/route-handler';
 
 export const GET = defineRoute<{ id: string }>({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'garment-types/[id] GET',
   handler: async ({ params }) => NextResponse.json(await getGarmentType(params.id)),
 });

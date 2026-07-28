@@ -1,5 +1,6 @@
 'use client';
 
+import type { StaffRole } from '@/lib/roles';
 import { useState } from 'react';
 import Link from 'next/link';
 import { Typography, Row, Col, Card, Statistic, Button, Badge, Space, List, Avatar, Tag, App } from 'antd';
@@ -120,7 +121,7 @@ interface Props {
   stuckInProduction: StuckEntity[];
   upcomingDeadlines: UpcomingDeadline[];
   colorSampleHolds: ColorSampleHold[];
-  role: 'sales' | 'admin';
+  role: StaffRole;
   failedEvents: FailedEvent[];
 }
 

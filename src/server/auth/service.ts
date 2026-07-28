@@ -3,7 +3,8 @@ import { db } from '@/db';
 import { staffUsers } from '@/db/schema';
 import { verifyPassword } from '@/lib/password';
 import { env } from '@/lib/env';
-import { googleLogin, roleFromGrants } from '@/server/identity/client';
+import { googleLogin, isIdentityConfigured, roleFromGrants } from '@/server/identity/client';
+import { roleFromIdentity, type StaffRole } from '@/lib/roles';
 import { logger } from '@/lib/logger';
 
 export class AuthError extends Error {
@@ -17,11 +18,29 @@ export type AuthUser = {
   id: string;
   email: string;
   name: string;
-  role: 'sales' | 'admin';
+  role: StaffRole;
   requiresMfa: boolean;
+  /** Set for identity-linked accounts; lets the per-request re-check skip a DB read. */
+  identityUserId?: string | null;
 };
 
 export async function loginStaff(email: string, password: string): Promise<AuthUser> {
+  /**
+   * Fleet access contract: "access comes from identity or it does not exist".
+   *
+   * Password login is therefore refused outright once the identity seam is
+   * configured — it would otherwise be a second way in that identity cannot
+   * revoke, which is exactly what the contract forbids. It remains available
+   * only where identity is switched off (local development, or a standalone
+   * deployment with no fleet identity service).
+   *
+   * This deliberately removes the break-glass path. The contract accepts that
+   * trade: "identity unreachable → new logins fail closed."
+   */
+  if (isIdentityConfigured()) {
+    throw new AuthError('Sign in with Google. Password sign-in is disabled for this app.');
+  }
+
   const user = await db.query.staffUsers.findFirst({
     where: eq(staffUsers.email, email.toLowerCase().trim()),
   });
@@ -65,7 +84,14 @@ export async function loginStaff(email: string, password: string): Promise<AuthU
  * conflating them sends people to the wrong person for help.
  */
 export class IdentityAuthError extends Error {
-  readonly reason: 'not_configured' | 'invalid_credential' | 'no_app_access' | 'unavailable' | 'disabled';
+  readonly reason:
+    | 'not_configured'
+    | 'invalid_credential'
+    | 'no_app_access'
+    | 'unavailable'
+    | 'disabled'
+    | 'not_authorised'
+    | 'no_role';
 
   constructor(reason: IdentityAuthError['reason'], message: string) {
     super(message);
@@ -96,14 +122,35 @@ export async function loginWithIdentity(credential: string): Promise<AuthUser> {
       not_configured: 'Google sign-in is not enabled on this server.',
       invalid_credential: 'That Google sign-in did not work. Please try again.',
       // NOT "unknown user": this is a real colleague without a grant for this app.
-      no_app_access: 'Your account does not have access to the order portal yet. Ask an admin to grant it.',
+      no_app_access:
+        "You don't have access to BM Orders. Ask an admin to give you access.",
+      not_authorised: 'That account is not recognised.',
       unavailable: 'Sign-in is temporarily unavailable. Please try again shortly.',
     };
     throw new IdentityAuthError(result.reason, messages[result.reason]);
   }
 
   const { user: identity, access } = result;
-  const role = roleFromGrants(identity.grants, env.IDENTITY_APP_ID) ?? normaliseRole(access.role);
+
+  // Identity is the source of truth for whether the person is disabled, and it
+  // outranks anything stored locally.
+  if (identity.disabled) {
+    throw new IdentityAuthError('disabled', 'This account has been disabled.');
+  }
+  // Prefer this app's own grant; fall back to the role identity resolved from
+  // our bearer. Both go through the same mapper, so anything unrecognised lands
+  // on 'none' rather than becoming a working account.
+  const granted = roleFromGrants(identity.grants, env.IDENTITY_APP_ID);
+  const role: StaffRole = granted !== 'none' ? granted : roleFromIdentity(access.role);
+
+  // Fail closed. Identity said "granted", but not in words this app understands,
+  // so there is no safe role to give them.
+  if (role === 'none') {
+    throw new IdentityAuthError(
+      'no_role',
+      'Your account does not have a role for the order portal yet. Ask an admin to set one.',
+    );
+  }
 
   // 1. The durable link.
   let local = await db.query.staffUsers.findFirst({
@@ -133,7 +180,7 @@ export async function loginWithIdentity(credential: string): Promise<AuthUser> {
         email: identity.email.toLowerCase(),
         name: identity.name ?? identity.email,
         passwordHash: UNUSABLE_PASSWORD_HASH,
-        role: role ?? 'sales',
+        role,
         identityUserId: identity.id,
       })
       .returning();
@@ -144,11 +191,12 @@ export async function loginWithIdentity(credential: string): Promise<AuthUser> {
     throw new IdentityAuthError('disabled', 'This account has been deactivated.');
   }
 
-  // Keep the local role in step with the grant. `roleFromGrants` returns null
-  // for anything this app does not understand, and null LEAVES THE ROLE ALONE —
-  // an unrecognised role must never silently demote someone.
+  // Identity wins, in BOTH directions. A lower role applies immediately — there
+  // is deliberately no "never demote" rule, because that would let a revoked or
+  // downgraded grant keep working. An unrecognised role never reaches here: it
+  // resolves to `none` above and the login is refused outright.
   const patch: Partial<typeof staffUsers.$inferInsert> = { lastLoginAt: new Date() };
-  if (role && role !== local.role) patch.role = role;
+  if (role !== local.role) patch.role = role;
   if (identity.name && identity.name !== local.name) patch.name = identity.name;
 
   try {
@@ -162,16 +210,12 @@ export async function loginWithIdentity(credential: string): Promise<AuthUser> {
     id: local.id,
     email: local.email,
     name: patch.name ?? local.name,
-    role: role ?? local.role,
+    role,
+    identityUserId: identity.id,
     // Identity has already verified the person via Google; a second factor here
     // would be asking them to prove the same thing twice.
     requiresMfa: false,
   };
-}
-
-/** Map an identity role string onto this app's vocabulary, or null if foreign. */
-function normaliseRole(role: string): 'sales' | 'admin' | null {
-  return role === 'admin' || role === 'sales' ? role : null;
 }
 
 /**

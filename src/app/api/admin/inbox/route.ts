@@ -10,7 +10,7 @@ import { defineRoute } from '@/lib/route-handler';
  * never names whose inbox it wants, so there is no id to tamper with.
  */
 export const GET = defineRoute({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'admin/inbox GET',
   handler: async ({ request, session }) => {
     const url = new URL(request.url);

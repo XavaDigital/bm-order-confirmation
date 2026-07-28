@@ -12,7 +12,7 @@ import { defineRoute } from '@/lib/route-handler';
  * so a regenerated PDF always matches what was originally sent.
  */
 export const GET = defineRoute<{ id: string }>({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'purchase-orders/[id]/pdf GET',
   handler: async ({ request, params }) => {
     const po = await getPurchaseOrder(params.id); // throws NotFoundError → 404

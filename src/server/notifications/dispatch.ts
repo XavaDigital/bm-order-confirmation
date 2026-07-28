@@ -5,6 +5,7 @@
  * transaction: sending is slow and can fail, and neither should be able to roll
  * back the business change that caused it.
  */
+import type { StaffRole } from '@/lib/roles';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '@/db';
 import type { Transaction } from '@/db';
@@ -135,7 +136,7 @@ export async function resolveRecipients(
           .from(staffUsers)
           .where(
             and(
-              eq(staffUsers.role, rule.roleKey as 'sales' | 'admin'),
+              eq(staffUsers.role, rule.roleKey as StaffRole),
               eq(staffUsers.isActive, true),
             ),
           );

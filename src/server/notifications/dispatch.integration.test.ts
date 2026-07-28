@@ -1,3 +1,4 @@
+import type { StaffRole } from '@/lib/roles';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 
@@ -26,7 +27,7 @@ afterEach(async () => {
   await resetTestDb(db);
 });
 
-async function seedStaff(email: string, role: 'sales' | 'admin' = 'sales', isActive = true) {
+async function seedStaff(email: string, role: StaffRole = 'sales', isActive = true) {
   const [row] = await db
     .insert(schema.staffUsers)
     .values({ email, name: email.split('@')[0], passwordHash: 'x', role, isActive })

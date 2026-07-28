@@ -1,3 +1,4 @@
+import type { StaffRole } from '@/lib/roles';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -45,7 +46,7 @@ import { createOrder, getOrderAdmin } from '@/server/orders/service';
 import { GET, POST } from './route';
 import { DELETE, PATCH } from './[noteId]/route';
 
-async function setSession(userId: string, role: 'sales' | 'admin' = 'sales') {
+async function setSession(userId: string, role: StaffRole = 'sales') {
   const session = (await getSession()) as unknown as Record<string, unknown>;
   session.userId = userId;
   session.role = role;

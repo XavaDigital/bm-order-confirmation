@@ -14,7 +14,7 @@ const XLSX_CONTENT_TYPE =
  * snapshot, so a regenerated workbook matches what was originally sent.
  */
 export const GET = defineRoute<{ id: string }>({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'purchase-orders/[id]/xlsx GET',
   handler: async ({ request, params }) => {
     const po = await getPurchaseOrder(params.id); // throws NotFoundError → 404

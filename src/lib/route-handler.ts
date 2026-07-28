@@ -13,12 +13,19 @@
  *
  * Auth modes:
  *  - 'public'      — no session; token/rate-limit checks are the handler's job.
- *  - 'staff'       — any authenticated staff session (middleware already 401s
- *                    unauthenticated /api/admin requests; this re-checks for
- *                    defense in depth and hands the session to the handler).
+ *  - 'viewer'      — any authenticated staff session with a real role.
+ *  - 'staff'       — write-capable session (sales/admin). Middleware already
+ *                    401s unauthenticated /api/admin requests; this re-checks
+ *                    for defense in depth and hands the session to the handler.
  *  - 'admin'       — staff session with role === 'admin'.
  *  - 'capability'  — fleet inbound bearer (INBOUND_CAPABILITY_SECRET) +
  *                    required X-Acting-User; handler receives actingUser.
+ *
+ * Role levels (see src/lib/roles.ts for the ordering):
+ *  - 'viewer' → viewer, sales, admin. Read-only endpoints.
+ *  - 'staff'  → sales, admin. EVERY mutation. Excludes viewer on purpose: an
+ *    unmarked route is not writable by a viewer by accident.
+ *  - 'admin'  → admin only.
  *
  * Error contract (uniform across the app):
  *  - schema parse failure     → 400 { error: 'Invalid request', details }
@@ -30,18 +37,21 @@
  *  - anything else            → 500 { error: 'Internal server error' } + logger.error
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { canRead, canWrite, isAdmin } from '@/lib/roles';
+import { checkAccess } from '@/server/auth/access';
 import type { ZodType, ZodTypeDef } from 'zod';
-import { getSession, requireAdmin, type SessionData } from '@/lib/session';
+import { getSession, type SessionData } from '@/lib/session';
 import { checkCapabilityAuth } from '@/lib/api-auth';
 import {
   badRequest,
+  forbidden,
   unauthorized,
   serviceUnavailable,
   serverError,
 } from '@/lib/api-responses';
 import { logger } from '@/lib/logger';
 
-type AuthMode = 'public' | 'staff' | 'admin' | 'capability';
+type AuthMode = 'public' | 'viewer' | 'staff' | 'admin' | 'capability';
 
 export interface RouteContext<P, B> {
   request: NextRequest;
@@ -90,13 +100,46 @@ export function defineRoute<P = Record<string, never>, B = undefined>(
       let session: SessionData | null = null;
       let actingUser: string | null = null;
 
-      if (config.auth === 'staff') {
-        session = await getSession();
-        if (!session.userId) return unauthorized();
-      } else if (config.auth === 'admin') {
-        const check = await requireAdmin();
-        if (check.error) return check.error;
-        session = check.session ?? null;
+      if (config.auth === 'viewer' || config.auth === 'staff' || config.auth === 'admin') {
+        // Keep the iron-session handle (it carries .destroy()); `session` below
+        // is the plain data shape handed to the handler.
+        const ironSession = await getSession();
+        session = ironSession;
+        if (!ironSession.userId) return unauthorized();
+        // `mfaPending` is deliberately NOT checked here. Middleware owns it, and
+        // it correctly lets a half-authenticated session reach the 2FA routes —
+        // blocking them here would lock people out of completing their own 2FA.
+
+        // Re-read the grant from identity (cached ≤60s). A revoked or lowered
+        // grant must take effect on a LIVE session, not only at next sign-in.
+        const access = await checkAccess({
+          staffUserId: ironSession.userId,
+          identityUserId: ironSession.identityUserId ?? null,
+          sessionRole: ironSession.role ?? 'none',
+        });
+        if (!access.ok) {
+          // Identity answered "no". End the session rather than degrading it —
+          // there is no reduced-access outcome in the access contract.
+          ironSession.destroy();
+          return forbidden(
+            access.reason === 'disabled'
+              ? 'This account has been disabled.'
+              : "You don't have access to BM Orders. Ask an admin to give you access.",
+          );
+        }
+        // The freshly-read role, never the one cached in the cookie.
+        const role = access.role;
+        ironSession.role = role;
+
+        if (config.auth === 'viewer' && !canRead(role)) {
+          return forbidden("You don't have access to BM Orders.");
+        }
+        if (config.auth === 'staff' && !canWrite(role)) {
+          return forbidden('Your account has read-only access.');
+        }
+        if (config.auth === 'admin' && !isAdmin(role)) {
+          return forbidden('Forbidden');
+        }
       } else if (config.auth === 'capability') {
         const auth = checkCapabilityAuth(request);
         if (auth === 'unconfigured') {

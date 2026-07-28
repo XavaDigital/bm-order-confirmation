@@ -1,5 +1,6 @@
 'use client';
 
+import type { StaffRole } from '@/lib/roles';
 import { useState, useEffect } from 'react';
 import {
   Card,
@@ -38,7 +39,7 @@ interface SetupData {
 }
 
 interface Props {
-  user: { name: string; email: string; role: 'sales' | 'admin' };
+  user: { name: string; email: string; role: StaffRole };
 }
 
 export function ProfileView({ user }: Props) {

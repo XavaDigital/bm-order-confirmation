@@ -6,7 +6,7 @@ import { defineRoute } from '@/lib/route-handler';
 // GET is available to all staff (the order flow needs the list); mutations
 // are admin-only, matching the size-charts convention.
 export const GET = defineRoute({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'garment-types GET',
   handler: async ({ request }) => {
     const activeOnly = request.nextUrl.searchParams.get('active') === '1';

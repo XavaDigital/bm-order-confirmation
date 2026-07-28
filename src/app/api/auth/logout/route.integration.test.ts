@@ -36,6 +36,7 @@ describe('POST /api/auth/logout', () => {
   it('returns { ok: true } and destroys the session', async () => {
     const session = (await getSession()) as unknown as Record<string, unknown>;
     session.userId = 'staff-1';
+    session.role = 'sales';
 
     const res = await POST(new NextRequest('http://localhost/api/auth/logout', { method: 'POST' }));
     const json = await res.json();

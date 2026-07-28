@@ -4,7 +4,7 @@ import { updateSupplierSchema } from '@/server/suppliers/contract';
 import { defineRoute } from '@/lib/route-handler';
 
 export const GET = defineRoute<{ id: string }>({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'suppliers/[id] GET',
   handler: async ({ params }) => NextResponse.json(await getSupplier(params.id)),
 });

@@ -1,3 +1,4 @@
+import type { StaffRole } from '@/lib/roles';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -52,7 +53,7 @@ afterEach(async () => {
   isEmailConfigured.mockReturnValue(false);
 });
 
-async function setSession(role: 'sales' | 'admin', overrides: Record<string, unknown> = {}) {
+async function setSession(role: StaffRole, overrides: Record<string, unknown> = {}) {
   const session = (await getSession()) as unknown as Record<string, unknown>;
   session.userId = 'staff-1';
   session.email = 'staff@example.com';

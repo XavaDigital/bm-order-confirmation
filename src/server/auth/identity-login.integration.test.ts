@@ -178,18 +178,37 @@ describe('loginWithIdentity — roles', () => {
   });
 
   /**
-   * A role this app has not been taught must LEAVE the current role alone.
-   * Defaulting it to 'sales' would silently demote an admin the moment someone
-   * mistypes a role in the identity console.
+   * Fleet access contract: an unrecognised role is NO ACCESS, not the local role
+   * and not a default. Identity said "granted" but not in words this app speaks,
+   * so there is nothing safe to give them.
    */
-  it('never demotes on a role it does not understand', async () => {
-    const local = await seedLocal({ role: 'admin' });
+  it('refuses a login whose role this app does not understand', async () => {
+    await seedLocal({ role: 'admin' });
     resolves(identityUser({ grants: { 'bm-orders': { role: 'superuser' } } }), 'superuser');
+
+    await expect(loginWithIdentity('credential')).rejects.toMatchObject({ reason: 'no_role' });
+  });
+
+  /**
+   * The contract is explicit that downgrades apply immediately — there is no
+   * "never demote" rule, because that would let a lowered grant keep its old
+   * privileges until the person happened to sign out.
+   */
+  it('applies a LOWER role immediately', async () => {
+    const local = await seedLocal({ role: 'admin' });
+    resolves(identityUser({ grants: { 'bm-orders': { role: 'viewer' } } }), 'viewer');
 
     const user = await loginWithIdentity('credential');
 
-    expect(user.role).toBe('admin');
-    expect((await readLocal(local.id)).role).toBe('admin');
+    expect(user.role).toBe('viewer');
+    expect((await readLocal(local.id)).role).toBe('viewer');
+  });
+
+  it('blocks a login for a user identity reports as disabled', async () => {
+    await seedLocal();
+    resolves(identityUser({ disabled: true }));
+
+    await expect(loginWithIdentity('credential')).rejects.toMatchObject({ reason: 'disabled' });
   });
 
   it('updates a changed display name', async () => {

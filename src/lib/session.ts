@@ -1,3 +1,4 @@
+import type { StaffRole } from '@/lib/roles';
 import { getIronSession } from 'iron-session';
 import type { SessionOptions } from 'iron-session';
 import { NextResponse } from 'next/server';
@@ -7,7 +8,9 @@ export interface SessionData {
   userId: string;
   email: string;
   name: string;
-  role: 'sales' | 'admin';
+  role: StaffRole;
+  /** Set for identity-linked accounts, so the per-request re-check can skip a DB read. */
+  identityUserId?: string | null;
   // True when the user completed password auth but hasn't verified their TOTP code yet.
   // Protected admin routes are blocked until this is cleared.
   mfaPending?: boolean;

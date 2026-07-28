@@ -30,7 +30,7 @@ const clearSchema = z.object({
 });
 
 export const GET = defineRoute({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'admin/workflow/reminders GET',
   handler: async ({ session }) =>
     NextResponse.json(await listRemindersForUser(session!.userId)),

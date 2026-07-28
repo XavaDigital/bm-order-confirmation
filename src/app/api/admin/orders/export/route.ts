@@ -16,7 +16,7 @@ const HEADER = [
 ];
 
 export const GET = defineRoute({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'orders/export GET',
   handler: async ({ request }) => {
     const { searchParams } = request.nextUrl;

@@ -6,6 +6,7 @@
  * the short supplier code used in PO numbers. Deactivate-never-delete, like
  * garment types. Sales role gets a read-only view.
  */
+import type { StaffRole } from '@/lib/roles';
 import { useState } from 'react';
 import {
   Card,
@@ -65,7 +66,7 @@ interface FormValues {
 }
 
 interface Props {
-  role: 'sales' | 'admin';
+  role: StaffRole;
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : undefined);

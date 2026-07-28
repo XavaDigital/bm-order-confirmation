@@ -13,7 +13,7 @@ const setAssigneesSchema = z.object({
 });
 
 export const GET = defineRoute({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'admin/workflow/assignees GET',
   handler: async ({ request }) => {
     const url = new URL(request.url);

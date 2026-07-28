@@ -8,6 +8,7 @@
  * shell), and the six "greeting + intro + button + copy-link + small-print"
  * emails go through `sendLinkEmail` so that skeleton exists once.
  */
+import type { StaffRole } from '@/lib/roles';
 import nodemailer from 'nodemailer';
 import { env } from '@/lib/env';
 import { APP_NAME, APP_TAGLINE, APP_PORTAL_NAME, SALES_REP_LABEL, EMAIL_FROM_DEFAULT } from '@/lib/config';
@@ -251,7 +252,7 @@ export interface SendInviteEmailParams {
   to: string;
   toName: string;
   inviterName: string;
-  role: 'sales' | 'admin';
+  role: StaffRole;
   setupUrl: string;
 }
 

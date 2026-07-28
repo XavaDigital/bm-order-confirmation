@@ -16,6 +16,7 @@
  *    legacy INTERNAL_API_KEY, and now this. Do not reuse one for another.
  */
 import { env } from '@/lib/env';
+import { roleFromIdentity, type StaffRole } from '@/lib/roles';
 import { logger } from '@/lib/logger';
 
 const TIMEOUT_MS = 5_000;
@@ -51,6 +52,8 @@ export type IdentityLoginFailure =
   | { reason: 'not_configured' }
   | { reason: 'invalid_credential' }
   | { reason: 'no_app_access'; email?: string }
+  /** Not a recognised BeastMode person at all — a different thing to say. */
+  | { reason: 'not_authorised' }
   | { reason: 'unavailable' };
 
 export function isIdentityConfigured(): boolean {
@@ -96,8 +99,11 @@ export async function googleLogin(
 
   if (res.status === 401) return { reason: 'invalid_credential' };
   if (res.status === 403) {
-    const body = (await res.json().catch(() => ({}))) as { message?: string };
-    // The message carries the email; the code is what identifies the case.
+    const body = (await res.json().catch(() => ({}))) as { message?: string; code?: string };
+    // Two different 403s. NOT_AUTHORISED = not a recognised person;
+    // NO_APP_ACCESS = a known colleague with no grant for this app. They need
+    // different words, so they get different reasons.
+    if (body.code === 'NOT_AUTHORISED') return { reason: 'not_authorised' };
     return { reason: 'no_app_access', email: body.message?.split(' ')[0] };
   }
   if (!res.ok) {
@@ -162,15 +168,11 @@ export async function preProvisionUser(input: {
 /**
  * This app's role for a user, from a grants map.
  *
- * Unknown roles map to null rather than to 'sales', so a role this app has not
- * been taught cannot silently become the default. The caller keeps the current
- * role in that case — never demote on a value we do not understand.
+ * Anything this app cannot interpret — a role from another app's vocabulary, a
+ * typo, or no grant at all — becomes `none`, which grants nothing. Identity may
+ * say a person has access; if it cannot say WHAT access in words this app
+ * understands, the safe reading is "none", never a working default.
  */
-export function roleFromGrants(
-  grants: IdentityUser['grants'],
-  appId: string,
-): 'sales' | 'admin' | null {
-  const role = grants?.[appId]?.role;
-  if (role === 'admin' || role === 'sales') return role;
-  return null;
+export function roleFromGrants(grants: IdentityUser['grants'], appId: string): StaffRole {
+  return roleFromIdentity(grants?.[appId]?.role);
 }

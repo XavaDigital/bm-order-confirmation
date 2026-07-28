@@ -224,26 +224,34 @@ describe('preProvisionUser', () => {
   });
 });
 
+/**
+ * Fleet access contract: absent, foreign or unrecognised all mean NO ACCESS.
+ * `none` is not a role anyone is given — it is the fail-closed answer.
+ */
 describe('roleFromGrants', () => {
   it('reads this app’s role', () => {
-    expect(
-      roleFromGrants({ 'order-confirmation': { role: 'admin' } }, 'order-confirmation'),
-    ).toBe('admin');
+    expect(roleFromGrants({ 'bm-orders': { role: 'admin' } }, 'bm-orders')).toBe('admin');
+  });
+
+  it('reads viewer', () => {
+    expect(roleFromGrants({ 'bm-orders': { role: 'viewer' } }, 'bm-orders')).toBe('viewer');
   });
 
   it('ignores another app’s grant', () => {
-    expect(roleFromGrants({ 'sales-hub': { role: 'admin' } }, 'order-confirmation')).toBeNull();
+    expect(roleFromGrants({ 'salesflow': { role: 'admin' } }, 'bm-orders')).toBe('none');
   });
 
-  // Never silently default: an unrecognised role must leave the caller's current
-  // role alone rather than becoming 'sales'.
-  it('returns null for a role this app does not understand', () => {
-    expect(
-      roleFromGrants({ 'order-confirmation': { role: 'superuser' } }, 'order-confirmation'),
-    ).toBeNull();
+  // The key being ABSENT is the shape identity actually sends for no access.
+  it('treats an absent key as no access', () => {
+    expect(roleFromGrants({}, 'bm-orders')).toBe('none');
   });
 
-  it('returns null for an empty grants map', () => {
-    expect(roleFromGrants({}, 'order-confirmation')).toBeNull();
+  it('treats a role string this app cannot speak as no access', () => {
+    expect(roleFromGrants({ 'bm-orders': { role: 'superuser' } }, 'bm-orders')).toBe('none');
+  });
+
+  // 'none' must never be assignable from outside either.
+  it('treats a literal "none" grant as no access', () => {
+    expect(roleFromGrants({ 'bm-orders': { role: 'none' } }, 'bm-orders')).toBe('none');
   });
 });

@@ -11,7 +11,7 @@ import {
 } from '@/server/purchase-orders/contract';
 
 export const GET = defineRoute({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'purchase-orders GET',
   handler: async ({ request }) => {
     const params = request.nextUrl.searchParams;

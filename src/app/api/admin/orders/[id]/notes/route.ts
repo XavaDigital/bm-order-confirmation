@@ -15,7 +15,7 @@ import { defineRoute } from '@/lib/route-handler';
  * the feature. Per-note edit/delete permission is enforced in the service.
  */
 export const GET = defineRoute<{ id: string }>({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'admin/orders/[id]/notes GET',
   handler: async ({ params, request }) => {
     const url = new URL(request.url);

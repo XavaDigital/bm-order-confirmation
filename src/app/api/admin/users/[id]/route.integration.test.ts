@@ -1,3 +1,4 @@
+import type { StaffRole } from '@/lib/roles';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
@@ -44,7 +45,7 @@ afterEach(async () => {
   for (const key of Object.keys(session)) delete session[key];
 });
 
-async function setSession(userId: string, role: 'sales' | 'admin') {
+async function setSession(userId: string, role: StaffRole) {
   const session = (await getSession()) as unknown as Record<string, unknown>;
   session.userId = userId;
   session.email = 'staff@example.com';

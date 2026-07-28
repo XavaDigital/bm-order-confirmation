@@ -12,7 +12,7 @@ import { defineRoute } from '@/lib/route-handler';
  * configuring the stages is admin-only (see the stages routes).
  */
 export const GET = defineRoute({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'admin/workflow/board GET',
   handler: async ({ request }) => {
     const url = new URL(request.url);

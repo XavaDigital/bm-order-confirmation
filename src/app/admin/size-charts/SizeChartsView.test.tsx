@@ -1,3 +1,4 @@
+import type { StaffRole } from '@/lib/roles';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -21,7 +22,7 @@ function chartsRoute(charts: ReturnType<typeof chart>[]): MockRoute {
   return { match: '/api/admin/size-charts', method: 'GET', response: charts };
 }
 
-function renderView(role: 'sales' | 'admin' = 'admin') {
+function renderView(role: StaffRole = 'admin') {
   return render(
     <AntdApp>
       <SizeChartsView role={role} />

@@ -7,7 +7,7 @@ import { defineRoute } from '@/lib/route-handler';
  * the hub directly (the Capability API has no CORS by design).
  */
 export const GET = defineRoute({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'hub/customers/search GET',
   handler: async ({ request }) => {
     const q = request.nextUrl.searchParams.get('q') ?? '';

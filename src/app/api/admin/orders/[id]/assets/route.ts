@@ -4,7 +4,7 @@ import { createOrderAssetSchema } from '@/server/orders/assets-contract';
 import { defineRoute } from '@/lib/route-handler';
 
 export const GET = defineRoute<{ id: string }>({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'orders/[id]/assets GET',
   handler: async ({ params }) => NextResponse.json(await listOrderAssets(params.id)),
 });

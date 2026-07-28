@@ -67,6 +67,7 @@ function statusRequest() {
 async function setSession(userId: string) {
   const session = (await getSession()) as unknown as Record<string, unknown>;
   session.userId = userId;
+  session.role = 'sales';
 }
 
 describe('GET /api/admin/auth/2fa/status', () => {

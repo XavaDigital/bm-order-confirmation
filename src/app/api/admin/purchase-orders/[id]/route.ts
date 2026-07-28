@@ -4,7 +4,7 @@ import { getPurchaseOrder, updatePurchaseOrder } from '@/server/purchase-orders/
 import { updatePurchaseOrderSchema } from '@/server/purchase-orders/contract';
 
 export const GET = defineRoute<{ id: string }>({
-  auth: 'staff',
+  auth: 'viewer',
   tag: 'purchase-orders [id] GET',
   handler: async ({ params }) => NextResponse.json(await getPurchaseOrder(params.id)),
 });
