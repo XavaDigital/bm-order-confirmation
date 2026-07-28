@@ -162,6 +162,13 @@
       "when": 1785209871263,
       "tag": "0022_sudden_inertia",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1785213479991,
+      "tag": "0023_minor_the_fury",
+      "breakpoints": true
     }
   ]
 }

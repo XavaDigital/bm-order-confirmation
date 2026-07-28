@@ -1,0 +1,2 @@
+ALTER TABLE "confirmation"."staff_users" ADD COLUMN "identity_user_id" uuid;--> statement-breakpoint
+ALTER TABLE "confirmation"."staff_users" ADD CONSTRAINT "staff_users_identity_user_id_unique" UNIQUE("identity_user_id");

@@ -104,6 +104,15 @@ export const staffUsers = confirmation.table(
   totpBackupCodes: jsonb('totp_backup_codes').$type<string[]>(),
   // Stamped on successful password verification (loginStaff). Null = never logged in.
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+  /**
+   * The fleet identity-service user id (bm-identity `identity.users.id`).
+   *
+   * No FK: that service lives in a different database, and its rows are never
+   * deleted — only disabled — so the reference cannot dangle. Unique, because
+   * two local accounts pointing at one identity would make "who is this?"
+   * ambiguous at login. Null until the account is bridged.
+   */
+  identityUserId: uuid('identity_user_id').unique(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true })
     .defaultNow()

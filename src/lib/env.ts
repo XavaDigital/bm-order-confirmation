@@ -83,6 +83,18 @@ const schema = z.object({
   // CAPABILITY_API_SECRET is the SHARED fleet capability bearer secret.
   CAPABILITY_API_URL: z.string().url().optional(),
   CAPABILITY_API_SECRET: z.string().optional(),
+
+  // bm-identity — the fleet identity service (Google SSO + per-app grants).
+  // A FOURTH, separate credential: per-app secrets are the fleet norm, so this
+  // is never the shared CAPABILITY_API_SECRET or the inbound one.
+  // Unset (the default) = the seam is dormant and password login is the only
+  // way in, which is how this app runs today.
+  // IDENTITY_API_URL e.g. https://identity.beastmode.co.nz
+  IDENTITY_API_URL: z.string().url().optional(),
+  IDENTITY_API_SECRET: z.string().optional(),
+  // This app's id in the identity `apps` registry — the key its grants are
+  // filed under. Chosen once and permanent; changing it orphans every grant.
+  IDENTITY_APP_ID: z.string().default('order-confirmation'),
   // Inbound: the per-app secret the hub/Email Flow presents when calling THIS
   // app's /api/capability/v1/* routes. Distinct from the two above by design.
   INBOUND_CAPABILITY_SECRET: z.string().optional(),
