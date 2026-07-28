@@ -73,6 +73,7 @@ Windows dev-box quirks: run jsdom tests serially (`npx vitest run --project jsdo
 - **Every request re-checks the grant** via `checkAccess` (`src/server/auth/access.ts`), cached ≤60s, from both `defineRoute` and the admin layout. A revoked or LOWERED grant takes effect on a live session — there is deliberately no "never demote" rule. Identity answering no-access/disabled/gone destroys the session; identity being *unreachable* serves the last known good role (stale-while-error), because an outage must not log out the company.
 - **No non-identity way in.** Password login and `npm run db:seed` both refuse when `IDENTITY_API_URL` + `IDENTITY_API_SECRET` are set; they work only where identity is switched off (local dev, standalone). Do not add an env-var admin, an email allowlist, or a first-user-becomes-admin path.
 - A test session that sets `userId` without `role` now resolves to `none` and gets 403 — fixtures must set both.
+- **Known gap, deliberately deferred (2026-07-29, build mode):** a `viewer` still SEES mutation controls in the admin UI; clicking them returns 403 from the server. Enforcement is complete and correct — this is affordance-hiding only. Do not treat it as an access hole, and do not half-fix it: when it is picked up, sweep the components properly against `canWrite(role)`.
 - Registered role vocabulary must match the identity `apps` registry exactly (`['viewer','sales','admin']`). **Changing this app's roles requires telling the identity owner in the same change**, or grants 400.
 
 ### Auth flow
