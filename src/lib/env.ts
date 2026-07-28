@@ -95,6 +95,15 @@ const schema = z.object({
   // This app's id in the identity `apps` registry — the key its grants are
   // filed under. Chosen once and permanent; changing it orphans every grant.
   IDENTITY_APP_ID: z.string().default('order-confirmation'),
+  /**
+   * This app's Google OAuth client id. NOT a secret — it ships to the browser to
+   * render the sign-in button, and bm-identity verifies each ID token against
+   * the CALLING app's registered client id, so it must match the `google_client_id`
+   * on this app's `identity.apps` row exactly.
+   */
+  GOOGLE_LOGIN_CLIENT_ID: z
+    .string()
+    .default('414540960371-dpqln2dcb5o97d9sr75s8o22ato4j7lu.apps.googleusercontent.com'),
   // Inbound: the per-app secret the hub/Email Flow presents when calling THIS
   // app's /api/capability/v1/* routes. Distinct from the two above by design.
   INBOUND_CAPABILITY_SECRET: z.string().optional(),
