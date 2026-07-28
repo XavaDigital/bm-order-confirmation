@@ -1088,6 +1088,134 @@ export const assignments = confirmation.table(
   ],
 );
 
+// --- notifications ----------------------------------------------------------
+// Config here is OVERRIDE-ONLY: a missing row means "use the code-defined
+// default" (see src/server/notifications/catalog.ts). The feature therefore
+// ships working, and an admin who never opens the settings page keeps today's
+// behaviour rather than silently getting no notifications at all.
+
+/** How a recipient set is derived. */
+export type RecipientRuleKind =
+  | 'intrinsic'
+  | 'role'
+  | 'specific_users'
+  | 'stage_owners'
+  | 'entity_assignees'
+  | 'order_owner'
+  | 'po_creator';
+
+export const notificationEventSettings = confirmation.table(
+  'notification_event_settings',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    /** Matches a key in the code catalog. */
+    eventKey: text('event_key').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    emailEnabled: boolean('email_enabled').notNull().default(true),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [uniqueIndex('notification_event_settings_key_uq').on(t.eventKey)],
+);
+
+export const notificationRecipientRules = confirmation.table(
+  'notification_recipient_rules',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    eventKey: text('event_key').notNull(),
+    kind: text('kind').notNull().$type<RecipientRuleKind>(),
+    /** For 'role': the role name. For 'specific_users': ignored. */
+    roleKey: text('role_key'),
+    /** For 'specific_users'. */
+    staffUserIds: jsonb('staff_user_ids').$type<string[]>().notNull().default([]),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('notification_recipient_rules_event_idx').on(t.eventKey)],
+);
+
+/**
+ * Claim-before-send ledger. A row is inserted BEFORE the send is attempted, and
+ * the unique index is what makes the claim atomic.
+ *
+ * The outbox re-runs every handler for an event on retry, so without this one
+ * flaky SMTP call would email five owners five times over the backoff schedule.
+ * That is the single most likely way this feature gets switched off by the
+ * people it is meant to help. The trade-off is stated plainly: at-most-once, so
+ * a crash between claiming and sending loses that one notification.
+ */
+export const notificationDeliveries = confirmation.table(
+  'notification_deliveries',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    eventKey: text('event_key').notNull(),
+    /**
+     * What makes this send unique. Usually the domain_events row id, so a retry
+     * of the same event claims the same key; the reminder scans use a
+     * time-bucketed key instead.
+     */
+    dedupeKey: text('dedupe_key').notNull(),
+    staffUserId: uuid('staff_user_id')
+      .notNull()
+      .references(() => staffUsers.id, { onDelete: 'cascade' }),
+    channel: text('channel').notNull().$type<'email' | 'inbox'>(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    failedReason: text('failed_reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('notification_deliveries_claim_uq').on(
+      t.eventKey,
+      t.dedupeKey,
+      t.staffUserId,
+      t.channel,
+    ),
+  ],
+);
+
+/**
+ * The in-app inbox. The email outbox lives ON the row (subject/html persisted,
+ * nulled on success) rather than in a separate queue table: one insert instead
+ * of two, and the unread badge and the retry scan read the same row.
+ */
+export const inboxItems = confirmation.table(
+  'inbox_items',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    staffUserId: uuid('staff_user_id')
+      .notNull()
+      .references(() => staffUsers.id, { onDelete: 'cascade' }),
+    eventKey: text('event_key').notNull(),
+    title: text('title').notNull(),
+    body: text('body'),
+    /** Where clicking it goes — a deep link to the checklist or the board. */
+    href: text('href'),
+    /** For grouping and for the "go to this order" affordance. */
+    entityType: text('entity_type').$type<'order' | 'purchase_order'>(),
+    entityId: uuid('entity_id'),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    // On-row email outbox. Nulled once sent so a delivered row carries no
+    // duplicate copy of the body.
+    emailSubject: text('email_subject'),
+    emailHtml: text('email_html'),
+    emailSentAt: timestamp('email_sent_at', { withTimezone: true }),
+    emailAttempts: integer('email_attempts').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // The unread badge is the most frequent query in the app once this ships.
+    index('inbox_items_unread_idx')
+      .on(t.staffUserId, t.createdAt)
+      .where(sql`${t.readAt} is null`),
+    // The retry scan looks only at rows with an unsent email still on them.
+    index('inbox_items_pending_email_idx')
+      .on(t.emailAttempts)
+      .where(sql`${t.emailSubject} is not null and ${t.emailSentAt} is null`),
+    index('inbox_items_entity_idx').on(t.entityType, t.entityId),
+  ],
+);
+
 // --- relations (no DB migration needed — type-level only for db.query.* API) ---
 
 export const ordersRelations = relations(orders, ({ one, many }) => ({
@@ -1160,6 +1288,14 @@ export const workflowTaskCompletionsRelations = relations(workflowTaskCompletion
   confirmedBy: one(staffUsers, {
     fields: [workflowTaskCompletions.confirmedByStaffUserId],
     references: [staffUsers.id],
+  }),
+}));
+
+export const inboxItemsRelations = relations(inboxItems, ({ one }) => ({
+  staffUser: one(staffUsers, {
+    fields: [inboxItems.staffUserId],
+    references: [staffUsers.id],
+    relationName: 'inboxRecipient',
   }),
 }));
 

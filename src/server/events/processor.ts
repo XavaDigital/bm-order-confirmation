@@ -21,7 +21,7 @@
  */
 import { and, asc, count, desc, eq, inArray, isNull, lt, lte, or } from 'drizzle-orm';
 import { db, type Transaction } from '@/db';
-import { domainEvents } from '@/db/schema';
+import { domainEvents, workflowStages } from '@/db/schema';
 import { fireGoogleAdsConversion } from '@/server/conversions/google-ads';
 import {
   notifyStaffOfConfirmation,
@@ -29,6 +29,7 @@ import {
   notifyStaffOfColorSampleRequest,
   notifyCustomerOfConfirmation,
 } from '@/server/orders/notifications';
+import { dispatchNotification } from '@/server/notifications/dispatch';
 import { logger } from '@/lib/logger';
 
 const BATCH_SIZE = 20;
@@ -40,7 +41,13 @@ const BACKOFF_MINUTES = [1, 5, 30, 120, 720];
 const MAX_ATTEMPTS = BACKOFF_MINUTES.length;
 
 type DomainEvent = typeof domainEvents.$inferSelect;
-type EventHandler = (event: DomainEvent) => Promise<void>;
+/**
+ * Handlers run INSIDE the batch transaction (see processOutbox), so any handler
+ * that touches the database must use the `tx` it is given. Reaching for the
+ * global `db` from here deadlocks PGlite's single connection and hangs the
+ * suite; against real Postgres it silently escapes the batch's atomicity.
+ */
+type EventHandler = (event: DomainEvent, tx: Transaction) => Promise<void>;
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -86,6 +93,79 @@ async function handleCustomerReceiptEmail(event: DomainEvent): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Workflow notifications
+// ---------------------------------------------------------------------------
+//
+// Dispatch is safe to re-run: `notification_deliveries` claims each
+// (event, person, channel) before sending, so a retried event notifies nobody a
+// second time. That is what makes these handlers obey the contract in this
+// file's header, which the older email handlers do not.
+
+async function handleStageEnteredNotification(event: DomainEvent, tx: Transaction): Promise<void> {
+  const p = event.payload as {
+    stageSlug?: string;
+    boardKey?: 'order' | 'purchase_order';
+    poId?: string;
+    actorEmail?: string;
+  };
+  if (!p.stageSlug || !p.boardKey) return;
+
+  const stageName = await stageDisplayName(p.boardKey, p.stageSlug, tx);
+  const entityId = p.boardKey === 'purchase_order' ? (p.poId ?? event.aggregateId) : event.aggregateId;
+
+  await dispatchNotification('workflow.stage_entered', {
+    dedupeKey: event.id,
+    entityType: p.boardKey,
+    entityId,
+    stageSlug: p.stageSlug,
+    boardKey: p.boardKey,
+    actorEmail: p.actorEmail ?? null,
+    title: `Work has reached ${stageName}`,
+    body: 'A job has moved into a stage you own.',
+    href: `/admin/orders/${event.aggregateId}?tab=checklist`,
+  }, tx);
+}
+
+async function handleNoteAddedNotification(event: DomainEvent, tx: Transaction): Promise<void> {
+  const p = event.payload as { authorLabel?: string; actorEmail?: string };
+  await dispatchNotification('order.note_added', {
+    dedupeKey: event.id,
+    entityType: 'order',
+    entityId: event.aggregateId,
+    actorEmail: p.actorEmail ?? null,
+    title: 'A note was added to an order',
+    body: p.authorLabel ? `Added by ${p.authorLabel}.` : null,
+    href: `/admin/orders/${event.aggregateId}?tab=notes`,
+  }, tx);
+}
+
+async function handlePoSentNotification(event: DomainEvent, tx: Transaction): Promise<void> {
+  const p = event.payload as { poId?: string; poNumber?: string };
+  await dispatchNotification('po.sent', {
+    dedupeKey: event.id,
+    entityType: 'purchase_order',
+    entityId: p.poId ?? event.aggregateId,
+    title: `${p.poNumber ?? 'A purchase order'} has gone to the supplier`,
+    href: `/admin/orders/${event.aggregateId}?tab=production`,
+  }, tx);
+}
+
+/** Stage name for the message, falling back to the slug if it has been removed. */
+async function stageDisplayName(
+  boardKey: 'order' | 'purchase_order',
+  slug: string,
+  tx: Transaction,
+): Promise<string> {
+  // Queried through `tx` rather than the stages service, which uses the global
+  // db — see the EventHandler note above.
+  const [stage] = await tx
+    .select({ name: workflowStages.name })
+    .from(workflowStages)
+    .where(and(eq(workflowStages.boardKey, boardKey), eq(workflowStages.slug, slug)));
+  return stage?.name ?? slug;
+}
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -93,6 +173,9 @@ const EVENT_HANDLERS: Record<string, EventHandler[]> = {
   'order.confirmed': [handleGoogleAdsConversion, handleConfirmationEmail, handleCustomerReceiptEmail],
   'order.changes_requested': [handleChangesRequestedEmail],
   'order.color_sample_requested': [handleColorSampleRequestedEmail],
+  'order.note_added': [handleNoteAddedNotification],
+  'workflow.stage_entered': [handleStageEnteredNotification],
+  'po.sent': [handlePoSentNotification],
 };
 
 // ---------------------------------------------------------------------------
@@ -145,7 +228,7 @@ export async function processOutbox(): Promise<OutboxResult> {
       let anyFailed = false;
       for (const handler of handlers) {
         try {
-          await handler(event);
+          await handler(event, tx);
         } catch (err) {
           logger.error(
             `[outbox] handler failed for event ${event.id} (${event.eventType}):`,

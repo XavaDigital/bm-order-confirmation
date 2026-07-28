@@ -84,6 +84,19 @@ async function auditTypes(orderId: string) {
   return rows.map((row) => row.eventType);
 }
 
+/**
+ * `workflow.stage_entered` is an OUTBOX event, not an audit row: notification
+ * dispatch runs from outbox handlers. `stage_exited` stays audit-only, since
+ * nothing notifies on it.
+ */
+async function outboxTypes(orderId: string) {
+  const rows = await db
+    .select()
+    .from(schema.domainEvents)
+    .where(eq(schema.domainEvents.aggregateId, orderId));
+  return rows.map((row) => row.eventType);
+}
+
 describe('moveOrderToStage — within one status', () => {
   it('records the stage and stamps the clock without touching the status', async () => {
     const orderId = await seedOrder('confirmed');
@@ -108,14 +121,25 @@ describe('moveOrderToStage — within one status', () => {
     expect(result.toStageSlug).toBe('digitising');
   });
 
-  it('audits an exit and an entry', async () => {
+  it('records an exit in the audit trail and an entry on the outbox', async () => {
     const orderId = await seedOrder('confirmed');
 
     await moveOrderToStage(orderId, 'artwork', { actorEmail: 'sam@x.com' });
 
-    const types = await auditTypes(orderId);
-    expect(types).toContain('workflow.stage_entered');
-    expect(types).toContain('workflow.stage_exited');
+    expect(await auditTypes(orderId)).toContain('workflow.stage_exited');
+    expect(await outboxTypes(orderId)).toContain('workflow.stage_entered');
+  });
+
+  it('carries the actor in the stage_entered payload, since the outbox has no actor column', async () => {
+    const orderId = await seedOrder('confirmed');
+
+    await moveOrderToStage(orderId, 'artwork', { actorEmail: 'sam@x.com' });
+
+    const [entered] = await db
+      .select()
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.eventType, 'workflow.stage_entered'));
+    expect(entered.payload).toMatchObject({ stageSlug: 'artwork', actorEmail: 'sam@x.com' });
   });
 
   // A card dropped back where it started is not an error and must not re-stamp
@@ -131,7 +155,7 @@ describe('moveOrderToStage — within one status', () => {
     const after = await readOrder(orderId);
     expect(after.stageEnteredAt).toEqual(before.stageEnteredAt);
     // No second pair of stage events.
-    const types = await auditTypes(orderId);
+    const types = await outboxTypes(orderId);
     expect(types.filter((t) => t === 'workflow.stage_entered')).toHaveLength(1);
   });
 
@@ -330,8 +354,8 @@ describe('movePurchaseOrderToStage', () => {
 
     const rows = await db
       .select()
-      .from(schema.auditEvents)
-      .where(eq(schema.auditEvents.aggregateId, orderId));
+      .from(schema.domainEvents)
+      .where(eq(schema.domainEvents.aggregateId, orderId));
     const entered = rows.find((r) => r.eventType === 'workflow.stage_entered');
     expect(entered).toBeDefined();
     expect(entered!.payload).toMatchObject({ poId: po.id, boardKey: 'purchase_order' });

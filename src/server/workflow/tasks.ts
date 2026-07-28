@@ -16,7 +16,7 @@ import {
 } from '@/db/schema';
 import type { ConfirmationPolicy, WorkflowBoardKey } from '@/db/schema';
 import { ConflictError, NotFoundError } from '@/server/orders/service';
-import { recordAuditEvent } from '@/server/events/outbox';
+import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
 import { listActiveStages, resolveStage, type StageRow } from './stages';
 import { getStageOwnerIdsForMany } from './assignments';
 import {
@@ -383,16 +383,18 @@ export async function confirmTask(
             .where(eq(purchaseOrders.id, entityId));
         }
 
-        await recordAuditEvent(
-          {
-            aggregateId: entityId,
-            aggregateType: entityType === 'order' ? 'order' : 'purchase_order',
-            eventType: 'workflow.stage_entered',
-            payload: { stageSlug: next.slug, boardKey: entityType, via: 'task_completion' },
+        // Outbox (see moves.ts) so the stage-owner notification fires for a
+        // stage reached by finishing a checklist, not just by dragging a card.
+        await emitOrderEvent(tx, {
+          aggregateId: entityId,
+          eventType: 'workflow.stage_entered',
+          payload: {
+            stageSlug: next.slug,
+            boardKey: entityType,
+            via: 'task_completion',
             actorEmail: meta.actorEmail ?? null,
           },
-          tx,
-        );
+        });
       }
     }
 

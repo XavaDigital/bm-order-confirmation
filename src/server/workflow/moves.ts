@@ -19,7 +19,7 @@ import { orders, purchaseOrders } from '@/db/schema';
 import type { WorkflowBoardKey } from '@/db/schema';
 import type { OrderStatus } from '@/lib/status';
 import { NotFoundError } from '@/server/orders/service';
-import { recordAuditEvent } from '@/server/events/outbox';
+import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
 import { explainOrderTransition, isStaffMovable } from '@/server/orders/status-machine';
 import { updatePurchaseOrderStatusTx } from '@/server/purchase-orders/service';
 import type { PoStatus } from '@/server/purchase-orders/contract';
@@ -142,15 +142,14 @@ export async function moveOrderToStage(
         tx,
       );
     }
-    await recordAuditEvent(
-      {
-        aggregateId: orderId,
-        eventType: 'workflow.stage_entered',
-        payload: { stageSlug: target.slug, boardKey: 'order' },
-        actorEmail: meta?.actorEmail ?? null,
-      },
-      tx,
-    );
+    // Outbox, not audit: notification dispatch runs from outbox handlers, and
+    // `getOrderAuditLog` merges both sinks so the timeline still shows it once.
+    // Outbox rows carry the actor in the payload (no actor column by design).
+    await emitOrderEvent(tx, {
+      aggregateId: orderId,
+      eventType: 'workflow.stage_entered',
+      payload: { ...{ stageSlug: target.slug, boardKey: 'order' }, actorEmail: meta?.actorEmail ?? null },
+    });
     if (crossesStatus) {
       await recordAuditEvent(
         {
@@ -254,15 +253,14 @@ export async function movePurchaseOrderToStage(
         tx,
       );
     }
-    await recordAuditEvent(
-      {
-        aggregateId: po.orderId,
-        eventType: 'workflow.stage_entered',
-        payload: { poId, stageSlug: target.slug, boardKey: 'purchase_order' },
-        actorEmail: meta?.actorEmail ?? null,
-      },
-      tx,
-    );
+    // Outbox, not audit: notification dispatch runs from outbox handlers, and
+    // `getOrderAuditLog` merges both sinks so the timeline still shows it once.
+    // Outbox rows carry the actor in the payload (no actor column by design).
+    await emitOrderEvent(tx, {
+      aggregateId: po.orderId,
+      eventType: 'workflow.stage_entered',
+      payload: { ...{ poId, stageSlug: target.slug, boardKey: 'purchase_order' }, actorEmail: meta?.actorEmail ?? null },
+    });
 
     return {
       result: {

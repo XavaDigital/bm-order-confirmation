@@ -21,6 +21,7 @@ import { darkTheme, lightTheme, BRAND } from '@/lib/theme';
 import { APP_NAME } from '@/lib/config';
 import { ThemeToggle } from './ThemeToggle';
 import { UserMenu } from './UserMenu';
+import { InboxBell } from './InboxBell';
 
 const { Header, Sider, Content } = Layout;
 
@@ -149,6 +150,7 @@ export function AppShell({ user, children }: AppShellProps) {
               {APP_NAME}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <InboxBell />
               <ThemeToggle isDark={isDark} onToggle={toggleTheme} />
               <UserMenu name={user.name} email={user.email} role={user.role} />
             </div>
