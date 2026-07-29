@@ -21,6 +21,31 @@ jobs:
 
       - run: npm run lint
 
+      # Journal and migration files agree — catches two branches both
+      # generating the same migration number, which breaks the replay for
+      # everyone and is otherwise only spotted by hand during a merge.
+      - run: npm run db:check
+
+      # Every schema.ts change has a committed migration. Without this, a
+      # column can reach main with no DDL behind it, and the first deploy
+      # after it throws "column does not exist" on every query touching that
+      # table — while /login and /api/health keep returning 200, so a smoke
+      # test says the app is fine.
+      #
+      # generate needs a URL to construct the config but never connects; it
+      # diffs schema.ts against the snapshots on disk.
+      - name: Migrations are in sync with schema.ts
+        env:
+          DATABASE_URL: postgres://ci:ci@localhost:5432/ci
+        run: |
+          npx drizzle-kit generate
+          if [ -n "$(git status --porcelain drizzle/)" ]; then
+            echo "::error::schema.ts has changes with no migration. Run 'npm run db:generate' and commit the result."
+            git status --porcelain drizzle/
+            git diff -- drizzle/
+            exit 1
+          fi
+
       - run: npm run test:unit
 
       - run: npm run test:integration
