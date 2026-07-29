@@ -144,7 +144,7 @@ describe('GoogleSignIn — signing in', () => {
 
     signInWith(initialize, 'token');
 
-    await waitFor(() => expect(goAfterAuthMock).toHaveBeenCalledWith('/admin/workflow'));
+    await waitFor(() => expect(goAfterAuthMock).toHaveBeenCalledWith('/admin/orders'));
   });
 
   /**
