@@ -8,12 +8,13 @@
  * (in-transaction) and records an audit row, so the order timeline shows the
  * full production history.
  */
-import { and, desc, count, eq, ilike, like, or } from 'drizzle-orm';
+import { and, desc, count, eq, ilike, isNull, like, or } from 'drizzle-orm';
 import { db } from '@/db';
 import type { Transaction } from '@/db';
 import {
   garments,
   orders,
+  poSupplierAccess,
   purchaseOrderRevisions,
   purchaseOrders,
   suppliers,
@@ -22,6 +23,8 @@ import type { PoSnapshot } from '@/db/schema';
 import { isUniqueViolation } from '@/lib/db-errors';
 import { sendSupplierPoEmail } from '@/lib/email';
 import { pickDefined } from '@/lib/patch';
+import { generateToken, buildSupplierPortalUrl } from '@/lib/tokens';
+import { mintToken, revokeActiveTokens } from '@/server/access/tokens';
 import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
 import { ConflictError, NotFoundError } from '@/server/orders/service';
 import { syncOrderProductionStatus } from './hub-sync';
@@ -233,8 +236,19 @@ export async function getPurchaseOrder(id: string) {
   });
   if (!po) throw new NotFoundError('Purchase order');
 
+  const [activeSupplierLink] = await db
+    .select({ lastViewedAt: poSupplierAccess.lastViewedAt })
+    .from(poSupplierAccess)
+    .where(and(eq(poSupplierAccess.purchaseOrderId, id), isNull(poSupplierAccess.revokedAt)));
+
   const { shipmentLinks, ...rest } = po;
-  return { ...rest, shipments: shipmentLinks.map((l) => l.shipment) };
+  return {
+    ...rest,
+    shipments: shipmentLinks.map((l) => l.shipment),
+    supplierLink: activeSupplierLink
+      ? { active: true as const, lastViewedAt: activeSupplierLink.lastViewedAt }
+      : { active: false as const, lastViewedAt: null },
+  };
 }
 
 export async function listRevisions(id: string) {
@@ -472,6 +486,75 @@ export async function updatePurchaseOrderStatus(
 }
 
 // ---------------------------------------------------------------------------
+// Supplier portal link (SUPPLIER_PORTAL_PLAN.md)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mint (or rotate) the token-gated supplier portal link for this PO — same
+ * revoke-then-insert pattern `generateAccessToken`/`generateRosterToken` use,
+ * via the shared `mintToken` helper. One active link per PO, enforced at the
+ * DB level (`po_supplier_access_one_active_uq`).
+ *
+ * Called both from the manual "Generate/Regenerate link" admin action AND
+ * automatically from `sendPurchaseOrder` on every send — a resend always
+ * carries a fresh working link, at the cost of invalidating one shared
+ * earlier (the same tradeoff TEAM_ROSTER_PLAN.md's roster-reminder "Regenerate
+ * link" already accepts).
+ */
+export async function generateSupplierPortalLink(id: string, meta?: ActorMeta): Promise<string> {
+  const po = await loadPoOrThrow(id);
+  const rawToken = generateToken();
+
+  await db.transaction(async (tx) => {
+    await mintToken(
+      tx,
+      poSupplierAccess,
+      rawToken,
+      eq(poSupplierAccess.purchaseOrderId, id),
+      { purchaseOrderId: id },
+    );
+    await emitOrderEvent(tx, {
+      aggregateId: po.orderId,
+      eventType: 'supplier_link.generated',
+      payload: { poId: id, poNumber: po.poNumber },
+    });
+    await recordAuditEvent(
+      {
+        aggregateId: po.orderId,
+        eventType: 'supplier_link.generated',
+        payload: { poId: id, poNumber: po.poNumber },
+        actorEmail: meta?.actorEmail ?? null,
+      },
+      tx,
+    );
+  });
+
+  return buildSupplierPortalUrl(rawToken);
+}
+
+export async function revokeSupplierPortalLink(id: string, meta?: ActorMeta): Promise<void> {
+  const po = await loadPoOrThrow(id);
+
+  await db.transaction(async (tx) => {
+    await revokeActiveTokens(tx, poSupplierAccess, eq(poSupplierAccess.purchaseOrderId, id));
+    await emitOrderEvent(tx, {
+      aggregateId: po.orderId,
+      eventType: 'supplier_link.revoked',
+      payload: { poId: id, poNumber: po.poNumber },
+    });
+    await recordAuditEvent(
+      {
+        aggregateId: po.orderId,
+        eventType: 'supplier_link.revoked',
+        payload: { poId: id, poNumber: po.poNumber },
+        actorEmail: meta?.actorEmail ?? null,
+      },
+      tx,
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Send to supplier
 // ---------------------------------------------------------------------------
 
@@ -559,6 +642,11 @@ export async function sendPurchaseOrder(
     snapshot: latest.snapshot,
   });
 
+  // Mint a fresh supplier portal link on every send (see generateSupplierPortalLink
+  // doc comment for the "always rotate" tradeoff) so the email always carries a
+  // working link, whether this is the first send or a resend after a revision.
+  const portalUrl = await generateSupplierPortalLink(id, meta);
+
   await sendSupplierPoEmail({
     to: supplierEmail,
     toName: po.supplier.contactPerson ?? po.supplier.name,
@@ -567,6 +655,7 @@ export async function sendPurchaseOrder(
     revisionNumber: latest.revisionNumber,
     reason: latest.reason,
     pdf,
+    portalUrl,
   });
 
   // First send moves draft → sent via the normal status machine (sentAt stamp

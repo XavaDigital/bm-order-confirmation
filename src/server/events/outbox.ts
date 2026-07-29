@@ -91,7 +91,12 @@ export type DomainEventType =
   | 'po.cancelled'
   | 'shipment.created'
   | 'shipment.updated'
-  | 'shipment.status_changed';
+  | 'shipment.status_changed'
+  // Supplier portal (SUPPLIER_PORTAL_PLAN.md). Distinct from po.status_changed
+  // so notification routing can tell "a supplier did this" from "staff did this".
+  | 'po.supplier_updated'
+  | 'supplier_link.generated'
+  | 'supplier_link.revoked';
 
 /**
  * Build an emitter bound to one aggregate type, so call sites can't fat-finger

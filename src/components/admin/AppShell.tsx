@@ -6,7 +6,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Layout, Menu, ConfigProvider, App, Button, Tooltip } from 'antd';
 import {
-  DashboardOutlined,
+  HomeOutlined,
+  BarChartOutlined,
   FileDoneOutlined,
   FileTextOutlined,
   ProfileOutlined,
@@ -38,8 +39,8 @@ function buildNavItems(role: StaffRole) {
   const items = [
     {
       key: '/admin/dashboard',
-      icon: <DashboardOutlined />,
-      label: <Link href="/admin/dashboard">Dashboard</Link>,
+      icon: <HomeOutlined />,
+      label: <Link href="/admin/dashboard">Home</Link>,
     },
     {
       key: '/admin/orders',
@@ -70,6 +71,11 @@ function buildNavItems(role: StaffRole) {
       key: '/admin/size-charts',
       icon: <ProfileOutlined />,
       label: <Link href="/admin/size-charts">Size Charts</Link>,
+    },
+    {
+      key: '/admin/metrics',
+      icon: <BarChartOutlined />,
+      label: <Link href="/admin/metrics">Metrics</Link>,
     },
   ];
 

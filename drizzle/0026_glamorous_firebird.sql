@@ -1,0 +1,1 @@
+ALTER TABLE "confirmation"."order_notes" ADD COLUMN "visibility" text DEFAULT 'internal' NOT NULL;

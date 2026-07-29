@@ -1,6 +1,11 @@
 -- Production-order detail: per-line quantity, and font/design files that know
 -- what they are for and can be uploaded as well as linked.
 --
+-- Originally generated as 0025 and renumbered to 0027 when it met the supplier
+-- portal's 0025/0026 on main. It was never applied anywhere, so renumbering is
+-- safe; regenerated against 0026 rather than renamed, so the snapshot chain
+-- stays honest.
+--
 -- Additive. Dropping NOT NULL on order_assets.url relaxes a constraint rather
 -- than removing anything, and is what makes room for an uploaded file, which
 -- has a storage key instead of an external URL.
@@ -12,8 +17,8 @@ ALTER TABLE "confirmation"."garment_sizing" ADD COLUMN "quantity" integer DEFAUL
 ALTER TABLE "confirmation"."order_assets" ADD COLUMN "usage" text;--> statement-breakpoint
 ALTER TABLE "confirmation"."order_assets" ADD COLUMN "storage_key" text;--> statement-breakpoint
 
--- Hand-added: drizzle-kit does not emit check constraints, so this is not in
--- the generated diff and must not be removed by a later regeneration.
+-- Hand-added: drizzle-kit does not emit check constraints, so these are not in
+-- the generated diff and must not be dropped by a later regeneration.
 -- An asset is a link OR an upload; a row that is neither is unreachable, and
 -- one that is both has two sources of truth for the same file.
 ALTER TABLE "confirmation"."order_assets"

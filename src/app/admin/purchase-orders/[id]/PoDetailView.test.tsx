@@ -62,6 +62,7 @@ function detail(overrides: Record<string, unknown> = {}) {
       },
     ],
     shipments: [],
+    supplierLink: { active: false, lastViewedAt: null },
     ...overrides,
   };
 }

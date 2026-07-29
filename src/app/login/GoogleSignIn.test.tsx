@@ -139,7 +139,7 @@ describe('GoogleSignIn — signing in', () => {
 
   it('honours a relative next destination', async () => {
     const { initialize } = installGis();
-    render(<GoogleSignIn clientId={CLIENT_ID} next="/admin/workflow" />);
+    render(<GoogleSignIn clientId={CLIENT_ID} next="/admin/orders" />);
     await waitFor(() => expect(initialize).toHaveBeenCalled());
 
     signInWith(initialize, 'token');

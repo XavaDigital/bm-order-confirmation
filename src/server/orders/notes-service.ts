@@ -38,7 +38,7 @@ export interface OrderNoteDto {
   bodyHtml: string | null;
   /** Plain text — always present, and what to show if `bodyHtml` is null. */
   body: string;
-  authorKind: 'staff' | 'email_flow' | 'system';
+  authorKind: 'staff' | 'email_flow' | 'system' | 'supplier';
   authorName: string | null;
   authorEmail: string | null;
   /**
@@ -48,6 +48,8 @@ export interface OrderNoteDto {
    */
   authorLabel: string | null;
   authorStaffUserId: string | null;
+  /** 'shared' notes are visible on the token-gated supplier portal. */
+  visibility: 'internal' | 'shared';
   createdAt: Date;
   updatedAt: Date;
   edited: boolean;
@@ -77,6 +79,7 @@ function toNoteDto(row: NoteRow): OrderNoteDto {
     authorEmail: row.author?.email ?? row.authorLabel ?? null,
     authorLabel: row.authorLabel ?? null,
     authorStaffUserId: row.authorStaffUserId ?? null,
+    visibility: row.visibility,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     // Compared with a second of slack: `updatedAt` defaults to now() alongside
@@ -96,13 +99,21 @@ function scopeFilter(orderId: string, scope: NoteScope) {
 /**
  * Read a thread, oldest first — chat order, so the newest message is at the
  * bottom where the composer is.
+ *
+ * `visibility: 'shared'` scopes to notes staff have opted to expose on the
+ * supplier portal — used by src/server/supplier-portal/service.ts, which must
+ * never see the internal-by-default thread.
  */
 export async function listOrderNotes(
   orderId: string,
   scope: NoteScope = 'order',
+  opts?: { visibility?: 'shared' },
 ): Promise<OrderNoteDto[]> {
+  const where = opts?.visibility
+    ? and(scopeFilter(orderId, scope), eq(orderNotes.visibility, opts.visibility))
+    : scopeFilter(orderId, scope);
   const rows = await db.query.orderNotes.findMany({
-    where: scopeFilter(orderId, scope),
+    where,
     orderBy: [asc(orderNotes.createdAt)],
     with: {
       garment: { columns: { id: true, name: true } },
@@ -139,19 +150,28 @@ async function loadNoteOrThrow(orderId: string, id: string) {
 /**
  * Add a note to an order, optionally against one of its garments.
  *
- * Used by the admin UI (`authorKind: 'staff'`) and by Email Flow via the
- * inbound capability surface (`authorKind: 'email_flow'`). Never exposed on the
- * customer surface.
+ * Used by the admin UI (`authorKind: 'staff'`), by Email Flow via the inbound
+ * capability surface (`authorKind: 'email_flow'`), and by the token-gated
+ * supplier portal (`authorKind: 'supplier'`, src/server/supplier-portal/).
+ * Never exposed on the customer surface.
  */
 export async function addOrderNote(
   orderId: string,
   data: {
     body: string;
-    authorKind: 'staff' | 'email_flow' | 'system';
+    authorKind: 'staff' | 'email_flow' | 'system' | 'supplier';
     authorLabel?: string | null;
     garmentId?: string | null;
     /** True when `body` is HTML from the editor and should be stored as such. */
     isHtml?: boolean;
+    /**
+     * Whether this note is visible on the supplier portal. Ignored for
+     * `authorKind: 'supplier'`, which is always 'shared' — a supplier reading
+     * back their own comment is not a leak. Defaults to 'internal' for every
+     * other author kind, so nothing becomes supplier-visible without staff
+     * opting in per note.
+     */
+    visibility?: 'internal' | 'shared';
   },
   meta?: ActorMeta,
 ): Promise<OrderNoteDto> {
@@ -164,6 +184,8 @@ export async function addOrderNote(
   const body = data.isHtml ? htmlToPlainText(bodyHtml) : data.body.trim();
   if (!body) throw new ConflictError('Note is empty');
 
+  const visibility = data.authorKind === 'supplier' ? 'shared' : (data.visibility ?? 'internal');
+
   const note = await db.transaction(async (tx) => {
     const [row] = await tx
       .insert(orderNotes)
@@ -175,6 +197,7 @@ export async function addOrderNote(
         authorKind: data.authorKind,
         authorLabel: data.authorLabel ?? null,
         authorStaffUserId: meta?.actorStaffUserId ?? null,
+        visibility,
       })
       .returning();
 

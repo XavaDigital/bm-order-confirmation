@@ -180,8 +180,22 @@
     {
       "idx": 25,
       "version": "7",
-      "when": 1785331484076,
-      "tag": "0025_tearful_doctor_faustus",
+      "when": 1785314326915,
+      "tag": "0025_adorable_the_anarchist",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1785314496125,
+      "tag": "0026_glamorous_firebird",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1785337514286,
+      "tag": "0027_nosy_cammi",
       "breakpoints": true
     }
   ]

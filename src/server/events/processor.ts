@@ -150,6 +150,27 @@ async function handlePoSentNotification(event: DomainEvent, tx: Transaction): Pr
   }, tx);
 }
 
+async function handlePoSupplierUpdatedNotification(
+  event: DomainEvent,
+  tx: Transaction,
+): Promise<void> {
+  const p = event.payload as {
+    poId?: string;
+    poNumber?: string;
+    from?: string;
+    to?: string;
+    supplierName?: string;
+  };
+  await dispatchNotification('po.supplier_updated', {
+    dedupeKey: event.id,
+    entityType: 'purchase_order',
+    entityId: p.poId ?? event.aggregateId,
+    title: `${p.supplierName ?? 'A supplier'} updated ${p.poNumber ?? 'a purchase order'}`,
+    body: p.from && p.to ? `${p.from} → ${p.to}` : null,
+    href: `/admin/orders/${event.aggregateId}?tab=production`,
+  }, tx);
+}
+
 /** Stage name for the message, falling back to the slug if it has been removed. */
 async function stageDisplayName(
   boardKey: 'order' | 'purchase_order',
@@ -176,6 +197,7 @@ const EVENT_HANDLERS: Record<string, EventHandler[]> = {
   'order.note_added': [handleNoteAddedNotification],
   'workflow.stage_entered': [handleStageEnteredNotification],
   'po.sent': [handlePoSentNotification],
+  'po.supplier_updated': [handlePoSupplierUpdatedNotification],
 };
 
 // ---------------------------------------------------------------------------

@@ -582,11 +582,21 @@ export interface SendSupplierPoEmailParams {
   /** Optional reason shown for amended POs (revision > 1). */
   reason?: string | null;
   pdf: Buffer;
+  /**
+   * Supplier portal link (SUPPLIER_PORTAL_PLAN.md), minted fresh on every
+   * send. Optional so a caller with no email step for it (tests, older
+   * callers) still compiles — omitted, the email just carries the PDF as
+   * before.
+   */
+  portalUrl?: string | null;
 }
 
 export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Promise<void> {
   const { poNumber, orderNumber, revisionNumber } = params;
   const amended = revisionNumber > 1;
+  const portalBlock = params.portalUrl
+    ? `${emailButton(params.portalUrl, 'Open Supplier Portal')}${emailCopyLinkLine(params.portalUrl)}`
+    : '';
 
   const subject = amended
     ? `Amended purchase order ${poNumber} (revision ${revisionNumber}) — ${APP_NAME}`
@@ -618,10 +628,12 @@ export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Pr
                 ${supersedeLine}
               `)}
               ${reasonBlock}
+              ${portalBlock}
               <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;">
               <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.5;margin:0;">
                 Please confirm receipt by replying to this email. If anything in the attached
                 document is unclear, contact us before starting production.
+                ${params.portalUrl ? ' You can also update the production status and leave a comment from the Supplier Portal link above.' : ''}
               </p>`,
     }),
     text: [
@@ -630,6 +642,9 @@ export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Pr
       `Please find attached ${amended ? `revision ${revisionNumber} of ` : ''}purchase order ${poNumber} (our order ${orderNumber}).`,
       ...(supersedeLine ? ['', supersedeLine] : []),
       ...(amended && params.reason ? ['', `Reason for amendment: ${params.reason}`] : []),
+      ...(params.portalUrl
+        ? ['', `Update the production status or leave a comment here: ${params.portalUrl}`]
+        : []),
       '',
       `Please confirm receipt by replying to this email. If anything in the attached document is unclear, contact us before starting production.`,
     ].join('\n'),
