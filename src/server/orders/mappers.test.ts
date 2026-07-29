@@ -29,6 +29,8 @@ describe('toGarmentDto', () => {
           size: 'M',
           playerName: 'Alex',
           playerNumber: '7',
+          // Defaulted by the mapper — the source row carries no quantity.
+          quantity: 1,
           notes: 'sz note',
           customValues: null,
         },
@@ -36,6 +38,7 @@ describe('toGarmentDto', () => {
           size: null,
           playerName: null,
           playerNumber: null,
+          quantity: 1,
           notes: null,
           customValues: null,
         },
@@ -73,6 +76,7 @@ describe('toSizingDto', () => {
       size: 'M',
       playerName: 'Alex',
       playerNumber: '7',
+      quantity: 1,
       notes: 'sz note',
       customValues: null,
     });

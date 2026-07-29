@@ -21,6 +21,21 @@ export const sizingRowSchema = z.object({
   size: z.string().nullish(),
   playerName: z.string().nullish(),
   playerNumber: z.string().nullish(),
+  /**
+   * How many of this line to make. Optional and defaulted, so this is an
+   * ADDITIVE change to the documented `POST /api/orders` contract — an existing
+   * integrator that never sends it keeps getting one garment per row, which is
+   * what a row meant before the field existed.
+   *
+   * Capped rather than unbounded: this is a garment count, and a fat-fingered
+   * 100000 is a production run nobody meant to order.
+   *
+   * `.optional()` and NOT `.default(1)`: a Zod default makes the field REQUIRED
+   * on the parsed output type, so every existing caller constructing a row in
+   * TypeScript would have to start supplying it. The write sites default it
+   * instead, which keeps this genuinely additive.
+   */
+  quantity: z.number().int().min(1).max(10_000).optional(),
   notes: z.string().nullish(),
   // Values for the garment's user-defined sizing columns ({label: value}).
   // Unknown labels are dropped on write — the garment's column definitions are

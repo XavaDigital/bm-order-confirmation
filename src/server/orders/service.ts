@@ -141,6 +141,8 @@ type GarmentTreeInput = {
     size?: string | null;
     playerName?: string | null;
     playerNumber?: string | null;
+    /** Omitted means one garment — defaulted at the insert, not here. */
+    quantity?: number | null;
     notes?: string | null;
     customValues?: Record<string, string> | null;
     sortOrder?: number;
@@ -180,6 +182,9 @@ async function insertGarmentTree(
         size: row.size ?? null,
         playerName: row.playerName ?? null,
         playerNumber: row.playerNumber ?? null,
+        // The column is NOT NULL DEFAULT 1, so a row that omits it means one
+        // garment — the same thing a row meant before quantity existed.
+        quantity: row.quantity ?? 1,
         notes: row.notes ?? null,
         customValues: pickCustomValues(row.customValues, columns),
         sortOrder: row.sortOrder ?? j,
@@ -895,6 +900,7 @@ export async function upsertSizingRows(
         size: row.size ?? null,
         playerName: row.playerName ?? null,
         playerNumber: row.playerNumber ?? null,
+        quantity: row.quantity ?? 1,
         notes: row.notes ?? null,
         customValues: pickCustomValues(row.customValues, columns),
         sortOrder: row.sortOrder ?? i,

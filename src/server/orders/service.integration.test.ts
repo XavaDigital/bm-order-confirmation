@@ -1287,3 +1287,78 @@ describe('updateOrder status transitions', () => {
     expect(row.clubName).toBe('Wildcats');
   });
 });
+
+/**
+ * Quantity is an ADDITIVE addition to the documented POST /api/orders shape.
+ * The risk is not that it fails loudly — it is that an integrator who never
+ * sends it quietly gets a different number of garments than before.
+ */
+describe('sizing row quantity', () => {
+  it('stores the quantity a caller supplies', async () => {
+    const input = minimalInput({
+      garments: [{ name: 'Training Top', sizing: [{ size: 'M', quantity: 20 }] }],
+    });
+
+    const order = await createOrder(input);
+    const rows = await db
+      .select()
+      .from(schema.garmentSizing)
+      .innerJoin(schema.garments, eq(schema.garments.id, schema.garmentSizing.garmentId))
+      .where(eq(schema.garments.orderId, order.orderId));
+
+    expect(rows[0].garment_sizing.quantity).toBe(20);
+  });
+
+  // The compatibility guarantee: an existing integrator sends no quantity and
+  // still gets exactly one garment per row.
+  it('defaults an omitted quantity to one', async () => {
+    const input = minimalInput({
+      garments: [{ name: 'Home Jersey', sizing: [{ size: 'M', playerName: 'A. Smith' }] }],
+    });
+
+    const order = await createOrder(input);
+    const rows = await db
+      .select()
+      .from(schema.garmentSizing)
+      .innerJoin(schema.garments, eq(schema.garments.id, schema.garmentSizing.garmentId))
+      .where(eq(schema.garments.orderId, order.orderId));
+
+    expect(rows[0].garment_sizing.quantity).toBe(1);
+  });
+
+  it('refuses a quantity below one', () => {
+    expect(() =>
+      minimalInput({ garments: [{ name: 'Top', sizing: [{ size: 'M', quantity: 0 }] }] }),
+    ).toThrow();
+  });
+
+  // A garment count, not an arbitrary integer — a fat-fingered 100000 is a
+  // production run nobody meant to order.
+  it('refuses an implausibly large quantity', () => {
+    expect(() =>
+      minimalInput({ garments: [{ name: 'Top', sizing: [{ size: 'M', quantity: 100000 }] }] }),
+    ).toThrow();
+  });
+
+  it('survives a staff re-save without being reset', async () => {
+    const order = await createOrder(
+      minimalInput({ garments: [{ name: 'Training Top', sizing: [{ size: 'M', quantity: 12 }] }] }),
+    );
+    const [garment] = await db
+      .select()
+      .from(schema.garments)
+      .where(eq(schema.garments.orderId, order.orderId));
+    const [row] = await db
+      .select()
+      .from(schema.garmentSizing)
+      .where(eq(schema.garmentSizing.garmentId, garment.id));
+
+    await upsertSizingRows(garment.id, [{ id: row.id, size: 'L', quantity: 12 }]);
+
+    const [after] = await db
+      .select()
+      .from(schema.garmentSizing)
+      .where(eq(schema.garmentSizing.garmentId, garment.id));
+    expect(after).toMatchObject({ id: row.id, size: 'L', quantity: 12 });
+  });
+});

@@ -561,6 +561,9 @@ describe('confirmOrder', () => {
         size: 'M',
         playerName: 'Alex Player',
         playerNumber: '7',
+        // The confirmation snapshot records quantity too — it is part of what
+        // the customer agreed to.
+        quantity: 1,
         notes: null,
         customValues: null,
       },
@@ -812,7 +815,7 @@ describe('buildConfirmationSnapshot (pure)', () => {
       selectedFabrics: { 'Outer Fabric': 'Cotton Fleece' },
       sizingColumns: [],
       sizing: [
-        { size: 'M', playerName: 'Alex', playerNumber: '7', notes: null, customValues: null },
+        { size: 'M', playerName: 'Alex', playerNumber: '7', quantity: 1, notes: null, customValues: null },
       ],
       sizeChartNames: ['Adult Unisex'],
       mockupImageCaptions: ['front'],

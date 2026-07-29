@@ -9,6 +9,8 @@ export interface GarmentSizingDto {
   size: string | null;
   playerName: string | null;
   playerNumber: string | null;
+  /** How many of this line. Always a number here — a missing value reads as 1. */
+  quantity: number;
   notes: string | null;
   /** Values for the garment's custom sizing columns ({label: value}). */
   customValues: Record<string, string> | null;
@@ -32,6 +34,7 @@ interface SizingRecord {
   size: string | null;
   playerName: string | null;
   playerNumber: string | null;
+  quantity?: number | null;
   notes: string | null;
   customValues?: Record<string, string> | null;
   rosterMemberId?: string | null;
@@ -53,6 +56,9 @@ export function toSizingDto(row: SizingRecord): GarmentSizingDto {
     size: row.size ?? null,
     playerName: row.playerName ?? null,
     playerNumber: row.playerNumber ?? null,
+    // Defaulted here so every reader — customer page, PDF, confirmation
+    // snapshot — gets a number and none of them has to repeat the rule.
+    quantity: row.quantity ?? 1,
     notes: row.notes ?? null,
     customValues: row.customValues ?? null,
   };
