@@ -21,9 +21,23 @@ export interface LiveSizingRow {
   size: string | null;
   playerName: string | null;
   playerNumber: string | null;
+  /** Defaults to 1 — see lineQuantity for why this is not simply required. */
+  quantity?: number | null;
   notes: string | null;
   /** Values for the garment's user-defined sizing columns ({label: value}). */
   customValues?: Record<string, string> | null;
+}
+
+/**
+ * A line's quantity, defaulting to 1.
+ *
+ * Every read of quantity goes through this. Revisions cut before quantity
+ * existed have no such field, and a line back then meant exactly one garment —
+ * so a missing value is 1, never 0. Getting that wrong would silently shrink
+ * historical POs when their totals are recomputed.
+ */
+export function lineQuantity(line: { quantity?: number | null }): number {
+  return line.quantity ?? 1;
 }
 
 export interface LiveGarment {
@@ -51,6 +65,7 @@ function toSnapshotLine(row: LiveSizingRow): PoSnapshotLine {
     size: row.size ?? null,
     playerName: row.playerName ?? null,
     playerNumber: row.playerNumber ?? null,
+    quantity: lineQuantity(row),
     notes: row.notes ?? null,
     customValues: row.customValues ?? null,
   };
@@ -114,17 +129,25 @@ export interface PoSizeSummary {
   grandTotal: number;
 }
 
-/** Counts by size label per garment (null/blank sizes bucket as '(no size)'). */
+/**
+ * Counts by size label per garment (null/blank sizes bucket as '(no size)').
+ *
+ * Sums QUANTITY, not rows — this is what the factory cuts to, so a line
+ * reading "Medium x 20" has to count as twenty garments, not one.
+ */
 export function sizeSummary(snapshot: PoSnapshot): PoSizeSummary {
   let grandTotal = 0;
   const perGarment = snapshot.garments.map((g) => {
     const counts: Record<string, number> = {};
+    let total = 0;
     for (const line of g.lines) {
       const label = line.size?.trim() ? line.size : NO_SIZE_LABEL;
-      counts[label] = (counts[label] ?? 0) + 1;
+      const qty = lineQuantity(line);
+      counts[label] = (counts[label] ?? 0) + qty;
+      total += qty;
     }
-    grandTotal += g.lines.length;
-    return { garmentId: g.garmentId, name: g.name, counts, total: g.lines.length };
+    grandTotal += total;
+    return { garmentId: g.garmentId, name: g.name, counts, total };
   });
   return { perGarment, grandTotal };
 }
@@ -158,8 +181,23 @@ export interface PoVarianceGarment {
   lines: PoVarianceLine[];
 }
 
+export interface PoVarianceAsset {
+  change: 'added' | 'removed' | 'modified';
+  /** Identity for display — assets have no stable id in the snapshot. */
+  name: string;
+  garmentName: string | null;
+  /** Only for 'modified'. */
+  fieldChanges?: PoFieldChange[];
+}
+
 export interface PoVariance {
   garments: PoVarianceGarment[];
+  /**
+   * Design and font files that changed since the revision was cut. Without
+   * this, swapping the font on an order left the sent PO silently stale: the
+   * factory kept working from the old file and nothing on screen said so.
+   */
+  assets: PoVarianceAsset[];
   hasVariance: boolean;
 }
 
@@ -170,7 +208,14 @@ function jsonEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-const LINE_FIELDS = ['size', 'playerName', 'playerNumber', 'notes'] as const;
+/**
+ * Fields whose change makes a line count as variance.
+ *
+ * `quantity` MUST be here. Leaving a per-line field out means edits to it
+ * never register as PO variance, so the supplier keeps working from a revision
+ * that no longer matches the order and nothing says so.
+ */
+const LINE_FIELDS = ['size', 'playerName', 'playerNumber', 'quantity', 'notes'] as const;
 
 /** Per-column diff of two customValues maps, as individual field changes. */
 function customValueChanges(
@@ -201,7 +246,16 @@ function customValueChanges(
  *                  added/removed/modified (by sizingRowId);
  *  - 'unchanged' — nothing differs.
  */
-export function detectVariance(currentGarments: LiveGarment[], snapshot: PoSnapshot): PoVariance {
+export function detectVariance(
+  currentGarments: LiveGarment[],
+  snapshot: PoSnapshot,
+  /**
+   * Live assets flagged includeOnPo, in the same shape the snapshot stores.
+   * Omitted by callers that only care about garments; asset variance is then
+   * reported as empty rather than guessed at.
+   */
+  currentAssets?: PoSnapshotAsset[],
+): PoVariance {
   const liveById = new Map(currentGarments.map((g) => [g.id, g]));
 
   const garments = snapshot.garments.map((snap): PoVarianceGarment => {
@@ -232,8 +286,12 @@ export function detectVariance(currentGarments: LiveGarment[], snapshot: PoSnaps
       }
       const lineChanges: PoFieldChange[] = [];
       for (const field of LINE_FIELDS) {
-        const from = snapLine[field] ?? null;
-        const to = liveRow[field] ?? null;
+        // Quantity is defaulted on BOTH sides before comparing. A revision cut
+        // before the column existed has no quantity, and a live row of 1 means
+        // the same thing — comparing raw would report a change on every
+        // pre-existing PO the first time anyone looked at it.
+        const from = field === 'quantity' ? lineQuantity(snapLine) : (snapLine[field] ?? null);
+        const to = field === 'quantity' ? lineQuantity(liveRow) : (liveRow[field] ?? null);
         if (from !== to) lineChanges.push({ field, from, to });
       }
       lineChanges.push(...customValueChanges(snapLine.customValues, liveRow.customValues));
@@ -261,7 +319,52 @@ export function detectVariance(currentGarments: LiveGarment[], snapshot: PoSnaps
     };
   });
 
-  return { garments, hasVariance: garments.some((g) => g.status !== 'unchanged') };
+  const assets = currentAssets ? detectAssetVariance(snapshot.assets ?? [], currentAssets) : [];
+
+  return {
+    garments,
+    assets,
+    hasVariance: garments.some((g) => g.status !== 'unchanged') || assets.length > 0,
+  };
+}
+
+/** Assets carry no id in the snapshot, so identity is (garmentName, name). */
+function assetKey(a: PoSnapshotAsset): string {
+  return `${a.garmentName ?? ''} ${a.name}`;
+}
+
+const ASSET_FIELDS = ['kind', 'usage', 'url', 'storageKey', 'notes'] as const;
+
+function detectAssetVariance(
+  snapAssets: PoSnapshotAsset[],
+  liveAssets: PoSnapshotAsset[],
+): PoVarianceAsset[] {
+  const snapByKey = new Map(snapAssets.map((a) => [assetKey(a), a]));
+  const liveByKey = new Map(liveAssets.map((a) => [assetKey(a), a]));
+  const out: PoVarianceAsset[] = [];
+
+  for (const snap of snapAssets) {
+    const live = liveByKey.get(assetKey(snap));
+    if (!live) {
+      out.push({ change: 'removed', name: snap.name, garmentName: snap.garmentName });
+      continue;
+    }
+    const fieldChanges: PoFieldChange[] = [];
+    for (const field of ASSET_FIELDS) {
+      const from = snap[field] ?? null;
+      const to = live[field] ?? null;
+      if (from !== to) fieldChanges.push({ field, from, to });
+    }
+    if (fieldChanges.length > 0) {
+      out.push({ change: 'modified', name: snap.name, garmentName: snap.garmentName, fieldChanges });
+    }
+  }
+  for (const live of liveAssets) {
+    if (!snapByKey.has(assetKey(live))) {
+      out.push({ change: 'added', name: live.name, garmentName: live.garmentName });
+    }
+  }
+  return out;
 }
 
 export interface PoVarianceCounts {
@@ -285,6 +388,9 @@ export function varianceCounts(v: PoVariance): PoVarianceCounts {
     if (g.fieldChanges.length > 0) counts.modified += 1;
     for (const line of g.lines) counts[line.change] += 1;
   }
+  // A changed font is as much a reason to re-cut a revision as a changed size,
+  // so it has to reach the banner's numbers too.
+  for (const asset of v.assets ?? []) counts[asset.change] += 1;
   return counts;
 }
 

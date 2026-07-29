@@ -53,6 +53,8 @@ describe('buildPoSnapshot', () => {
               size: 'M',
               playerName: 'Alice',
               playerNumber: '7',
+              // Defaulted, not supplied — a line with no quantity is one garment.
+              quantity: 1,
               notes: null,
               customValues: null,
             },
@@ -61,6 +63,7 @@ describe('buildPoSnapshot', () => {
               size: 'L',
               playerName: 'Bob',
               playerNumber: '8',
+              quantity: 1,
               notes: 'long sleeve',
               customValues: null,
             },
@@ -481,5 +484,203 @@ describe('factory-facing context', () => {
 
     expect(snapshot.assets).toEqual([]);
     expect(snapshot.reprintOfOrderNumber).toBeNull();
+  });
+});
+
+/**
+ * Quantity arrived in 0025. Every revision cut before it has no such field, and
+ * a line back then meant exactly one garment — so the default is 1 everywhere,
+ * and the risk is a historical PO silently changing meaning.
+ */
+describe('line quantity', () => {
+  it('snapshots the quantity on a line', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({
+        sizing: [{ id: 'row-1', size: 'M', playerName: null, playerNumber: null, quantity: 20, notes: null }],
+      }),
+    ]);
+
+    expect(snapshot.garments[0].lines[0].quantity).toBe(20);
+  });
+
+  it('treats a live row with no quantity as one', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [liveGarment()]);
+
+    expect(snapshot.garments[0].lines[0].quantity).toBe(1);
+  });
+
+  it('sums quantity rather than counting rows', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({
+        sizing: [
+          { id: 'row-1', size: 'M', playerName: null, playerNumber: null, quantity: 20, notes: null },
+          { id: 'row-2', size: 'M', playerName: null, playerNumber: null, quantity: 5, notes: null },
+          { id: 'row-3', size: 'L', playerName: 'Alice', playerNumber: '7', notes: null },
+        ],
+      }),
+    ]);
+
+    const summary = sizeSummary(snapshot);
+
+    expect(summary.perGarment[0].counts).toEqual({ M: 25, L: 1 });
+    expect(summary.perGarment[0].total).toBe(26);
+    expect(summary.grandTotal).toBe(26);
+  });
+
+  // An old snapshot has no quantity at all; its totals must not change.
+  it('counts a pre-quantity snapshot line as one', () => {
+    const legacy = {
+      orderNumber: 'OC-1',
+      garments: [
+        {
+          garmentId: 'g-1',
+          name: 'Team Hoodie',
+          garmentTypeId: null,
+          garmentTypeName: null,
+          fabrics: [],
+          selectedFabrics: null,
+          selectedOptions: null,
+          notes: null,
+          lines: [
+            { sizingRowId: 'row-1', size: 'M', playerName: null, playerNumber: null, notes: null },
+          ],
+        },
+      ],
+    } as PoSnapshot;
+
+    expect(sizeSummary(legacy).grandTotal).toBe(1);
+  });
+
+  it('reports a changed quantity as variance', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({
+        sizing: [{ id: 'row-1', size: 'M', playerName: null, playerNumber: null, quantity: 10, notes: null }],
+      }),
+    ]);
+    const live = liveGarment({
+      sizing: [{ id: 'row-1', size: 'M', playerName: null, playerNumber: null, quantity: 12, notes: null }],
+    });
+
+    const variance = detectVariance([live], snapshot);
+
+    expect(variance.hasVariance).toBe(true);
+    expect(variance.garments[0].lines[0].fieldChanges).toContainEqual({
+      field: 'quantity',
+      from: 10,
+      to: 12,
+    });
+  });
+
+  /**
+   * The regression that would have hit every PO in the database at once: an old
+   * snapshot has `quantity: undefined`, the live row reads 1, and comparing raw
+   * would call that a change on every line of every pre-existing PO.
+   */
+  it('does not invent variance between a pre-quantity snapshot and a live row of one', () => {
+    const legacy = {
+      orderNumber: 'OC-1',
+      garments: [
+        {
+          garmentId: 'g-1',
+          name: 'Team Hoodie',
+          garmentTypeId: 'type-1',
+          garmentTypeName: 'Pullover Hoodie',
+          fabrics: ['Cotton Fleece'],
+          selectedFabrics: { 'Outer Fabric': 'Cotton Fleece' },
+          selectedOptions: { 'Zip Type': 'pullover' },
+          notes: 'front print',
+          lines: [
+            { sizingRowId: 'row-1', size: 'M', playerName: 'Alice', playerNumber: '7', notes: null },
+          ],
+        },
+      ],
+    } as PoSnapshot;
+    const live = liveGarment({
+      sizing: [{ id: 'row-1', size: 'M', playerName: 'Alice', playerNumber: '7', quantity: 1, notes: null }],
+    });
+
+    expect(detectVariance([live], legacy).hasVariance).toBe(false);
+  });
+});
+
+/**
+ * The gap that prompted this work: swapping the font on an order left an
+ * already-sent PO stale, and nothing said so.
+ */
+describe('asset variance', () => {
+  const font = {
+    kind: 'font' as const,
+    name: 'Squad Numbers',
+    usage: 'playerNumber',
+    url: 'https://drive.example/font-v1',
+    notes: null,
+    garmentName: 'Team Hoodie',
+  };
+
+  function snapshotWith(assets: typeof font[]) {
+    return buildPoSnapshot({ orderNumber: 'OC-1' }, [liveGarment()], assets);
+  }
+
+  it('reports a font whose link changed', () => {
+    const variance = detectVariance([liveGarment()], snapshotWith([font]), [
+      { ...font, url: 'https://drive.example/font-v2' },
+    ]);
+
+    expect(variance.hasVariance).toBe(true);
+    expect(variance.assets).toEqual([
+      {
+        change: 'modified',
+        name: 'Squad Numbers',
+        garmentName: 'Team Hoodie',
+        fieldChanges: [
+          { field: 'url', from: 'https://drive.example/font-v1', to: 'https://drive.example/font-v2' },
+        ],
+      },
+    ]);
+  });
+
+  it('reports a font whose usage was re-pointed at another field', () => {
+    const variance = detectVariance([liveGarment()], snapshotWith([font]), [
+      { ...font, usage: 'playerName' },
+    ]);
+
+    expect(variance.assets[0].fieldChanges).toEqual([
+      { field: 'usage', from: 'playerNumber', to: 'playerName' },
+    ]);
+  });
+
+  it('reports an added and a removed file', () => {
+    const added = detectVariance([liveGarment()], snapshotWith([]), [font]);
+    expect(added.assets).toEqual([
+      { change: 'added', name: 'Squad Numbers', garmentName: 'Team Hoodie' },
+    ]);
+
+    const removed = detectVariance([liveGarment()], snapshotWith([font]), []);
+    expect(removed.assets).toEqual([
+      { change: 'removed', name: 'Squad Numbers', garmentName: 'Team Hoodie' },
+    ]);
+  });
+
+  it('is quiet when the files match', () => {
+    const variance = detectVariance([liveGarment()], snapshotWith([font]), [font]);
+
+    expect(variance.assets).toEqual([]);
+    expect(variance.hasVariance).toBe(false);
+  });
+
+  // Callers that only care about garments must not be told the files vanished.
+  it('reports nothing when live assets are not supplied', () => {
+    const variance = detectVariance([liveGarment()], snapshotWith([font]));
+
+    expect(variance.assets).toEqual([]);
+    expect(variance.hasVariance).toBe(false);
+  });
+
+  it('counts asset changes in the variance banner', () => {
+    const variance = detectVariance([liveGarment()], snapshotWith([font]), [
+      { ...font, url: 'https://drive.example/font-v2' },
+    ]);
+
+    expect(varianceCounts(variance)).toEqual({ added: 0, modified: 1, removed: 0 });
   });
 });

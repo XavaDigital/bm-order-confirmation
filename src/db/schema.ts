@@ -299,7 +299,25 @@ export const orderAssets = confirmation.table(
     garmentId: uuid('garment_id').references(() => garments.id, { onDelete: 'cascade' }),
     kind: text('kind').notNull().$type<OrderAssetKind>(),
     name: text('name').notNull(),
-    url: text('url').notNull(),
+    /**
+     * What this file is FOR, on a garment: 'playerName', 'playerNumber', or the
+     * label of one of the garment's user-defined sizing columns ('Secondary
+     * Name'). Null for files that are not tied to a single text field — a
+     * design file, or a font used throughout.
+     *
+     * Deliberately free text rather than an enum: the text fields it names are
+     * themselves user-defined per garment type, so a closed list here would go
+     * stale the moment someone adds a column.
+     */
+    usage: text('usage'),
+    /**
+     * Exactly one of `url` (a Drive link) or `storageKey` (an uploaded file) is
+     * set — enforced by a check constraint. `url` lost its NOT NULL in 0025 to
+     * make room for uploads; that relaxes a constraint rather than dropping
+     * anything, so it stays within the additive-only rule.
+     */
+    url: text('url'),
+    storageKey: text('storage_key'),
     notes: text('notes'),
     // Included in the PO documents sent to the supplier. Off by default —
     // an internal working file is not automatically factory-facing.
@@ -533,6 +551,14 @@ export const garmentSizing = confirmation.table(
     size: text('size'),
     playerName: text('player_name'),
     playerNumber: text('player_number'),
+    /**
+     * How many of this line to make. 1 for a named player; higher for bulk
+     * unnamed stock ("Medium x 20") so a run of identical rows is not needed.
+     *
+     * NOT NULL DEFAULT 1 so every existing row backfills to its current
+     * meaning — one row was one garment before this column existed.
+     */
+    quantity: integer('quantity').notNull().default(1),
     notes: text('notes'),
     // Values for this garment's user-defined sizingColumns ({label: value}).
     // Null when the garment has no custom columns — same "null when empty"
@@ -787,9 +813,23 @@ export interface PoSnapshotLine {
   size: string | null;
   playerName: string | null;
   playerNumber: string | null;
+  /**
+   * How many of this line. Optional because revisions cut before 0025 have no
+   * quantity — readers must treat a missing value as 1, which is what a line
+   * meant back then.
+   */
+  quantity?: number;
   notes: string | null;
   /** Values for the garment's user-defined sizing columns ({label: value}). */
   customValues?: Record<string, string> | null;
+}
+
+/** A size chart the factory should cut to, captured at revision time. */
+export interface PoSnapshotSizeChart {
+  id: string;
+  name: string;
+  /** Signed at render time from the storage key — never stored as a URL. */
+  storageKey: string | null;
 }
 
 export interface PoSnapshotGarment {
@@ -805,6 +845,8 @@ export interface PoSnapshotGarment {
    *  documents render exactly these, in this order, even if the garment's
    *  columns change later. */
   sizingColumns?: GarmentTypeOption[];
+  /** Reference size charts linked to this garment when the revision was cut. */
+  sizeCharts?: PoSnapshotSizeChart[];
   notes: string | null;
   lines: PoSnapshotLine[];
 }
@@ -813,7 +855,12 @@ export interface PoSnapshotGarment {
 export interface PoSnapshotAsset {
   kind: OrderAssetKind;
   name: string;
-  url: string;
+  /** What the file is for — 'playerName', or a sizing-column label. */
+  usage?: string | null;
+  /** A Drive link. Null when the file was uploaded instead. */
+  url: string | null;
+  /** An uploaded file. Signed at render time, so the link cannot go stale. */
+  storageKey?: string | null;
   notes: string | null;
   /** Garment this file belongs to, when it was tagged to one. */
   garmentName: string | null;
