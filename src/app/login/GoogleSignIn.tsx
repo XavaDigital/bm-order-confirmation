@@ -13,8 +13,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Divider, Space, Spin } from 'antd';
-import { useRouter } from 'next/navigation';
 import { ApiError, postJson } from '@/lib/api-fetch';
+import { goAfterAuth } from '@/lib/post-auth-redirect';
 
 interface Props {
   /** This app's Google OAuth client id. Empty = the seam is off. */
@@ -48,7 +48,6 @@ declare global {
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 
 export function GoogleSignIn({ clientId, next, showDivider = false }: Props) {
-  const router = useRouter();
   const buttonRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -65,8 +64,7 @@ export function GoogleSignIn({ clientId, next, showDivider = false }: Props) {
       setSubmitting(true);
       try {
         await postJson('/api/auth/google', { credential: response.credential }, 'Sign-in failed');
-        router.push(next && next.startsWith('/') ? next : '/admin/dashboard');
-        router.refresh();
+        goAfterAuth(next);
       } catch (err) {
         setSubmitting(false);
         // The server distinguishes "no grant for this app" from "that did not
@@ -79,7 +77,7 @@ export function GoogleSignIn({ clientId, next, showDivider = false }: Props) {
         );
       }
     },
-    [router, next],
+    [next],
   );
 
   useEffect(() => {

@@ -1,17 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Form, Input, Button, Typography, Alert, Divider } from 'antd';
 import { SafetyCertificateOutlined } from '@ant-design/icons';
 import { AuthCard } from '@/components/auth/AuthCard';
 import { BRAND } from '@/lib/theme';
 import { postJson, ApiError } from '@/lib/api-fetch';
+import { goAfterAuth } from '@/lib/post-auth-redirect';
 
 const { Title } = Typography;
 
 export function TwoFactorForm() {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [useBackup, setUseBackup] = useState(false);
@@ -23,8 +22,7 @@ export function TwoFactorForm() {
     try {
       await postJson('/api/auth/2fa/verify', { code: values.code.trim() }, 'Verification failed');
 
-      router.push('/admin/dashboard');
-      router.refresh();
+      goAfterAuth();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'An unexpected error occurred. Please try again.');
     } finally {

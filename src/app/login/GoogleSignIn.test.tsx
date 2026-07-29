@@ -4,6 +4,14 @@ import { GoogleSignIn } from './GoogleSignIn';
 
 const pushMock = vi.fn();
 const refreshMock = vi.fn();
+// vi.hoisted because the factory below dereferences this immediately, unlike
+// the useRouter mock whose arrow function defers until render.
+const goAfterAuthMock = vi.hoisted(() => vi.fn());
+
+// Sign-in navigates with a real document load — see src/lib/post-auth-redirect.ts.
+// This component's contract is to hand over the destination; the refusal of
+// off-site targets is proven in post-auth-redirect.test.ts.
+vi.mock('@/lib/post-auth-redirect', () => ({ goAfterAuth: goAfterAuthMock }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock, refresh: refreshMock }),
@@ -45,6 +53,7 @@ function signInWith(initialize: ReturnType<typeof vi.fn>, credential: string) {
 beforeEach(() => {
   pushMock.mockClear();
   refreshMock.mockClear();
+  goAfterAuthMock.mockClear();
   vi.mocked(postJson).mockReset().mockResolvedValue({ ok: true });
   document.head.querySelectorAll('script').forEach((s) => s.remove());
 });
@@ -125,7 +134,7 @@ describe('GoogleSignIn — signing in', () => {
         expect.any(String),
       ),
     );
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/admin/dashboard'));
+    await waitFor(() => expect(goAfterAuthMock).toHaveBeenCalled());
   });
 
   it('honours a relative next destination', async () => {
@@ -135,19 +144,27 @@ describe('GoogleSignIn — signing in', () => {
 
     signInWith(initialize, 'token');
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/admin/workflow'));
+    await waitFor(() => expect(goAfterAuthMock).toHaveBeenCalledWith('/admin/workflow'));
   });
 
-  // An open redirect would let a phishing link bounce someone off-site straight
-  // after a successful sign-in.
-  it('refuses an absolute next destination', async () => {
+  /**
+   * An open redirect would let a phishing link bounce someone off-site straight
+   * after a successful sign-in. The component forwards the destination
+   * unexamined and `goAfterAuth` is the single place that decides — so what is
+   * asserted here is that nothing else navigates behind its back. The refusal
+   * itself is covered, across seven off-site forms, in
+   * src/lib/post-auth-redirect.test.ts.
+   */
+  it('routes an absolute next destination through the redirect guard', async () => {
     const { initialize } = installGis();
     render(<GoogleSignIn clientId={CLIENT_ID} next="https://evil.test/steal" />);
     await waitFor(() => expect(initialize).toHaveBeenCalled());
 
     signInWith(initialize, 'token');
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/admin/dashboard'));
+    await waitFor(() => expect(goAfterAuthMock).toHaveBeenCalledWith('https://evil.test/steal'));
+    // Nothing navigates behind the guard's back.
+    expect(pushMock).not.toHaveBeenCalled();
   });
 
   it('ignores a callback with no credential', async () => {
@@ -177,7 +194,7 @@ describe('GoogleSignIn — signing in', () => {
     signInWith(initialize, 'token');
 
     expect(await screen.findByText(/ask an admin to grant it/i)).toBeInTheDocument();
-    expect(pushMock).not.toHaveBeenCalled();
+    expect(goAfterAuthMock).not.toHaveBeenCalled();
   });
 
   it('does not navigate when sign-in fails', async () => {
@@ -189,6 +206,6 @@ describe('GoogleSignIn — signing in', () => {
     signInWith(initialize, 'token');
 
     await screen.findByText('nope');
-    expect(pushMock).not.toHaveBeenCalled();
+    expect(goAfterAuthMock).not.toHaveBeenCalled();
   });
 });

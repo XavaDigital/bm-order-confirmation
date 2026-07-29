@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Form, Input, Button, Alert } from 'antd';
 import { postJson, ApiError } from '@/lib/api-fetch';
+import { goAfterAuth } from '@/lib/post-auth-redirect';
 
 interface LoginFormValues {
   email: string;
@@ -29,9 +30,9 @@ export function LoginForm() {
         return;
       }
 
-      const from = searchParams.get('from') ?? '/admin/dashboard';
-      router.push(from);
-      router.refresh();
+      // `from` comes straight off the query string, so it is validated inside
+      // goAfterAuth rather than trusted.
+      goAfterAuth(searchParams.get('from'));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'An unexpected error occurred. Please try again.');
     } finally {

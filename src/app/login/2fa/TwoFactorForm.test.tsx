@@ -5,6 +5,14 @@ import { TwoFactorForm } from './TwoFactorForm';
 
 const pushMock = vi.fn();
 const refreshMock = vi.fn();
+// vi.hoisted because the factory below dereferences this immediately, unlike
+// the useRouter mock whose arrow function defers until render.
+const goAfterAuthMock = vi.hoisted(() => vi.fn());
+
+// Verification completes the session, so it navigates with a real document
+// load rather than router.push — see src/lib/post-auth-redirect.ts.
+vi.mock('@/lib/post-auth-redirect', () => ({ goAfterAuth: goAfterAuthMock }));
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock, refresh: refreshMock }),
 }));
@@ -12,6 +20,7 @@ vi.mock('next/navigation', () => ({
 beforeEach(() => {
   pushMock.mockClear();
   refreshMock.mockClear();
+  goAfterAuthMock.mockClear();
   vi.stubGlobal('fetch', vi.fn());
 });
 
@@ -50,8 +59,7 @@ describe('TwoFactorForm', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: '123456' }),
     });
-    await vi.waitFor(() => expect(pushMock).toHaveBeenCalledWith('/admin/dashboard'));
-    expect(refreshMock).toHaveBeenCalled();
+    await vi.waitFor(() => expect(goAfterAuthMock).toHaveBeenCalled());
   });
 
   it('trims whitespace from the code before submitting', async () => {
@@ -81,7 +89,7 @@ describe('TwoFactorForm', () => {
     await user.click(screen.getByRole('button', { name: /verify/i }));
 
     expect(await screen.findByText('Invalid code')).toBeInTheDocument();
-    expect(pushMock).not.toHaveBeenCalled();
+    expect(goAfterAuthMock).not.toHaveBeenCalled();
   });
 
   it('shows a generic error message on a network failure', async () => {

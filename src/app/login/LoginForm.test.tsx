@@ -5,11 +5,20 @@ import { LoginForm } from './LoginForm';
 
 const pushMock = vi.fn();
 const refreshMock = vi.fn();
+// vi.hoisted because the factory below dereferences this immediately, unlike
+// the useRouter mock whose arrow function defers until render.
+const goAfterAuthMock = vi.hoisted(() => vi.fn());
 let searchParamsValue = new URLSearchParams();
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock, refresh: refreshMock }),
   useSearchParams: () => searchParamsValue,
 }));
+
+// Signing in navigates with a real document load, not router.push — see
+// src/lib/post-auth-redirect.ts. The form's job is to hand over the raw `from`
+// value; validating it is the helper's, and post-auth-redirect.test.ts covers
+// the off-site cases.
+vi.mock('@/lib/post-auth-redirect', () => ({ goAfterAuth: goAfterAuthMock }));
 
 async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>, email = 'jane@example.com', password = 'hunter2') {
   await user.type(screen.getByLabelText('Email'), email);
@@ -20,6 +29,7 @@ async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>, email = '
 beforeEach(() => {
   pushMock.mockClear();
   refreshMock.mockClear();
+  goAfterAuthMock.mockClear();
   searchParamsValue = new URLSearchParams();
   vi.stubGlobal('fetch', vi.fn());
 });
@@ -63,8 +73,7 @@ describe('LoginForm', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'jane@example.com', password: 'hunter2' }),
     });
-    await vi.waitFor(() => expect(pushMock).toHaveBeenCalledWith('/admin/dashboard'));
-    expect(refreshMock).toHaveBeenCalled();
+    await vi.waitFor(() => expect(goAfterAuthMock).toHaveBeenCalledWith(null));
   });
 
   it('redirects to the "from" URL search param when present', async () => {
@@ -75,7 +84,7 @@ describe('LoginForm', () => {
 
     await fillAndSubmit(user);
 
-    await vi.waitFor(() => expect(pushMock).toHaveBeenCalledWith('/admin/orders'));
+    await vi.waitFor(() => expect(goAfterAuthMock).toHaveBeenCalledWith('/admin/orders'));
   });
 
   it('redirects to the 2FA challenge instead when the account requires MFA', async () => {
@@ -85,8 +94,10 @@ describe('LoginForm', () => {
 
     await fillAndSubmit(user);
 
+    // The 2FA challenge is NOT behind the admin layout and the session is only
+    // half-established, so this one stays a client-side push.
     await vi.waitFor(() => expect(pushMock).toHaveBeenCalledWith('/login/2fa'));
-    expect(refreshMock).not.toHaveBeenCalled();
+    expect(goAfterAuthMock).not.toHaveBeenCalled();
   });
 
   it('shows the server error message when login fails', async () => {
