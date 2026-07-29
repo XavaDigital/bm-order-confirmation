@@ -61,6 +61,11 @@ export type DomainEventType =
   | 'workflow.task_reopened'
   | 'workflow.owners_changed'
   | 'workflow.gate_overridden'
+  // Stage configuration (audit-only). Who changed the shape of the board is
+  // staff action history; no consumer acts on it.
+  | 'workflow.stage_created'
+  | 'workflow.stage_updated'
+  | 'workflow.stages_reordered'
   | 'access_code.enabled'
   | 'access_code.disabled'
   | 'roster.member_added'
@@ -126,7 +131,15 @@ export async function recordAuditEvent(
     aggregateId: string;
     eventType: DomainEventType;
     payload: Record<string, unknown>;
-    aggregateType?: 'order' | 'staff_user' | 'garment_type' | 'purchase_order' | 'supplier' | 'shipment';
+    aggregateType?:
+      | 'order'
+      | 'staff_user'
+      | 'garment_type'
+      | 'purchase_order'
+      | 'supplier'
+      | 'shipment'
+      // The column is plain text, so widening this union is a type-only change.
+      | 'workflow_stage';
     actorEmail?: string | null;
   },
   tx?: Transaction,

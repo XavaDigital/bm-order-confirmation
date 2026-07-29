@@ -10,6 +10,7 @@ import {
   FileDoneOutlined,
   FileTextOutlined,
   ProfileOutlined,
+  ProjectOutlined,
   SendOutlined,
   ShopOutlined,
   SkinOutlined,
@@ -73,6 +74,13 @@ function buildNavItems(role: StaffRole) {
   ];
 
   if (role === 'admin') {
+    // Configuring the boards and who owns each step is a management act, so it
+    // sits with Users behind the admin check. The server enforces it too.
+    items.push({
+      key: '/admin/workflow-settings',
+      icon: <ProjectOutlined />,
+      label: <Link href="/admin/workflow-settings">Workflow</Link>,
+    });
     items.push({
       key: '/admin/users',
       icon: <TeamOutlined />,

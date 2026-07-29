@@ -741,7 +741,9 @@ export const auditEvents = confirmation.table(
   'audit_events',
   {
     id: uuid('id').defaultRandom().primaryKey(),
-    aggregateType: text('aggregate_type').notNull().$type<'order' | 'staff_user' | 'garment_type' | 'purchase_order' | 'supplier' | 'shipment'>(),
+    // Plain text in the database, so widening this union is a type-only change
+    // and needs no migration.
+    aggregateType: text('aggregate_type').notNull().$type<'order' | 'staff_user' | 'garment_type' | 'purchase_order' | 'supplier' | 'shipment' | 'workflow_stage'>(),
     aggregateId: uuid('aggregate_id').notNull(),
     eventType: text('event_type').notNull(),
     actorEmail: text('actor_email'),
