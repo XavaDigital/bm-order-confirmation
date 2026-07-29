@@ -9,6 +9,17 @@ const APP_DOMAIN = 'beastmode.co.nz';
 /** Shown next to the wordmark on auth pages and the default email header. */
 export const APP_TAGLINE = 'Order Confirmation';
 
+/**
+ * Product name shown to people on the standalone auth pages (login, 2FA,
+ * invite, password reset).
+ *
+ * Deliberately separate from APP_NAME rather than replacing it: APP_NAME
+ * composes into APP_PORTAL_NAME, SALES_REP_LABEL, the TOTP issuer and the PDF
+ * footer, where the longer product name reads badly — "BeastMode OrderFlow
+ * sales representative".
+ */
+export const APP_DISPLAY_NAME = `${APP_NAME} OrderFlow`;
+
 /** How the staff-facing portal is referred to in invite/notification copy. */
 export const APP_PORTAL_NAME = `${APP_NAME} Order Portal`;
 

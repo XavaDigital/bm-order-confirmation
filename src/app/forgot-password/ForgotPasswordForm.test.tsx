@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ForgotPasswordForm } from './ForgotPasswordForm';
+import { APP_DISPLAY_NAME } from '@/lib/config';
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn());
@@ -16,7 +17,9 @@ describe('ForgotPasswordForm', () => {
   it('renders the app name and email field', () => {
     render(<ForgotPasswordForm />);
 
-    expect(screen.getByText('BeastMode')).toBeInTheDocument();
+    // From the constant, not a literal: the auth pages share one product name
+    // and a copy change should not need a test edit.
+    expect(screen.getByText(APP_DISPLAY_NAME)).toBeInTheDocument();
     expect(screen.getByLabelText('Email')).toBeInTheDocument();
   });
 

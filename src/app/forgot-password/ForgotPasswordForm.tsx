@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Form, Input, Button, Typography, Alert } from 'antd';
-import { APP_NAME } from '@/lib/config';
+import { APP_DISPLAY_NAME } from '@/lib/config';
 import { AuthCard } from '@/components/auth/AuthCard';
 import { postJson, ApiError } from '@/lib/api-fetch';
 
@@ -38,7 +38,7 @@ export function ForgotPasswordForm() {
     <AuthCard>
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
         <Title level={2} style={{ marginBottom: 4 }}>
-          {APP_NAME}
+          {APP_DISPLAY_NAME}
         </Title>
         <Typography.Text type="secondary">Forgot your password?</Typography.Text>
       </div>

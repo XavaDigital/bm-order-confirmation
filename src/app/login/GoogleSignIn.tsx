@@ -134,10 +134,10 @@ export function GoogleSignIn({ clientId, next, showDivider = false }: Props) {
     <Space direction="vertical" size={8} style={{ width: '100%' }}>
       {error && <Alert type="error" showIcon message={error} />}
       {submitting && (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
-          <Spin size="small" tip="Signing you in…">
-            <span />
-          </Spin>
+        // No `tip`: antd renders it inside the spinner's own narrow box, so the
+        // label wrapped to one word per line. The spinner alone reads fine.
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0' }}>
+          <Spin />
         </div>
       )}
       <div

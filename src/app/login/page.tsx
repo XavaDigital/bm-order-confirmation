@@ -1,14 +1,13 @@
 import { Suspense } from 'react';
-import { Alert, Typography } from 'antd';
+import { Alert } from 'antd';
 import { LoginForm } from './LoginForm';
 import { GoogleSignIn } from './GoogleSignIn';
 import { DifferentAccountLink } from './DifferentAccountLink';
 import { AuthCard } from '@/components/auth/AuthCard';
-import { APP_NAME } from '@/lib/config';
+import { AuthHeading } from '@/components/auth/AuthHeading';
+import { APP_DISPLAY_NAME } from '@/lib/config';
 import { env } from '@/lib/env';
 import { isIdentityConfigured } from '@/server/identity/client';
-
-const { Title, Text } = Typography;
 
 /**
  * Why the admin layout bounced them back here. Two of these mean genuinely
@@ -42,12 +41,7 @@ export default async function LoginPage({
    */
   return (
     <AuthCard>
-      <div style={{ textAlign: 'center', marginBottom: 32 }}>
-        <Title level={2} style={{ marginBottom: 4 }}>
-          {APP_NAME}
-        </Title>
-        <Text type="secondary">Sign in to your account</Text>
-      </div>
+      <AuthHeading title={APP_DISPLAY_NAME} subtitle="Sign in to your account" />
 
       {deniedMessage && (
         <Alert type="warning" showIcon message={deniedMessage} style={{ marginBottom: 24 }} />

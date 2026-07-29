@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Form, Input, Button, Typography, Alert } from 'antd';
 import { LockOutlined } from '@ant-design/icons';
-import { APP_NAME } from '@/lib/config';
+import { APP_DISPLAY_NAME } from '@/lib/config';
 import { AuthCard } from '@/components/auth/AuthCard';
 import { postJson } from '@/lib/api-fetch';
 
@@ -41,7 +41,7 @@ export function AcceptInviteView() {
     <AuthCard>
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
         <Title level={2} style={{ marginBottom: 4 }}>
-          {APP_NAME}
+          {APP_DISPLAY_NAME}
         </Title>
         <Title level={5} style={{ margin: 0 }}>
           Set up your account
