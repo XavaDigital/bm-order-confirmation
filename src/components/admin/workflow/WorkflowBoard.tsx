@@ -34,7 +34,6 @@ import {
   Card,
   Empty,
   Modal,
-  Segmented,
   Skeleton,
   Space,
   Tag,
@@ -82,7 +81,13 @@ export interface Board {
 }
 
 interface Props {
-  initialBoardKey?: BoardKey;
+  /**
+   * Which board to show. Controlled by the page rather than switched inside:
+   * the board now lives on the Orders and Purchase Orders pages, each of which
+   * already knows which one it wants, so an internal switcher would let a page
+   * display the other page's cards.
+   */
+  boardKey: BoardKey;
 }
 
 const URGENCY_COLOR: Record<StageUrgency, string | undefined> = {
@@ -287,9 +292,8 @@ function Column({
   );
 }
 
-export function WorkflowBoard({ initialBoardKey = 'order' }: Props) {
+export function WorkflowBoard({ boardKey }: Props) {
   const { message } = App.useApp();
-  const [boardKey, setBoardKey] = useState<BoardKey>(initialBoardKey);
   const [board, setBoard] = useState<Board | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<BoardCard | null>(null);
@@ -304,6 +308,12 @@ export function WorkflowBoard({ initialBoardKey = 'order' }: Props) {
         `/api/admin/workflow/board?boardKey=${boardKey}`,
         'Failed to load the board',
       );
+      // The board is the landing view on both the Orders and Purchase Orders
+      // pages, so a response that is not a board must surface as an error
+      // rather than throwing during render and blanking the whole page.
+      if (!Array.isArray(next?.columns)) {
+        throw new Error('The board data was not in the expected shape.');
+      }
       setBoard(next);
       setLoadError(null);
     } catch (err) {
@@ -386,15 +396,7 @@ export function WorkflowBoard({ initialBoardKey = 'order' }: Props) {
 
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
-      <Space wrap style={{ justifyContent: 'space-between', width: '100%' }}>
-        <Segmented
-          value={boardKey}
-          onChange={(value) => setBoardKey(value as BoardKey)}
-          options={[
-            { label: 'Orders', value: 'order' },
-            { label: 'Purchase Orders', value: 'purchase_order' },
-          ]}
-        />
+      <Space wrap style={{ justifyContent: 'flex-end', width: '100%' }}>
         <Button icon={<ReloadOutlined />} onClick={() => void load()}>
           Refresh
         </Button>

@@ -73,10 +73,10 @@ function board(overrides: Partial<Board> = {}): Board {
   };
 }
 
-function renderBoard() {
+function renderBoard(boardKey: 'order' | 'purchase_order' = 'order') {
   return render(
     <AntdApp>
-      <WorkflowBoard />
+      <WorkflowBoard boardKey={boardKey} />
     </AntdApp>,
   );
 }
@@ -114,18 +114,30 @@ describe('WorkflowBoard — rendering', () => {
     expect(vi.mocked(getJson).mock.calls[0][0]).toBe('/api/admin/workflow/board?boardKey=order');
   });
 
-  it('switches to the purchase-order board', async () => {
-    const user = userEvent.setup();
-    renderBoard();
-    await screen.findByRole('group', { name: 'Artwork (1)' });
-
-    await user.click(screen.getByText('Purchase Orders'));
+  /**
+   * The board no longer switches between the two boards itself — it is
+   * controlled by the page, so the Orders page cannot end up showing PO cards.
+   * Choosing between them is now the page-level toggle, covered in
+   * OrdersView.test.tsx and PurchaseOrdersView.test.tsx.
+   */
+  it('requests whichever board it is given', async () => {
+    renderBoard('purchase_order');
 
     await waitFor(() =>
-      expect(vi.mocked(getJson).mock.calls.at(-1)?.[0]).toBe(
+      expect(vi.mocked(getJson).mock.calls[0][0]).toBe(
         '/api/admin/workflow/board?boardKey=purchase_order',
       ),
     );
+  });
+
+  // A response that is not a board must not throw during render: the board is
+  // the landing view on two pages, so that would blank the whole page.
+  it('reports a malformed response instead of crashing', async () => {
+    vi.mocked(getJson).mockResolvedValue({ nonsense: true } as never);
+
+    renderBoard();
+
+    expect(await screen.findByText(/not in the expected shape/i)).toBeInTheDocument();
   });
 
   it('shows how long a card has been in its stage', async () => {
@@ -219,7 +231,7 @@ describe('WorkflowBoard — purchase-order cards', () => {
         },
       ],
     });
-    renderBoard();
+    renderBoard('purchase_order');
 
     const link = await screen.findByRole('link', { name: /^PO-/ });
     expect(link).toHaveAttribute('href', '/admin/orders/order-9?tab=production');

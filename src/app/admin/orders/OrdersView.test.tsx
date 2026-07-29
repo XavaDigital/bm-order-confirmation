@@ -6,10 +6,15 @@ import { OrdersView } from './OrdersView';
 
 // OrdersView reports fetch failures via App.useApp().message, which needs the
 // AntdApp provider — without it message.error is not a function.
+/**
+ * These tests are about the TABLE, so they open on it directly. The page itself
+ * lands on the board — see the toggle test at the bottom — and the board fetches
+ * on mount, which would otherwise eat the queued fetch responses below.
+ */
 function renderView() {
   return render(
     <AntdApp>
-      <OrdersView />
+      <OrdersView initialView="table" />
     </AntdApp>,
   );
 }
@@ -191,5 +196,42 @@ describe('OrdersView', () => {
 
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     expect(screen.getByText('OC-1')).toBeInTheDocument();
+  });
+});
+
+describe('OrdersView — view toggle', () => {
+  it('opens on the board, and reveals the table when switched', async () => {
+    const user = userEvent.setup();
+    // URL-routed rather than a queue: the board fetches on mount, so a
+    // mockResolvedValueOnce queue would be consumed by the wrong caller.
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/admin/workflow/board')) {
+        return {
+          ok: true,
+          json: async () => ({ boardKey: 'order', orphanedCount: 0, columns: [] }),
+        } as Response;
+      }
+      return { ok: true, json: async () => ({ orders: [], total: 0 }) } as Response;
+    });
+
+    render(
+      <AntdApp>
+        <OrdersView />
+      </AntdApp>,
+    );
+
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/admin/workflow/board?boardKey=order'),
+      ),
+    );
+    // The table and its filtering are not rendered underneath.
+    expect(screen.queryByPlaceholderText(/search by name/i)).not.toBeInTheDocument();
+
+    // antd's Segmented radio carries pointer-events:none, so click the label.
+    await user.click(screen.getByText('Table'));
+
+    expect(await screen.findByPlaceholderText(/search by name/i)).toBeInTheDocument();
   });
 });

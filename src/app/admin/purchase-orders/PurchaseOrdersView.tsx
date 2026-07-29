@@ -6,11 +6,12 @@
  * OrdersView's pattern. Rows link to the PO detail and the parent order.
  */
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Input, Select, Space, Tag, Typography, App } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import { Table, Input, Segmented, Select, Space, Tag, Typography, App } from 'antd';
+import { SearchOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import Link from 'next/link';
 import type { ColumnType } from 'antd/es/table';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { WorkflowBoard } from '@/components/admin/workflow/WorkflowBoard';
 import { PoStatusBadge } from '@/components/admin/purchase-orders/PoStatusBadge';
 import { PO_STATUS } from '@/lib/status';
 import { formatDate } from '@/lib/format';
@@ -46,8 +47,20 @@ const STATUS_OPTIONS = Object.entries(PO_STATUS).map(([value, meta]) => ({
   label: meta.label,
 }));
 
-export function PurchaseOrdersView() {
+type ViewMode = 'board' | 'table';
+
+interface Props {
+  /** Which view to open on. Overridable so tests can target one directly. */
+  initialView?: ViewMode;
+}
+
+export function PurchaseOrdersView({ initialView = 'board' }: Props = {}) {
   const { message } = App.useApp();
+  /**
+   * The board is the landing view. This is the board that earns its keep —
+   * unlike orders, a purchase order moves because staff move it.
+   */
+  const [view, setView] = useState<ViewMode>(initialView);
   const [rows, setRows] = useState<PoRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -85,9 +98,11 @@ export function PurchaseOrdersView() {
     }
   }, [status, supplierId, debouncedSearch, message]);
 
+  // Only the table needs this data — the board loads its own columns.
   useEffect(() => {
+    if (view !== 'table') return;
     fetchPos();
-  }, [fetchPos]);
+  }, [fetchPos, view]);
 
   const columns: ColumnType<PoRow>[] = [
     {
@@ -160,9 +175,27 @@ export function PurchaseOrdersView() {
     <div>
       <AdminPageHeader
         title="Purchase Orders"
-        subtitle={`${rows.length} purchase order${rows.length !== 1 ? 's' : ''}`}
+        subtitle={
+          view === 'table'
+            ? `${rows.length} purchase order${rows.length !== 1 ? 's' : ''}`
+            : undefined
+        }
+        extra={
+          <Segmented
+            value={view}
+            onChange={(value) => setView(value as ViewMode)}
+            size="large"
+            options={[
+              { label: 'Board', value: 'board', icon: <AppstoreOutlined /> },
+              { label: 'Table', value: 'table', icon: <UnorderedListOutlined /> },
+            ]}
+          />
+        }
       />
 
+      {view === 'board' ? (
+        <WorkflowBoard boardKey="purchase_order" />
+      ) : (
       <Space direction="vertical" style={{ width: '100%' }} size={0}>
         <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
           <Input
@@ -203,6 +236,7 @@ export function PurchaseOrdersView() {
           locale={{ emptyText: 'No purchase orders yet — create one from an order’s Production panel.' }}
         />
       </Space>
+      )}
     </div>
   );
 }

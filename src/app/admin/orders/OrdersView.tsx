@@ -6,16 +6,25 @@ import {
   Table,
   Button,
   Input,
+  Segmented,
   Space,
   Typography,
   Tabs,
   Tooltip,
   App,
 } from 'antd';
-import { FileAddOutlined, SearchOutlined, DownloadOutlined, BgColorsOutlined } from '@ant-design/icons';
+import {
+  FileAddOutlined,
+  SearchOutlined,
+  DownloadOutlined,
+  BgColorsOutlined,
+  AppstoreOutlined,
+  UnorderedListOutlined,
+} from '@ant-design/icons';
 import Link from 'next/link';
 import type { ColumnType } from 'antd/es/table';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { WorkflowBoard } from '@/components/admin/workflow/WorkflowBoard';
 import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
 import { ORDER_STATUS } from '@/lib/status';
 import { formatDate, formatCurrency } from '@/lib/format';
@@ -44,10 +53,23 @@ const STATUS_TABS = [
   ...Object.entries(ORDER_STATUS).map(([key, meta]) => ({ key, label: meta.label })),
 ];
 
-export function OrdersView() {
+type ViewMode = 'board' | 'table';
+
+interface Props {
+  /** Which view to open on. Overridable so tests can target one directly. */
+  initialView?: ViewMode;
+}
+
+export function OrdersView({ initialView = 'board' }: Props = {}) {
   const { message } = App.useApp();
   const router = useRouter();
   const searchParams = useSearchParams();
+  /**
+   * The board is the landing view; the table is still here for the things a
+   * board is bad at — finding one order among hundreds, sorting by value, and
+   * exporting.
+   */
+  const [view, setView] = useState<ViewMode>(initialView);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -100,9 +122,12 @@ export function OrdersView() {
     }
   }, [status, debouncedSearch, page, sortField, sortOrder, message]);
 
+  // Only the table needs this data — the board loads its own columns, so in
+  // board view this request would be work nobody looks at.
   useEffect(() => {
+    if (view !== 'table') return;
     fetchOrders();
-  }, [fetchOrders]);
+  }, [fetchOrders, view]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -189,14 +214,28 @@ export function OrdersView() {
     <div>
       <AdminPageHeader
         title="Orders"
-        subtitle={`${total} order${total !== 1 ? 's' : ''} total`}
+        subtitle={view === 'table' ? `${total} order${total !== 1 ? 's' : ''} total` : undefined}
         extra={
           <Space>
-            <a href={exportHref}>
-              <Button icon={<DownloadOutlined />} size="large">
-                Export CSV
-              </Button>
-            </a>
+            <Segmented
+              value={view}
+              onChange={(value) => setView(value as ViewMode)}
+              size="large"
+              options={[
+                { label: 'Board', value: 'board', icon: <AppstoreOutlined /> },
+                { label: 'Table', value: 'table', icon: <UnorderedListOutlined /> },
+              ]}
+            />
+            {/* Export follows the table's filters, so it is offered only where
+                those filters are visible — otherwise it would silently carry
+                whatever was last selected. */}
+            {view === 'table' && (
+              <a href={exportHref}>
+                <Button icon={<DownloadOutlined />} size="large">
+                  Export CSV
+                </Button>
+              </a>
+            )}
             <Link href="/admin/orders/new">
               <Button type="primary" icon={<FileAddOutlined />} size="large">
                 New Order
@@ -206,6 +245,9 @@ export function OrdersView() {
         }
       />
 
+      {view === 'board' ? (
+        <WorkflowBoard boardKey="order" />
+      ) : (
       <Space direction="vertical" style={{ width: '100%' }} size={0}>
         <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
           <Input
@@ -257,6 +299,7 @@ export function OrdersView() {
           size="middle"
         />
       </Space>
+      )}
     </div>
   );
 }

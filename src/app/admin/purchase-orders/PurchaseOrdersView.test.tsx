@@ -35,10 +35,14 @@ function posRoute(rows: ReturnType<typeof poRow>[]): MockRoute {
   return { match: /\/api\/admin\/purchase-orders/, method: 'GET', response: rows };
 }
 
+/**
+ * These tests are about the TABLE, so they open on it directly — the page
+ * itself lands on the board, which is covered by the toggle test at the bottom.
+ */
 function renderView() {
   return render(
     <AntdApp>
-      <PurchaseOrdersView />
+      <PurchaseOrdersView initialView="table" />
     </AntdApp>,
   );
 }
@@ -120,5 +124,37 @@ describe('PurchaseOrdersView', () => {
     await vi.waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/admin/purchase-orders?supplierId=sup-1');
     });
+  });
+});
+
+describe('PurchaseOrdersView — view toggle', () => {
+  const boardRoute: MockRoute = {
+    match: /\/api\/admin\/workflow\/board/,
+    method: 'GET',
+    response: { boardKey: 'purchase_order', orphanedCount: 0, columns: [] },
+  };
+
+  it('opens on the board, and reveals the table when switched', async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = installMockFetch([boardRoute, suppliersRoute, posRoute([poRow()])]);
+
+    render(
+      <AntdApp>
+        <PurchaseOrdersView />
+      </AntdApp>,
+    );
+
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/api/admin/workflow/board?boardKey=purchase_order'),
+      ),
+    );
+    // The table and its filters are not rendered underneath.
+    expect(screen.queryByPlaceholderText(/search po/i)).not.toBeInTheDocument();
+
+    // antd's Segmented radio carries pointer-events:none, so click the label.
+    await user.click(screen.getByText('Table'));
+
+    expect(await screen.findByPlaceholderText(/search po/i)).toBeInTheDocument();
   });
 });

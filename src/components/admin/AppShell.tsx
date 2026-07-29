@@ -8,7 +8,6 @@ import { Layout, Menu, ConfigProvider, App, Button, Tooltip } from 'antd';
 import {
   DashboardOutlined,
   FileDoneOutlined,
-  ProjectOutlined,
   FileTextOutlined,
   ProfileOutlined,
   SendOutlined,
@@ -50,11 +49,6 @@ function buildNavItems(role: StaffRole) {
       key: '/admin/purchase-orders',
       icon: <FileDoneOutlined />,
       label: <Link href="/admin/purchase-orders">Purchase Orders</Link>,
-    },
-    {
-      key: '/admin/workflow',
-      icon: <ProjectOutlined />,
-      label: <Link href="/admin/workflow">Workflow</Link>,
     },
     {
       key: '/admin/shipments',
