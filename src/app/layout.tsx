@@ -28,6 +28,17 @@ export default function RootLayout({
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
       <head>
+        {/*
+          Paint the page background before React hydrates. The theme lives in
+          localStorage (client-only), so without this every route renders white
+          first and then flips — worst on the standalone auth pages, which are a
+          single card on a full-height background.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var d=localStorage.getItem('bm-admin-theme')==='dark';var e=document.documentElement;e.dataset.theme=d?'dark':'light';e.style.colorScheme=d?'dark':'light';e.style.background=d?'#191919':'#f8fafc';}catch(e){}})();`,
+          }}
+        />
         {GTM_ID && <GoogleTagManagerHead gtmId={GTM_ID} />}
       </head>
       <body>

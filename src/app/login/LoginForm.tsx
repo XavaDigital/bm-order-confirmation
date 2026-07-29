@@ -3,12 +3,8 @@
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Form, Input, Button, Typography, Alert } from 'antd';
-import { APP_NAME } from '@/lib/config';
-import { AuthCard } from '@/components/auth/AuthCard';
+import { Form, Input, Button, Alert } from 'antd';
 import { postJson, ApiError } from '@/lib/api-fetch';
-
-const { Title, Text } = Typography;
 
 interface LoginFormValues {
   email: string;
@@ -43,18 +39,13 @@ export function LoginForm() {
     }
   }
 
+  /**
+   * The card shell and the heading belong to the PAGE, not to this form: once
+   * identity is configured the password form is hidden, and when it owned the
+   * card it took the styling and the branding down with it.
+   */
   return (
-    <AuthCard>
-      <div style={{ textAlign: 'center', marginBottom: 32 }}>
-        <Title level={2} style={{ marginBottom: 4 }}>
-          {APP_NAME}
-        </Title>
-        <Text type="secondary">Sign in to your account</Text>
-      </div>
-
-      {/* bm-identity SSO button slot — gate on an /api/auth/config check when
-          the fleet SSO integration lands (mirrors SalesFlow's Google button). */}
-
+    <>
       {error && (
         <Alert
           message={error}
@@ -101,6 +92,6 @@ export function LoginForm() {
           </Button>
         </Form.Item>
       </Form>
-    </AuthCard>
+    </>
   );
 }

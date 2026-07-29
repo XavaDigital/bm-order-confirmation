@@ -25,13 +25,16 @@ beforeEach(() => {
 });
 
 describe('LoginForm', () => {
-  it('renders the app name, subtitle, and both fields', () => {
+  // The card shell, app name and subtitle belong to the PAGE, not to this form:
+  // the form is hidden once identity is configured, and when it owned the card
+  // it took the branding and the page styling down with it.
+  it('renders both fields, and no card shell of its own', () => {
     render(<LoginForm />);
 
-    expect(screen.getByText('BeastMode')).toBeInTheDocument();
-    expect(screen.getByText('Sign in to your account')).toBeInTheDocument();
     expect(screen.getByLabelText('Email')).toBeInTheDocument();
     expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    expect(screen.queryByText('BeastMode')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sign in to your account')).not.toBeInTheDocument();
   });
 
   it('shows validation errors when submitting an empty form', async () => {

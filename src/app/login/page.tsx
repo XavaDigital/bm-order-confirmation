@@ -1,9 +1,14 @@
 import { Suspense } from 'react';
-import { Alert } from 'antd';
+import { Alert, Typography } from 'antd';
 import { LoginForm } from './LoginForm';
 import { GoogleSignIn } from './GoogleSignIn';
+import { DifferentAccountLink } from './DifferentAccountLink';
+import { AuthCard } from '@/components/auth/AuthCard';
+import { APP_NAME } from '@/lib/config';
 import { env } from '@/lib/env';
 import { isIdentityConfigured } from '@/server/identity/client';
+
+const { Title, Text } = Typography;
 
 /**
  * Why the admin layout bounced them back here. Two of these mean genuinely
@@ -29,17 +34,39 @@ export default async function LoginPage({
   const clientId = ssoActive ? env.GOOGLE_LOGIN_CLIENT_ID : '';
   const deniedMessage = denied ? DENIED_MESSAGES[denied] : null;
 
+  /**
+   * The card shell lives HERE rather than inside `LoginForm`. It used to belong
+   * to the form, so hiding the form under SSO also removed the branding, the
+   * centering and the page background — leaving a bare Google button at the top
+   * of a white page.
+   */
   return (
-    <Suspense fallback={null}>
+    <AuthCard>
+      <div style={{ textAlign: 'center', marginBottom: 32 }}>
+        <Title level={2} style={{ marginBottom: 4 }}>
+          {APP_NAME}
+        </Title>
+        <Text type="secondary">Sign in to your account</Text>
+      </div>
+
       {deniedMessage && (
-        <Alert type="warning" showIcon message={deniedMessage} style={{ marginBottom: 12 }} />
+        <Alert type="warning" showIcon message={deniedMessage} style={{ marginBottom: 24 }} />
       )}
-      <GoogleSignIn clientId={clientId} showDivider={false} />
-      {/* Password sign-in is refused server-side once identity is configured
-          (it is a second door identity cannot revoke), so the form is hidden
-          rather than left to fail on submit. It reappears wherever the seam is
-          switched off — local dev and standalone deployments. */}
-      {!ssoActive && <LoginForm />}
-    </Suspense>
+
+      <Suspense fallback={null}>
+        <GoogleSignIn clientId={clientId} showDivider={false} />
+        {/* Password sign-in is refused server-side once identity is configured
+            (it is a second door identity cannot revoke), so the form is hidden
+            rather than left to fail on submit. It reappears wherever the seam is
+            switched off — local dev and standalone deployments. */}
+        {!ssoActive && <LoginForm />}
+      </Suspense>
+
+      {deniedMessage && ssoActive && (
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <DifferentAccountLink />
+        </div>
+      )}
+    </AuthCard>
   );
 }

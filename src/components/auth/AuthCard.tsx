@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Card, ConfigProvider } from 'antd';
+import { Card, ConfigProvider, Spin } from 'antd';
 import { BRAND, darkTheme, lightTheme } from '@/lib/theme';
 
 interface AuthCardProps {
@@ -26,7 +26,29 @@ export function AuthCard({ children, maxWidth = 400 }: AuthCardProps) {
     setMounted(true);
   }, []);
 
-  if (!mounted) return null;
+  /**
+   * The theme lives in localStorage, so it is not knowable until mount. Render
+   * the centered frame with a spinner rather than nothing: returning null left
+   * the page blank and white, and any content outside this card (the Google
+   * button) sat jammed against the top of an unstyled page. A pre-paint script
+   * in the root layout has already set the page background, so this spinner
+   * appears on the right colour.
+   */
+  if (!mounted) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+        }}
+      >
+        <Spin size="large" />
+      </div>
+    );
+  }
 
   return (
     <ConfigProvider theme={isDark ? darkTheme : lightTheme}>

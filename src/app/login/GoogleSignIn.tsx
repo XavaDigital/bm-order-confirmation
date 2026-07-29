@@ -12,7 +12,7 @@
  * server where the identity seam is switched off.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Divider, Space } from 'antd';
+import { Alert, Divider, Space, Spin } from 'antd';
 import { useRouter } from 'next/navigation';
 import { ApiError, postJson } from '@/lib/api-fetch';
 
@@ -52,16 +52,23 @@ export function GoogleSignIn({ clientId, next, showDivider = false }: Props) {
   const buttonRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const onCredential = useCallback(
     async (response: GoogleCredentialResponse) => {
       if (!response.credential) return;
       setError(null);
+      // Verifying the credential and loading the dashboard takes a moment, and
+      // Google's button gives no feedback of its own — without this the screen
+      // just goes blank and looks broken. Deliberately NOT cleared on success:
+      // the spinner should stay up until the navigation actually happens.
+      setSubmitting(true);
       try {
         await postJson('/api/auth/google', { credential: response.credential }, 'Sign-in failed');
         router.push(next && next.startsWith('/') ? next : '/admin/dashboard');
         router.refresh();
       } catch (err) {
+        setSubmitting(false);
         // The server distinguishes "no grant for this app" from "that did not
         // work"; show its words rather than a generic failure, because they send
         // the person to different places for help.
@@ -126,12 +133,25 @@ export function GoogleSignIn({ clientId, next, showDivider = false }: Props) {
   return (
     <Space direction="vertical" size={8} style={{ width: '100%' }}>
       {error && <Alert type="error" showIcon message={error} />}
+      {submitting && (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
+          <Spin size="small" tip="Signing you in…">
+            <span />
+          </Spin>
+        </div>
+      )}
       <div
         ref={buttonRef}
         // Labelled so the button is findable before Google has painted into it.
         role="group"
         aria-label="Sign in with Google"
-        style={{ display: 'flex', justifyContent: 'center', minHeight: ready ? undefined : 40 }}
+        style={{
+          // Kept mounted while submitting rather than unmounted: Google painted
+          // into this node, and tearing it out would leave the ref dangling.
+          display: submitting ? 'none' : 'flex',
+          justifyContent: 'center',
+          minHeight: ready ? undefined : 40,
+        }}
       />
       {showDivider && (
         <Divider plain style={{ margin: '4px 0' }}>
