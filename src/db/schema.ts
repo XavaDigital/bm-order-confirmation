@@ -258,12 +258,17 @@ export const orderNotes = confirmation.table(
     garmentId: uuid('garment_id').references(() => garments.id, { onDelete: 'cascade' }),
     body: text('body').notNull(),
     bodyHtml: text('body_html'),
-    authorKind: text('author_kind').notNull().$type<'staff' | 'email_flow' | 'system'>(),
+    authorKind: text('author_kind').notNull().$type<'staff' | 'email_flow' | 'system' | 'supplier'>(),
     authorLabel: text('author_label'), // acting-user id / staff email
     // The real actor, for notes written by a signed-in staff member. Nullable
     // because Email-Flow and system notes have no staff row; no cascade, since
     // deleting a user must not silently erase what they said.
     authorStaffUserId: uuid('author_staff_user_id').references(() => staffUsers.id),
+    // 'shared' = visible on the token-gated supplier portal (SUPPLIER_PORTAL_PLAN.md).
+    // Defaults to 'internal' so no note already in the DB becomes supplier-visible
+    // retroactively; a supplier-authored note is always inserted as 'shared'.
+    // Staff opt IN per reply rather than the portal reading a whole separate thread.
+    visibility: text('visibility').notNull().$type<'internal' | 'shared'>().default('internal'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     // Soft delete: a removed note leaves a "deleted" placeholder in the thread
@@ -893,6 +898,26 @@ export const purchaseOrderRevisions = confirmation.table(
   (t) => [uniqueIndex('po_revisions_po_rev_uq').on(t.poId, t.revisionNumber)],
 );
 
+// --- supplier portal access (magic link, SUPPLIER_PORTAL_PLAN.md) -----------
+// Same shape as order_access/roster_access, scoped to ONE purchase order (not
+// to a supplier account — no supplier login exists). A supplier with several
+// open POs gets a separate link per PO, minted the first time each is sent.
+export const poSupplierAccess = confirmation.table(
+  'po_supplier_access',
+  {
+    ...accessTokenColumns(),
+    purchaseOrderId: uuid('purchase_order_id')
+      .notNull()
+      .references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    index('po_supplier_access_po_idx').on(t.purchaseOrderId),
+    uniqueIndex('po_supplier_access_one_active_uq')
+      .on(t.purchaseOrderId)
+      .where(sql`${t.revokedAt} is null`),
+  ],
+);
+
 // --- shipments ---------------------------------------------------------------
 export const shipments = confirmation.table(
   'shipments',
@@ -1315,9 +1340,17 @@ export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many })
   supplier: one(suppliers, { fields: [purchaseOrders.supplierId], references: [suppliers.id] }),
   revisions: many(purchaseOrderRevisions),
   shipmentLinks: many(shipmentPurchaseOrders),
+  supplierAccess: many(poSupplierAccess),
   createdByUser: one(staffUsers, {
     fields: [purchaseOrders.createdBy],
     references: [staffUsers.id],
+  }),
+}));
+
+export const poSupplierAccessRelations = relations(poSupplierAccess, ({ one }) => ({
+  purchaseOrder: one(purchaseOrders, {
+    fields: [poSupplierAccess.purchaseOrderId],
+    references: [purchaseOrders.id],
   }),
 }));
 

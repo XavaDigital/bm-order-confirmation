@@ -34,10 +34,13 @@ import {
   Typography,
 } from 'antd';
 import {
+  CopyOutlined,
   DownOutlined,
   DownloadOutlined,
   FileExcelOutlined,
+  LinkOutlined,
   MailOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -55,7 +58,7 @@ import {
 import type { PoSnapshot, PoSnapshotLine } from '@/db/schema';
 import { PO_STATUS } from '@/lib/status';
 import { formatDate } from '@/lib/format';
-import { getJson, postJson, patchJson } from '@/lib/api-fetch';
+import { getJson, postJson, patchJson, deleteJson } from '@/lib/api-fetch';
 
 const { Text } = Typography;
 
@@ -98,6 +101,7 @@ interface PoDetail {
   order: { id: string; orderNumber: string; customerName: string; status: string };
   revisions: PoRevision[];
   shipments: PoShipment[];
+  supplierLink: { active: boolean; lastViewedAt: string | null };
 }
 
 interface ProductionSummary {
@@ -153,6 +157,11 @@ export function PoDetailView({ poId }: { poId: string }) {
   const [actualShip, setActualShip] = useState<Dayjs | null>(null);
   const [notes, setNotes] = useState('');
   const [savingSummary, setSavingSummary] = useState(false);
+
+  // Supplier portal link — shown once when (re)generated, matching ShareLinkPanel's
+  // "copy now" convention (the raw token is never persisted after creation).
+  const [supplierLinkUrl, setSupplierLinkUrl] = useState<string | null>(null);
+  const [supplierLinkBusy, setSupplierLinkBusy] = useState<'generate' | 'revoke' | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -266,6 +275,52 @@ export function PoDetailView({ poId }: { poId: string }) {
       message.error(err instanceof Error ? err.message : 'Failed to save');
     } finally {
       setSavingSummary(false);
+    }
+  }
+
+  async function generateSupplierLink() {
+    setSupplierLinkBusy('generate');
+    try {
+      const { url } = await postJson<{ url: string }>(
+        `/api/admin/purchase-orders/${poId}/supplier-link`,
+        undefined,
+        'Failed to generate supplier link',
+      );
+      setSupplierLinkUrl(url);
+      message.success('Supplier portal link generated');
+      await load();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to generate supplier link');
+    } finally {
+      setSupplierLinkBusy(null);
+    }
+  }
+
+  async function revokeSupplierLink() {
+    setSupplierLinkBusy('revoke');
+    try {
+      await deleteJson(
+        `/api/admin/purchase-orders/${poId}/supplier-link`,
+        undefined,
+        'Failed to revoke supplier link',
+      );
+      setSupplierLinkUrl(null);
+      message.success('Supplier portal link revoked');
+      await load();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to revoke supplier link');
+    } finally {
+      setSupplierLinkBusy(null);
+    }
+  }
+
+  async function copySupplierLink() {
+    if (!supplierLinkUrl) return;
+    try {
+      await navigator.clipboard.writeText(supplierLinkUrl);
+      message.success('Link copied to clipboard');
+    } catch {
+      message.error('Copy failed — please copy manually');
     }
   }
 
@@ -484,6 +539,112 @@ export function PoDetailView({ poId }: { poId: string }) {
               </div>
             </div>
           </div>
+        </Card>
+
+        <Card title="Supplier Portal" size="small">
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              A token-gated link the supplier can open to view this purchase order, push its
+              status forward, and leave a comment. Minted automatically the first time a PO is
+              sent — regenerate below only if the link needs replacing.
+            </Text>
+
+            {detail.supplierLink.active && !supplierLinkUrl && (
+              <Alert
+                type="warning"
+                showIcon
+                icon={<LinkOutlined />}
+                message={
+                  <span>
+                    Active link exists — URL not shown
+                    {detail.supplierLink.lastViewedAt && (
+                      <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+                        (last viewed {formatDate(detail.supplierLink.lastViewedAt)})
+                      </Text>
+                    )}
+                  </span>
+                }
+                description="The link is only displayed once when it's generated. Regenerate to get a new copyable URL — this invalidates the current one."
+              />
+            )}
+
+            {!detail.supplierLink.active && !supplierLinkUrl && (
+              <Alert
+                type="info"
+                showIcon
+                message="No supplier link yet"
+                description="One is generated automatically the next time this PO is sent, or generate one now."
+              />
+            )}
+
+            {supplierLinkUrl && (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <Text strong>Supplier link</Text>
+                  <Text type="warning" style={{ fontSize: 12 }}>
+                    — copy now, this won&apos;t be shown again after you leave this page
+                  </Text>
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 12px',
+                    background: 'var(--ant-color-fill-tertiary)',
+                    borderRadius: 6,
+                    border: '1px solid var(--ant-color-warning-border, var(--ant-color-border))',
+                  }}
+                >
+                  <LinkOutlined style={{ color: 'var(--ant-color-primary)', flexShrink: 0 }} />
+                  <Text style={{ flex: 1, wordBreak: 'break-all', fontSize: 13 }}>
+                    {supplierLinkUrl}
+                  </Text>
+                  <Button type="primary" size="small" icon={<CopyOutlined />} onClick={copySupplierLink}>
+                    Copy
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <Space wrap>
+              <Tooltip
+                title={
+                  detail.supplierLink.active
+                    ? 'Creates a new URL and invalidates the existing one'
+                    : undefined
+                }
+              >
+                <Button
+                  icon={<LinkOutlined />}
+                  loading={supplierLinkBusy === 'generate'}
+                  disabled={supplierLinkBusy !== null && supplierLinkBusy !== 'generate'}
+                  onClick={generateSupplierLink}
+                >
+                  {detail.supplierLink.active ? 'Regenerate link' : 'Generate link'}
+                </Button>
+              </Tooltip>
+              {detail.supplierLink.active && (
+                <Popconfirm
+                  title="Revoke supplier link?"
+                  description="The current URL will stop working immediately."
+                  onConfirm={revokeSupplierLink}
+                  okText="Revoke"
+                  okType="danger"
+                  disabled={supplierLinkBusy !== null}
+                >
+                  <Button
+                    danger
+                    icon={<StopOutlined />}
+                    loading={supplierLinkBusy === 'revoke'}
+                    disabled={supplierLinkBusy !== null && supplierLinkBusy !== 'revoke'}
+                  >
+                    Revoke link
+                  </Button>
+                </Popconfirm>
+              )}
+            </Space>
+          </Space>
         </Card>
 
         <Card

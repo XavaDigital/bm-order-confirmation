@@ -43,6 +43,7 @@ export const POST = defineRoute<{ id: string }, typeof createOrderNoteSchema._ty
         authorKind: 'staff',
         authorLabel: session!.email,
         isHtml: true,
+        visibility: body.visibility,
       },
       { actorEmail: session!.email, actorStaffUserId: session!.userId },
     );

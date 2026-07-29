@@ -1,4 +1,4 @@
-import { Typography } from 'antd';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { WorkflowBoard } from '@/components/admin/workflow/WorkflowBoard';
 
 export const metadata = { title: 'Workflow Board' };
@@ -13,13 +13,10 @@ export const metadata = { title: 'Workflow Board' };
 export default function WorkflowPage() {
   return (
     <div style={{ padding: 24 }}>
-      <Typography.Title level={4} style={{ marginTop: 0 }}>
-        Workflow
-      </Typography.Title>
-      <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
-        Drag a card to move it. Moves that the order or purchase-order lifecycle
-        does not allow are refused with a reason.
-      </Typography.Paragraph>
+      <AdminPageHeader
+        title="Workflow"
+        subtitle="Drag a card to move it. Moves that the order or purchase-order lifecycle does not allow are refused with a reason."
+      />
       <WorkflowBoard />
     </div>
   );

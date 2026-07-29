@@ -34,7 +34,7 @@ vi.mock('@/lib/email', () => ({ sendSupplierPoEmail, isEmailConfigured }));
 import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { createOrder } from '@/server/orders/service';
 import { createOrderSchema } from '@/server/orders/contract';
 import {
@@ -170,6 +170,15 @@ describe('POST /api/admin/purchase-orders/[id]/send', () => {
     });
     expect(Buffer.isBuffer(emailArgs.pdf)).toBe(true);
     expect(emailArgs.pdf.subarray(0, 4).toString('latin1')).toBe('%PDF');
+
+    // SUPPLIER_PORTAL_PLAN.md Phase 5: sending a PO auto-mints its supplier
+    // portal link and includes it in the email.
+    expect(typeof emailArgs.portalUrl).toBe('string');
+    expect(emailArgs.portalUrl).toContain('/s/');
+    const activeLink = await db.query.poSupplierAccess.findFirst({
+      where: and(eq(schema.poSupplierAccess.purchaseOrderId, po.id), isNull(schema.poSupplierAccess.revokedAt)),
+    });
+    expect(activeLink).toBeDefined();
 
     const updated = (await db.query.purchaseOrders.findFirst({
       where: eq(schema.purchaseOrders.id, po.id),

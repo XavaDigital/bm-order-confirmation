@@ -96,6 +96,20 @@ export const NOTIFICATION_CATALOG: readonly NotificationDefinition[] = [
     defaultRules: [],
   },
   {
+    key: 'po.supplier_updated',
+    label: 'A supplier updates a purchase order',
+    description:
+      'Sent when a supplier moves a PO forward through their portal link. Same default ' +
+      'recipients as "po.sent" — a status push is not necessarily a stage move (see ' +
+      'CLAUDE.md on statuses changing without the board), so this does not use ' +
+      'stage_owners: the PO\'s recorded stage slug can be stale relative to a status a ' +
+      'supplier just changed directly.',
+    eventType: 'po.supplier_updated',
+    defaultEnabled: true,
+    defaultEmailEnabled: true,
+    defaultRules: [{ kind: 'order_owner' }, { kind: 'po_creator' }],
+  },
+  {
     key: 'workflow.gate_overridden',
     label: 'A pre-production gate is overridden',
     description:

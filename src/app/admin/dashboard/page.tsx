@@ -1,32 +1,21 @@
 import { db } from '@/db';
 import { orders, purchaseOrders } from '@/db/schema';
-import { count, sum, desc, asc, and, gte, lte, inArray, ne, sql, isNotNull } from 'drizzle-orm';
+import { count, desc, asc, and, gte, lte, inArray, isNotNull } from 'drizzle-orm';
 import { getStaleOrders } from '@/server/orders/service';
 import { findStuckEntities } from '@/server/workflow/board';
 import { listFailedEvents } from '@/server/events/processor';
 import { getSession } from '@/lib/session';
-import { DashboardView } from './DashboardView';
+import { HomeView } from './HomeView';
 
 const DEADLINE_LOOKAHEAD_DAYS = 14;
 
-async function getDashboardData() {
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-  sevenDaysAgo.setHours(0, 0, 0, 0);
-
+async function getHomeData() {
   const deadlineCutoff = new Date();
   deadlineCutoff.setDate(deadlineCutoff.getDate() + DEADLINE_LOOKAHEAD_DAYS);
   const deadlineCutoffDate = deadlineCutoff.toISOString().slice(0, 10);
 
-  const [countRows, valueRow, recentRows, trendRows, staleOrders, upcomingDeadlineRows, colorSampleHoldRows] = await Promise.all([
+  const [countRows, recentRows, staleOrders, upcomingDeadlineRows, colorSampleHoldRows] = await Promise.all([
     db.select({ status: orders.status, count: count() }).from(orders).groupBy(orders.status),
-
-    // Excludes cancelled orders — a dead deal's value shouldn't inflate the pipeline total.
-    db
-      .select({ total: sum(orders.orderValueAmount) })
-      .from(orders)
-      .where(ne(orders.status, 'cancelled'))
-      .then((r) => r[0]),
 
     db
       .select({
@@ -40,15 +29,6 @@ async function getDashboardData() {
       .from(orders)
       .orderBy(desc(orders.createdAt))
       .limit(8),
-
-    db
-      .select({
-        day: sql<string>`date_trunc('day', ${orders.createdAt})::date::text`,
-        count: count(),
-      })
-      .from(orders)
-      .where(gte(orders.createdAt, sevenDaysAgo))
-      .groupBy(sql`date_trunc('day', ${orders.createdAt})`),
 
     getStaleOrders(),
 
@@ -91,24 +71,10 @@ async function getDashboardData() {
 
   const map = Object.fromEntries(countRows.map((r) => [r.status, Number(r.count)]));
   const counts = {
-    draft: map.draft ?? 0,
     sent: map.sent ?? 0,
     viewed: map.viewed ?? 0,
-    confirmed: map.confirmed ?? 0,
     changesRequested: map.changes_requested ?? 0,
-    cancelled: map.cancelled ?? 0,
-    total: countRows.reduce((s, r) => s + Number(r.count), 0),
   };
-
-  // Fill in all 7 days even if no orders that day
-  const trendMap = Object.fromEntries(trendRows.map((r) => [r.day, r.count]));
-  const trend = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    const key = d.toISOString().slice(0, 10);
-    const label = d.toLocaleDateString('en-NZ', { weekday: 'short', month: 'numeric', day: 'numeric' });
-    return { date: key, label, count: trendMap[key] ?? 0 };
-  });
 
   // Work waiting on US, as opposed to staleOrders (waiting on the customer).
   // Both boards, newest pain first, with the parent order resolved so the row
@@ -138,12 +104,10 @@ async function getDashboardData() {
 
   return {
     counts,
-    totalValueNZD: valueRow?.total ? Number(valueRow.total) : 0,
     recentOrders: recentRows.map((o) => ({
       ...o,
       createdAt: o.createdAt.toISOString(),
     })),
-    trend,
     staleOrders,
     stuckInProduction,
     upcomingDeadlines: upcomingDeadlineRows,
@@ -154,15 +118,15 @@ async function getDashboardData() {
   };
 }
 
-export default async function DashboardPage() {
+export default async function HomePage() {
   const session = await getSession();
   const [data, failedEvents] = await Promise.all([
-    getDashboardData(),
+    getHomeData(),
     // Outbox delivery failures are an ops concern — admin only (roadmap 3.1).
     session.role === 'admin' ? listFailedEvents() : Promise.resolve([]),
   ]);
   return (
-    <DashboardView
+    <HomeView
       {...data}
       role={session.role}
       failedEvents={failedEvents.map((e) => ({

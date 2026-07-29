@@ -35,12 +35,13 @@ Windows dev-box quirks: run jsdom tests serially (`npx vitest run --project jsdo
 
 **Single Next.js App Router app.** Backend logic lives in Route Handlers (`app/api/**`), not a separate Express service. All routes are under the `confirmation` Postgres schema.
 
-### Two surfaces
+### Three surfaces
 
 | Surface | Route prefix | Auth |
 |---|---|---|
 | Admin / Sales portal | `/admin/**`, `/api/admin/**` | iron-session cookie (`bm-session`) |
 | Customer confirmation | `/o/[token]`, `/api/o/**`, `/o/roster/[rosterToken]`, `/o/roster/member/[memberToken]`, `/api/o/roster/**` | magic-link token in URL (shared roster link uses `roster_access`; v2 per-member links use `roster_member_access` — same no-session model) |
+| Supplier portal (SUPPLIER_PORTAL_PLAN.md) | `/s/[token]`, `/api/s/**` | magic-link token in URL, scoped to ONE purchase order (`po_supplier_access` — same no-session model). Minted automatically on every `sendPurchaseOrder()` send; lets a supplier view the PO's latest snapshot, push its status through a constrained subset of `PO_STATUSES` (`SUPPLIER_ALLOWED_STATUSES` in `src/server/supplier-portal/contract.ts`), and leave a comment (an `order_notes` row with `authorKind: 'supplier'`, always `visibility: 'shared'`). |
 
 ### Key architectural seams
 

@@ -29,6 +29,7 @@ function note(overrides: Partial<OrderNote> = {}): OrderNote {
     authorEmail: 'sam@x.com',
     authorLabel: 'sam@x.com',
     authorStaffUserId: ME,
+    visibility: 'internal',
     createdAt: '2026-07-01T09:00:00Z',
     updatedAt: '2026-07-01T09:00:00Z',
     edited: false,

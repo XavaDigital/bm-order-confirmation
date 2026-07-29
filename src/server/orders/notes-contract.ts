@@ -25,6 +25,8 @@ export const createOrderNoteSchema = z.object({
    * order, so this cannot be used to write into another order's thread.
    */
   garmentId: z.string().uuid().nullish(),
+  /** Opt this note into the supplier portal thread. Defaults to 'internal'. */
+  visibility: z.enum(['internal', 'shared']).optional(),
 });
 
 export const updateOrderNoteSchema = z.object({

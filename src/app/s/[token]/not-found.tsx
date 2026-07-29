@@ -1,0 +1,40 @@
+'use client';
+
+import { StopOutlined } from '@ant-design/icons';
+import { ConfigProvider, Typography } from 'antd';
+import { darkTheme, BRAND } from '@/lib/theme';
+import { StatusPage } from '@/components/customer/StatusPage';
+
+const { Title, Text, Paragraph } = Typography;
+
+export default function SupplierTokenNotFound() {
+  return (
+    <ConfigProvider theme={darkTheme}>
+      <StatusPage icon={<StopOutlined style={{ fontSize: 64, color: BRAND.primaryDark, marginBottom: 24 }} />}>
+        <Title
+          style={{
+            color: '#fff',
+            fontSize: 34,
+            fontWeight: 700,
+            marginBottom: 12,
+          }}
+        >
+          Link Not Found
+        </Title>
+        <Text
+          style={{
+            color: 'rgba(255,255,255,0.6)',
+            fontSize: 16,
+            display: 'block',
+            marginBottom: 16,
+          }}
+        >
+          This link is no longer valid or has expired.
+        </Text>
+        <Paragraph style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, marginTop: 24 }}>
+          Please contact whoever sent you this link for a new one.
+        </Paragraph>
+      </StatusPage>
+    </ConfigProvider>
+  );
+}

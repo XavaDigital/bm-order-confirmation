@@ -1,6 +1,6 @@
 /**
- * Shared magic-link token machinery for the three access tables
- * (order_access, roster_access, roster_member_access). All three are built
+ * Shared magic-link token machinery for the four access tables (order_access,
+ * roster_access, roster_member_access, po_supplier_access). All four are built
  * from the same `accessTokenColumns()` DDL in src/db/schema.ts — tokenHash /
  * revokedAt / expiresAt behave identically — so lookup, revoke, and mint live
  * here once instead of being re-implemented per surface.
@@ -10,12 +10,16 @@
  */
 import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { db, type Transaction } from '@/db';
-import { orderAccess, rosterAccess, rosterMemberAccess } from '@/db/schema';
+import { orderAccess, rosterAccess, rosterMemberAccess, poSupplierAccess } from '@/db/schema';
 import { hashToken } from '@/lib/tokens';
 import { env } from '@/lib/env';
 
 type Db = typeof db;
-export type AccessTable = typeof orderAccess | typeof rosterAccess | typeof rosterMemberAccess;
+export type AccessTable =
+  | typeof orderAccess
+  | typeof rosterAccess
+  | typeof rosterMemberAccess
+  | typeof poSupplierAccess;
 
 /** Null when `LINK_EXPIRY_DAYS` is unset — links never expire. */
 export function computeAccessExpiry(): Date | null {

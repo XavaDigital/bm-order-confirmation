@@ -176,6 +176,20 @@
       "when": 1785243185176,
       "tag": "0024_famous_morgan_stark",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1785314326915,
+      "tag": "0025_adorable_the_anarchist",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1785314496125,
+      "tag": "0026_glamorous_firebird",
+      "breakpoints": true
     }
   ]
 }

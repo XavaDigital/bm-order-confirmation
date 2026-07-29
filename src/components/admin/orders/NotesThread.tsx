@@ -13,6 +13,7 @@ import {
   App,
   Avatar,
   Button,
+  Checkbox,
   Empty,
   Popconfirm,
   Skeleton,
@@ -34,11 +35,12 @@ export interface OrderNote {
   garmentName: string | null;
   bodyHtml: string | null;
   body: string;
-  authorKind: 'staff' | 'email_flow' | 'system';
+  authorKind: 'staff' | 'email_flow' | 'system' | 'supplier';
   authorName: string | null;
   authorEmail: string | null;
   authorLabel: string | null;
   authorStaffUserId: string | null;
+  visibility: 'internal' | 'shared';
   createdAt: string;
   updatedAt: string;
   edited: boolean;
@@ -61,6 +63,7 @@ const AUTHOR_KIND_TAG: Record<OrderNote['authorKind'], { label: string; color: s
   staff: null, // the common case needs no badge
   email_flow: { label: 'Email Flow', color: 'geekblue' },
   system: { label: 'System', color: 'default' },
+  supplier: { label: 'Supplier', color: 'gold' },
 };
 
 /**
@@ -126,6 +129,7 @@ export function NotesThread({
   const [notes, setNotes] = useState<OrderNote[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [shareWithSupplier, setShareWithSupplier] = useState(false);
   const [sending, setSending] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
@@ -167,10 +171,15 @@ export function NotesThread({
     try {
       await postJson(
         `/api/admin/orders/${orderId}/notes`,
-        { body, garmentId: garmentId ?? null },
+        {
+          body,
+          garmentId: garmentId ?? null,
+          ...(shareWithSupplier ? { visibility: 'shared' as const } : {}),
+        },
         'Failed to add the note',
       );
       setDraft('');
+      setShareWithSupplier(false);
       await load();
       bottomRef.current?.scrollIntoView({ block: 'nearest' });
     } catch (err) {
@@ -249,6 +258,13 @@ export function NotesThread({
                       <Tag color={kindTag.color} style={{ marginInlineEnd: 0 }}>
                         {kindTag.label}
                       </Tag>
+                    )}
+                    {note.visibility === 'shared' && note.authorKind !== 'supplier' && (
+                      <Tooltip title="Visible to the supplier on their portal link">
+                        <Tag color="gold" style={{ marginInlineEnd: 0 }}>
+                          Shared with supplier
+                        </Tag>
+                      </Tooltip>
                     )}
                     {/* Only meaningful in the combined view, where a garment
                         note sits alongside order-wide ones. */}
@@ -331,7 +347,7 @@ export function NotesThread({
           ariaLabel="New note"
           onSubmit={() => void send()}
         />
-        <Space style={{ marginTop: 6 }}>
+        <Space style={{ marginTop: 6 }} wrap>
           <Button
             type="primary"
             size="small"
@@ -345,6 +361,19 @@ export function NotesThread({
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             Staff only — never shown to the customer.
           </Typography.Text>
+          {/* Only the order-level thread is what the supplier portal reads —
+              see notes-service.ts listOrderNotes(orderId, 'order', {visibility}). */}
+          {!garmentId && (
+            <Checkbox
+              checked={shareWithSupplier}
+              onChange={(e) => setShareWithSupplier(e.target.checked)}
+              disabled={sending}
+            >
+              <Typography.Text style={{ fontSize: 12 }}>
+                Visible to supplier on their portal link
+              </Typography.Text>
+            </Checkbox>
+          )}
         </Space>
       </div>
     </Space>

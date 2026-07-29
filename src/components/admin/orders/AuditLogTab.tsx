@@ -71,9 +71,12 @@ const EVENT_ICONS: Record<string, ReactNode> = {
   'po.revised':        <EditOutlined style={{ color: SEMANTIC.warning }} />,
   'po.status_changed': <FileDoneOutlined style={{ color: SEMANTIC.info }} />,
   'po.cancelled':      <CloseCircleOutlined style={{ color: SEMANTIC.error }} />,
+  'po.supplier_updated': <FileDoneOutlined style={{ color: SEMANTIC.hold }} />,
   'shipment.created':        <SendOutlined style={{ color: SEMANTIC.info }} />,
   'shipment.updated':        <EditOutlined style={{ color: SEMANTIC.warning }} />,
   'shipment.status_changed': <SendOutlined style={{ color: SEMANTIC.info }} />,
+  'supplier_link.generated': <LinkOutlined style={{ color: SEMANTIC.info }} />,
+  'supplier_link.revoked':   <StopOutlined style={{ color: SEMANTIC.error }} />,
 };
 
 function eventIcon(type: string) {
@@ -115,9 +118,12 @@ const EVENT_LABELS: Record<string, string> = {
   'po.revised':        'Purchase order revision issued',
   'po.status_changed': 'Purchase order status changed',
   'po.cancelled':      'Purchase order cancelled',
+  'po.supplier_updated': 'Supplier updated the purchase order',
   'shipment.created':        'Shipment created',
   'shipment.updated':        'Shipment updated',
   'shipment.status_changed': 'Shipment status changed',
+  'supplier_link.generated': 'Supplier portal link generated',
+  'supplier_link.revoked':   'Supplier portal link revoked',
   'roster.member_added':   'Team member added',
   'roster.member_updated': 'Team member updated',
   'roster.member_removed': 'Team member removed',
@@ -170,7 +176,10 @@ const EVENT_COLORS: Record<string, string> = {
   'po.sent':           'green',
   'po.revised':        'orange',
   'po.cancelled':      'red',
+  'po.supplier_updated': 'gold',
   'shipment.created':  'blue',
+  'supplier_link.generated': 'blue',
+  'supplier_link.revoked':   'red',
 };
 
 function eventColor(type: string): string {
@@ -195,7 +204,14 @@ function EventDetail({ event }: { event: AuditEvent }) {
   if (event.actorEmail) {
     parts.push(`by ${event.actorEmail}`);
   }
-  if (p.to && typeof p.to === 'string') {
+  // po.status_changed / po.supplier_updated get the more informative
+  // "from → to" renderer below instead of this generic one.
+  if (
+    p.to &&
+    typeof p.to === 'string' &&
+    event.eventType !== 'po.status_changed' &&
+    event.eventType !== 'po.supplier_updated'
+  ) {
     parts.push(`→ ${p.to}`);
   }
   if (p.orderStatus === 'changes_requested') {
@@ -206,6 +222,13 @@ function EventDetail({ event }: { event: AuditEvent }) {
   }
   if (p.sourceOrderNumber && typeof p.sourceOrderNumber === 'string') {
     parts.push(`from ${p.sourceOrderNumber}`);
+  }
+  if (
+    (event.eventType === 'po.status_changed' || event.eventType === 'po.supplier_updated') &&
+    typeof p.from === 'string' &&
+    typeof p.to === 'string'
+  ) {
+    parts.push(`${p.from} → ${p.to}`);
   }
   if (
     (event.eventType === 'roster.member_added' ||

@@ -42,3 +42,8 @@ export function buildRosterUrl(rawToken: string): string {
 export function buildMemberRosterUrl(rawToken: string): string {
   return `${env.APP_BASE_URL.replace(/\/$/, '')}/o/roster/member/${rawToken}`;
 }
+
+/** Build the full shareable supplier-portal URL for a raw PO supplier token. */
+export function buildSupplierPortalUrl(rawToken: string): string {
+  return `${env.APP_BASE_URL.replace(/\/$/, '')}/s/${rawToken}`;
+}

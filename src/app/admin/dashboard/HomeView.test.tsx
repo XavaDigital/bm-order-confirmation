@@ -3,7 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { App as AntdApp } from 'antd';
-import { DashboardView } from './DashboardView';
+import { HomeView } from './HomeView';
 
 function localYMD(d: Date) {
   const y = d.getFullYear();
@@ -18,11 +18,9 @@ function daysFromNow(offset: number) {
   return localYMD(d);
 }
 
-function baseProps(overrides: Partial<React.ComponentProps<typeof DashboardView>> = {}) {
+function baseProps(overrides: Partial<React.ComponentProps<typeof HomeView>> = {}) {
   return {
-    counts: { draft: 0, sent: 0, viewed: 0, confirmed: 0, changesRequested: 0, cancelled: 0, total: 0 },
-    totalValueNZD: 0,
-    trend: [],
+    counts: { sent: 0, viewed: 0, changesRequested: 0 },
     recentOrders: [],
     staleOrders: [],
     stuckInProduction: [],
@@ -70,51 +68,15 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('DashboardView', () => {
-  it('renders the stat cards with the given counts', () => {
-    render(
-      <DashboardView
-        {...baseProps({
-          counts: { draft: 2, sent: 3, viewed: 1, confirmed: 5, changesRequested: 1, cancelled: 0, total: 12 },
-        })}
-      />,
-    );
-
-    expect(screen.getByText('Total Orders')).toBeInTheDocument();
-    expect(screen.getByText('12')).toBeInTheDocument();
-
-    // Awaiting Customer = sent (3) + viewed (1); scope the value lookup to the
-    // stat card itself since "Awaiting Customer" and plain numbers also appear
-    // in the Quick Actions section and chart axes.
-    const awaitingTitle = screen.getByText('Awaiting Customer', { selector: '.ant-statistic-title' });
-    const statCard = awaitingTitle.closest('.ant-statistic') as HTMLElement;
-    expect(within(statCard).getByText('4')).toBeInTheDocument();
-  });
-
-  it.each([
-    [500, '$500'],
-    [2500, '$2.5K'],
-    [1_250_000, '$1.3M'],
-  ])('formats pipeline value %d as %s', (value, expected) => {
-    render(<DashboardView {...baseProps({ totalValueNZD: value })} />);
-    expect(screen.getByText(expected)).toBeInTheDocument();
-  });
-
-  it('shows "No orders yet" in the status breakdown when every count is zero', () => {
-    // Give recentOrders an entry so only the pie chart's empty state renders
-    // "No orders yet" (the Recent Orders list uses the same empty-state text).
-    render(<DashboardView {...baseProps({ recentOrders: [order()] })} />);
-    expect(screen.getByText('No orders yet')).toBeInTheDocument();
-  });
-
+describe('HomeView', () => {
   it('shows the "no stale orders" empty state for Needs Follow-up', () => {
-    render(<DashboardView {...baseProps({ staleOrders: [] })} />);
+    render(<HomeView {...baseProps({ staleOrders: [] })} />);
     expect(screen.getByText(/no stale orders/i)).toBeInTheDocument();
   });
 
   it('renders a stale order with a singular "1 day" label and no plural', () => {
     render(
-      <DashboardView
+      <HomeView
         {...baseProps({
           staleOrders: [{ ...order(), staleSince: '2026-07-09T12:00:00Z', daysStale: 1 }],
         })}
@@ -125,7 +87,7 @@ describe('DashboardView', () => {
 
   it('renders a stale order with a plural days label', () => {
     render(
-      <DashboardView
+      <HomeView
         {...baseProps({
           staleOrders: [{ ...order(), staleSince: '2026-07-05T12:00:00Z', daysStale: 5 }],
         })}
@@ -135,21 +97,21 @@ describe('DashboardView', () => {
   });
 
   it('shows the "Changes Requested" quick action only when there are changes-requested orders', () => {
-    const { rerender } = render(<DashboardView {...baseProps({ counts: { ...baseProps().counts, changesRequested: 0 } })} />);
+    const { rerender } = render(<HomeView {...baseProps({ counts: { ...baseProps().counts, changesRequested: 0 } })} />);
     expect(screen.queryByRole('link', { name: /changes requested/i })).not.toBeInTheDocument();
 
-    rerender(<DashboardView {...baseProps({ counts: { ...baseProps().counts, changesRequested: 2 } })} />);
+    rerender(<HomeView {...baseProps({ counts: { ...baseProps().counts, changesRequested: 2 } })} />);
     expect(screen.getByRole('link', { name: /changes requested/i })).toBeInTheDocument();
   });
 
   it('shows the "no orders yet" empty state for Recent Orders', () => {
-    render(<DashboardView {...baseProps({ recentOrders: [] })} />);
-    expect(screen.getAllByText('No orders yet').length).toBeGreaterThanOrEqual(1);
+    render(<HomeView {...baseProps({ recentOrders: [] })} />);
+    expect(screen.getByText('No orders yet')).toBeInTheDocument();
   });
 
   it('renders a recent order with a relative "time ago" trailing label', () => {
     render(
-      <DashboardView
+      <HomeView
         {...baseProps({
           recentOrders: [{ ...order(), createdAt: new Date(Date.now() - 5 * 60_000).toISOString() }],
         })}
@@ -163,7 +125,7 @@ describe('DashboardView', () => {
 
   it('renders recent orders using hours and days once old enough', () => {
     render(
-      <DashboardView
+      <HomeView
         {...baseProps({
           recentOrders: [
             { ...order({ id: 'o-1', orderNumber: 'OC-1' }), createdAt: new Date(Date.now() - 3 * 3_600_000).toISOString() },
@@ -178,13 +140,13 @@ describe('DashboardView', () => {
   });
 
   it('shows the "nothing due" empty state for Upcoming Deadlines', () => {
-    render(<DashboardView {...baseProps({ upcomingDeadlines: [] })} />);
+    render(<HomeView {...baseProps({ upcomingDeadlines: [] })} />);
     expect(screen.getByText(/nothing due in the next two weeks/i)).toBeInTheDocument();
   });
 
   it('shows a dash when an upcoming-deadline order has no deadline date', () => {
     render(
-      <DashboardView
+      <HomeView
         {...baseProps({
           upcomingDeadlines: [{ ...order(), deadlineDate: null, expectedShipDate: null }],
         })}
@@ -200,7 +162,7 @@ describe('DashboardView', () => {
     [5, 'due in 5 days'],
   ])('labels a deadline offset by %d days as "%s"', (offset, expected) => {
     render(
-      <DashboardView
+      <HomeView
         {...baseProps({
           upcomingDeadlines: [{ ...order(), deadlineDate: daysFromNow(offset), expectedShipDate: null }],
         })}
@@ -210,13 +172,13 @@ describe('DashboardView', () => {
   });
 
   it('shows the "no holds" empty state for Colour Sample Holds', () => {
-    render(<DashboardView {...baseProps({ colorSampleHolds: [] })} />);
+    render(<HomeView {...baseProps({ colorSampleHolds: [] })} />);
     expect(screen.getByText(/no orders currently on hold for colour matching/i)).toBeInTheDocument();
   });
 
   it('renders the colour sample holds count and list entries', () => {
     render(
-      <DashboardView
+      <HomeView
         {...baseProps({
           colorSampleHolds: [
             { ...order(), colorSampleRequestedAt: '2026-07-10T09:00:00Z' },
@@ -233,33 +195,19 @@ describe('DashboardView', () => {
     expect(screen.getByText('2d ago')).toBeInTheDocument();
   });
 
-  it('shows the colour sample holds count in its stat card', () => {
-    render(
-      <DashboardView
-        {...baseProps({
-          colorSampleHolds: [{ ...order(), colorSampleRequestedAt: '2026-07-10T09:00:00Z' }],
-        })}
-      />,
-    );
-
-    const statTitle = screen.getByText('Colour Sample Holds', { selector: '.ant-statistic-title' });
-    const statCard = statTitle.closest('.ant-statistic') as HTMLElement;
-    expect(within(statCard).getByText('1')).toBeInTheDocument();
-  });
-
   it('hides the Failed Events widget entirely for a sales-role session', () => {
-    render(<DashboardView {...baseProps({ role: 'sales', failedEvents: [failedEvent()] })} />);
+    render(<HomeView {...baseProps({ role: 'sales', failedEvents: [failedEvent()] })} />);
     expect(screen.queryByText('Failed Events')).not.toBeInTheDocument();
   });
 
   it('shows the "outbox is healthy" empty state for an admin with no failed events', () => {
-    render(<DashboardView {...baseProps({ role: 'admin', failedEvents: [] })} />);
+    render(<HomeView {...baseProps({ role: 'admin', failedEvents: [] })} />);
     expect(screen.getByText(/the outbox is healthy/i)).toBeInTheDocument();
   });
 
   it('renders a failed event with its type, status tag, and attempt count', () => {
     render(
-      <DashboardView
+      <HomeView
         {...baseProps({
           role: 'admin',
           failedEvents: [failedEvent({ status: 'dead', attempts: 5 })],
@@ -279,7 +227,7 @@ describe('DashboardView', () => {
     vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response);
     render(
       <AntdApp>
-        <DashboardView
+        <HomeView
           {...baseProps({
             role: 'admin',
             failedEvents: [failedEvent({ id: 'event-7' })],
@@ -307,7 +255,7 @@ describe('DashboardView', () => {
     } as Response);
     render(
       <AntdApp>
-        <DashboardView
+        <HomeView
           {...baseProps({
             role: 'admin',
             failedEvents: [failedEvent({ id: 'event-8' })],
@@ -323,7 +271,7 @@ describe('DashboardView', () => {
   });
 });
 
-describe('DashboardView — Stuck in Production', () => {
+describe('HomeView — Stuck in Production', () => {
   const stuck = {
     entityId: 'e1',
     reference: 'OC-1001',
@@ -334,13 +282,13 @@ describe('DashboardView — Stuck in Production', () => {
   };
 
   it('shows an empty state when nothing is overdue', () => {
-    render(<DashboardView {...baseProps({ stuckInProduction: [] })} />);
+    render(<HomeView {...baseProps({ stuckInProduction: [] })} />);
 
     expect(screen.getByText(/nothing overdue/i)).toBeInTheDocument();
   });
 
   it('lists a stuck job with the stage it is waiting in', () => {
-    render(<DashboardView {...baseProps({ stuckInProduction: [stuck] })} />);
+    render(<HomeView {...baseProps({ stuckInProduction: [stuck] })} />);
 
     expect(screen.getByText('OC-1001')).toBeInTheDocument();
     expect(screen.getByText('Waiting in artwork')).toBeInTheDocument();
@@ -348,7 +296,7 @@ describe('DashboardView — Stuck in Production', () => {
   });
 
   it('links to the order checklist, where the work actually is', () => {
-    render(<DashboardView {...baseProps({ stuckInProduction: [stuck] })} />);
+    render(<HomeView {...baseProps({ stuckInProduction: [stuck] })} />);
 
     const link = screen.getAllByRole('link').find((a) => a.getAttribute('href')?.includes('o1'));
     expect(link).toHaveAttribute('href', '/admin/orders/o1?tab=checklist');
@@ -356,7 +304,7 @@ describe('DashboardView — Stuck in Production', () => {
 
   it('renders a purchase order with no resolvable parent without a link', () => {
     render(
-      <DashboardView
+      <HomeView
         {...baseProps({ stuckInProduction: [{ ...stuck, reference: 'PO-9', orderId: null }] })}
       />,
     );

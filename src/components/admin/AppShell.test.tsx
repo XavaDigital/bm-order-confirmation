@@ -14,14 +14,15 @@ beforeEach(() => {
 });
 
 describe('AppShell nav', () => {
-  it('shows Dashboard, Orders, and Size Charts for a sales-role user, but not Users', async () => {
+  it('shows Home, Metrics, Orders, and Size Charts for a sales-role user, but not Users', async () => {
     render(
       <AppShell user={{ name: 'Sales Rep', email: 'sales@example.com', role: 'sales' }}>
         <div>content</div>
       </AppShell>,
     );
 
-    expect(await screen.findByRole('menuitem', { name: /dashboard/i })).toBeInTheDocument();
+    expect(await screen.findByRole('menuitem', { name: /home/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /metrics/i })).toBeInTheDocument();
     // The icon's aria-label is part of the accessible name, so distinguish
     // "Orders" from "Purchase Orders" with a matcher function.
     expect(
@@ -61,7 +62,7 @@ describe('AppShell nav', () => {
         <div>content</div>
       </AppShell>,
     );
-    await screen.findByRole('menuitem', { name: /dashboard/i });
+    await screen.findByRole('menuitem', { name: /home/i });
 
     expect(screen.getByText('BeastMode')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'menu-fold' }));
@@ -78,7 +79,7 @@ describe('AppShell nav', () => {
         <div>content</div>
       </AppShell>,
     );
-    await screen.findByRole('menuitem', { name: /dashboard/i });
+    await screen.findByRole('menuitem', { name: /home/i });
 
     await user.click(screen.getByRole('button', { name: 'moon' }));
 
