@@ -22,7 +22,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
    */
   const access = await checkAccess({
     staffUserId: session.userId,
-    identityUserId: session.identityUserId ?? null,
     sessionRole: session.role ?? 'none',
   });
 

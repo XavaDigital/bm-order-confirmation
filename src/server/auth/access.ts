@@ -54,26 +54,43 @@ export type AccessDecision =
  */
 export async function checkAccess(params: {
   staffUserId: string;
-  /** Cached in the session; used to avoid a DB read on the hot path. */
-  identityUserId?: string | null;
   sessionRole: StaffRole;
 }): Promise<AccessDecision> {
-  // Password-only account, or the seam switched off: identity has no opinion, so
-  // the local role stands. This is NOT a fallback for an identity answer — it is
-  // the case where identity was never the source of truth for this account.
+  // The seam is switched off (local dev, or a standalone deployment): identity
+  // was never the source of truth for this account, so the local role stands.
+  // This is the ONLY case in which an unlinked account is allowed through.
   if (!isIdentityConfigured()) return { ok: true, role: params.sessionRole };
 
-  let identityUserId = params.identityUserId ?? null;
-  if (identityUserId === null) {
-    const [row] = await db
-      .select({ identityUserId: staffUsers.identityUserId, isActive: staffUsers.isActive })
-      .from(staffUsers)
-      .where(eq(staffUsers.id, params.staffUserId));
-    if (!row) return { ok: false, reason: 'gone' };
-    if (!row.isActive) return { ok: false, reason: 'disabled' };
-    identityUserId = row.identityUserId;
-    // Not an identity-linked account (password break-glass): nothing to re-check.
-    if (!identityUserId) return { ok: true, role: params.sessionRole };
+  /**
+   * The local row is read on EVERY request and is never skipped via a hint from
+   * the session. Two things hang off it and both have to be immediate:
+   *
+   *  - `isActive` — this app must be able to close its own door without waiting
+   *    on another service, so a local deactivation cannot sit behind the cache.
+   *  - `identityUserId` — whether this account is subject to identity at all. A
+   *    session cookie must not be able to assert a link the database lacks.
+   */
+  const [row] = await db
+    .select({ identityUserId: staffUsers.identityUserId, isActive: staffUsers.isActive })
+    .from(staffUsers)
+    .where(eq(staffUsers.id, params.staffUserId));
+  if (!row) return { ok: false, reason: 'gone' };
+  if (!row.isActive) return { ok: false, reason: 'disabled' };
+
+  const identityUserId = row.identityUserId;
+  if (!identityUserId) {
+    /**
+     * Identity is configured, so it is the ONLY source of truth for access — and
+     * this account has never been linked to it, so there is nothing to re-check
+     * it against. The contract has no "cannot verify, therefore allow" outcome.
+     *
+     * This is exactly what let a revoked grant keep working: every account
+     * predating SSO is unlinked, so exempting unlinked accounts exempted
+     * everyone, and the identity call was never even made. Password login is
+     * already refused while identity is on, so the way back in is Google
+     * sign-in, which stamps the link.
+     */
+    return { ok: false, reason: 'no_access' };
   }
 
   const cached = cache.get(identityUserId);

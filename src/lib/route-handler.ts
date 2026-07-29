@@ -114,7 +114,6 @@ export function defineRoute<P = Record<string, never>, B = undefined>(
         // grant must take effect on a LIVE session, not only at next sign-in.
         const access = await checkAccess({
           staffUserId: ironSession.userId,
-          identityUserId: ironSession.identityUserId ?? null,
           sessionRole: ironSession.role ?? 'none',
         });
         if (!access.ok) {

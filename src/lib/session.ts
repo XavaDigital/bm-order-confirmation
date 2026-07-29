@@ -9,7 +9,11 @@ export interface SessionData {
   email: string;
   name: string;
   role: StaffRole;
-  /** Set for identity-linked accounts, so the per-request re-check can skip a DB read. */
+  /**
+   * Set for identity-linked accounts, for diagnostics only. The access re-check
+   * deliberately does NOT read it: a cookie must not be able to assert a link
+   * the database does not have, so `checkAccess` always reads the local row.
+   */
   identityUserId?: string | null;
   // True when the user completed password auth but hasn't verified their TOTP code yet.
   // Protected admin routes are blocked until this is cleared.
