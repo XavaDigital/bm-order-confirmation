@@ -102,6 +102,8 @@ describe('SizingTable', () => {
             size: 'M',
             playerName: 'Alice',
             playerNumber: null,
+            // Blank Qty saves as 1 — one each, the named-kit default.
+            quantity: 1,
             notes: null,
             customValues: {},
             sortOrder: 0,

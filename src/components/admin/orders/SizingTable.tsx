@@ -23,6 +23,8 @@ interface SizingRow {
   size: string;
   playerName: string;
   playerNumber: string;
+  /** Kept as text while editing; parsed on save. Blank means 1 — one each. */
+  quantity: string;
   notes: string;
   /** Values for the garment's custom columns, keyed by column label. */
   customValues: Record<string, string>;
@@ -36,6 +38,7 @@ interface Props {
     size?: string | null;
     playerName?: string | null;
     playerNumber?: string | null;
+    quantity?: number | null;
     notes?: string | null;
     customValues?: Record<string, string> | null;
   }[];
@@ -57,6 +60,9 @@ function toLocal(rows: Props['initialRows']): SizingRow[] {
     size: r.size ?? '',
     playerName: r.playerName ?? '',
     playerNumber: r.playerNumber ?? '',
+    // Shown blank rather than "1" — a column of ones is noise on named kit,
+    // where one-per-person is the rule and bulk lines are the exception.
+    quantity: r.quantity != null && r.quantity !== 1 ? String(r.quantity) : '',
     notes: r.notes ?? '',
     customValues: { ...(r.customValues ?? {}) },
   }));
@@ -93,6 +99,7 @@ export function SizingTable({
         size: '',
         playerName: '',
         playerNumber: '',
+        quantity: '',
         notes: '',
         customValues: {},
       },
@@ -126,15 +133,20 @@ export function SizingTable({
   async function save() {
     setSaving(true);
     try {
-      const body = rows.map((r, i) => ({
-        ...(r.id ? { id: r.id } : {}),
-        size: r.size || null,
-        playerName: r.playerName || null,
-        playerNumber: r.playerNumber || null,
-        notes: r.notes || null,
-        customValues: r.customValues,
-        sortOrder: i,
-      }));
+      const body = rows.map((r, i) => {
+        // Blank or unparseable means one each; the contract refuses 0.
+        const parsedQty = parseInt(r.quantity, 10);
+        return {
+          ...(r.id ? { id: r.id } : {}),
+          size: r.size || null,
+          playerName: r.playerName || null,
+          playerNumber: r.playerNumber || null,
+          quantity: Number.isFinite(parsedQty) && parsedQty >= 1 ? parsedQty : 1,
+          notes: r.notes || null,
+          customValues: r.customValues,
+          sortOrder: i,
+        };
+      });
       const res = await postJson<{ ok: boolean; rows: Props['initialRows'] }>(
         `/api/admin/orders/${orderId}/garments/${garmentId}/sizing`,
         body,
@@ -209,6 +221,23 @@ export function SizingTable({
           <Input size="small" value={record.playerNumber} placeholder="7"
             onChange={(e) => updateCell(record.key, 'playerNumber', e.target.value)}
             variant="borderless" style={{ minWidth: 60 }} />
+        );
+      },
+    },
+    {
+      title: (
+        <Tooltip title="How many of this line to make. Blank = 1 — use for bulk unnamed stock, e.g. Medium × 20.">
+          <span>Qty</span>
+        </Tooltip>
+      ),
+      dataIndex: 'quantity',
+      width: 64,
+      render(_: unknown, record: SizingRow) {
+        return (
+          <Input size="small" value={record.quantity} placeholder="1"
+            inputMode="numeric"
+            onChange={(e) => updateCell(record.key, 'quantity', e.target.value.replace(/[^0-9]/g, ''))}
+            variant="borderless" style={{ minWidth: 40 }} />
         );
       },
     },
