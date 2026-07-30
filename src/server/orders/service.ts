@@ -951,7 +951,7 @@ export async function upsertSizingRows(
 
 export async function addMockupImage(
   garmentId: string,
-  data: { storageKey: string; caption?: string | null },
+  data: { storageKey: string; thumbnailStorageKey?: string | null; caption?: string | null },
   meta?: { actorEmail?: string },
 ) {
   const garment = await loadGarmentOrThrow(garmentId);
@@ -959,7 +959,13 @@ export async function addMockupImage(
 
   const [image] = await db
     .insert(mockupImages)
-    .values({ garmentId, storageKey: data.storageKey, caption: data.caption ?? null, sortOrder })
+    .values({
+      garmentId,
+      storageKey: data.storageKey,
+      thumbnailStorageKey: data.thumbnailStorageKey ?? null,
+      caption: data.caption ?? null,
+      sortOrder,
+    })
     .returning();
 
   await recordAuditEvent({
@@ -1008,7 +1014,7 @@ export async function updateGarmentSizeChartLinks(
 export async function deleteMockupImage(
   id: string,
   meta?: { actorEmail?: string },
-): Promise<{ storageKey: string }> {
+): Promise<{ storageKey: string; thumbnailStorageKey: string | null }> {
   const existing = await db.query.mockupImages.findFirst({ where: eq(mockupImages.id, id) });
   if (!existing) throw new NotFoundError('Image');
   const garment = await loadGarmentOrThrow(existing.garmentId);
@@ -1021,7 +1027,7 @@ export async function deleteMockupImage(
     actorEmail: meta?.actorEmail ?? null,
   });
 
-  return { storageKey: existing.storageKey };
+  return { storageKey: existing.storageKey, thumbnailStorageKey: existing.thumbnailStorageKey };
 }
 
 // ---------------------------------------------------------------------------

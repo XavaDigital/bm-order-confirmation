@@ -46,7 +46,9 @@ interface Props {
   totalValueNZD: number;
   avgOrderValueNZD: number;
   confirmationRatePct: number;
+  changesRequestedRatePct: number;
   avgTimeToConfirmDays: number | null;
+  avgSentToConfirmDays: number | null;
   trend: Array<{ date: string; label: string; count: number }>;
   colorSampleHoldsCount: number;
   role: StaffRole;
@@ -54,6 +56,7 @@ interface Props {
   deadFailedEventsCount: number;
   timeToConfirmBuckets: Array<{ bucket: string; count: number }>;
   pipelineValueTrend: Array<{ week: string; label: string; valueNZD: number }>;
+  conversionValueTrend: Array<{ month: string; label: string; valueNZD: number }>;
   topClubs: Array<{ club: string; count: number }>;
   poStatusCounts: Array<{ status: string; count: number }>;
   garmentTypePopularity: Array<{ name: string; count: number }>;
@@ -86,7 +89,9 @@ export function MetricsView({
   totalValueNZD,
   avgOrderValueNZD,
   confirmationRatePct,
+  changesRequestedRatePct,
   avgTimeToConfirmDays,
+  avgSentToConfirmDays,
   trend,
   colorSampleHoldsCount,
   role,
@@ -94,6 +99,7 @@ export function MetricsView({
   deadFailedEventsCount,
   timeToConfirmBuckets,
   pipelineValueTrend,
+  conversionValueTrend,
   topClubs,
   poStatusCounts,
   garmentTypePopularity,
@@ -110,6 +116,7 @@ export function MetricsView({
   const awaitingCount = counts.sent + counts.viewed;
   const hasConfirmedOrders = timeToConfirmBuckets.some((b) => b.count > 0);
   const hasPipelineValueHistory = pipelineValueTrend.some((w) => w.valueNZD > 0);
+  const hasConversionValueHistory = conversionValueTrend.some((m) => m.valueNZD > 0);
   const hasClubs = topClubs.length > 0;
   const hasPoData = poStatusCounts.length > 0;
   const hasGarmentTypeData = garmentTypePopularity.length > 0;
@@ -236,10 +243,33 @@ export function MetricsView({
         <Col xs={12} sm={8}>
           <Card styles={{ body: { padding: '16px 20px' } }}>
             <Statistic
+              title="Changes Requested Rate"
+              value={changesRequestedRatePct}
+              precision={0}
+              suffix="%"
+              prefix={<ExclamationCircleOutlined />}
+              valueStyle={{ fontWeight: 700, color: changesRequestedRatePct > 0 ? SEMANTIC.error : undefined }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8}>
+          <Card styles={{ body: { padding: '16px 20px' } }}>
+            <Statistic
               title="Avg. Time to Confirm"
               value={avgTimeToConfirmDays !== null ? avgTimeToConfirmDays.toFixed(1) : '—'}
               suffix={avgTimeToConfirmDays !== null ? 'days' : undefined}
               prefix={<FieldTimeOutlined />}
+              valueStyle={{ fontWeight: 700 }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8}>
+          <Card styles={{ body: { padding: '16px 20px' } }}>
+            <Statistic
+              title="Avg. Time to Respond"
+              value={avgSentToConfirmDays !== null ? avgSentToConfirmDays.toFixed(1) : '—'}
+              suffix={avgSentToConfirmDays !== null ? 'days' : undefined}
+              prefix={<ClockCircleOutlined />}
               valueStyle={{ fontWeight: 700 }}
             />
           </Card>
@@ -337,7 +367,7 @@ export function MetricsView({
       {/* --- Conversion --- */}
       <SectionTitle>Conversion</SectionTitle>
       <Row gutter={[16, 16]}>
-        <Col xs={24}>
+        <Col xs={24} lg={12}>
           <Card title="Time to Confirm" styles={{ body: { padding: '8px 16px 16px' } }}>
             {hasConfirmedOrders ? (
               <ResponsiveContainer width="100%" height={200}>
@@ -353,6 +383,31 @@ export function MetricsView({
               </ResponsiveContainer>
             ) : (
               <EmptyChart text="No confirmed orders yet" />
+            )}
+          </Card>
+        </Col>
+
+        <Col xs={24} lg={12}>
+          <Card title="Conversion Value — Last 6 Months" styles={{ body: { padding: '8px 16px 16px' } }}>
+            {hasConversionValueHistory ? (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={conversionValueTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => formatNZD(v)}
+                  />
+                  <Tooltip
+                    formatter={(v) => [formatNZD(Number(v)), 'Confirmed value']}
+                    contentStyle={{ borderRadius: 6, fontSize: 12 }}
+                  />
+                  <Bar dataKey="valueNZD" fill={SEMANTIC.success} radius={[4, 4, 0, 0]} maxBarSize={48} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChart text="No orders confirmed in the last 6 months" />
             )}
           </Card>
         </Col>

@@ -164,7 +164,12 @@ describe('CustomerOrderPage', () => {
     expect(props.order.garments).toHaveLength(1);
 
     const garment = props.order.garments[0];
-    expect(garment.images).toEqual([{ id: 'img-1', caption: null, url: 'https://signed.example.com/asset' }]);
+    expect(garment.images).toEqual([{
+      id: 'img-1',
+      caption: null,
+      url: 'https://signed.example.com/asset',
+      thumbnailUrl: 'https://signed.example.com/asset',
+    }]);
     expect(garment.sizeCharts).toHaveLength(1); // the null sizeChart link was filtered out
     expect(garment.sizing[0].viaTeamRoster).toBe(false);
     expect(garment.sizeCharts[0]).toEqual({

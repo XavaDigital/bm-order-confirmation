@@ -7,6 +7,8 @@ export interface GalleryImage {
   id: string;
   caption: string | null;
   url: string;
+  /** Small generated copy for the grid tile (roadmap 7.3); falls back to `url`. */
+  thumbnailUrl: string;
 }
 
 export function MockupGallery({ images }: { images: GalleryImage[] }) {
@@ -31,7 +33,7 @@ export function MockupGallery({ images }: { images: GalleryImage[] }) {
         {images.map((img) => (
           <div key={img.id} style={{ textAlign: 'center', maxWidth: 160 }}>
             <Image
-              src={img.url}
+              src={img.thumbnailUrl}
               alt={img.caption ?? 'Mock-up'}
               width={160}
               height={120}

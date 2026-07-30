@@ -51,23 +51,30 @@ export async function signChartRefs(
 }
 
 /**
- * Enrich mock-up image rows with a signed `url`. Preserves every input field
- * (callers needing a narrower DTO pick from the result); on storage failure
- * the URL is an empty string so the row still renders without crashing.
+ * Enrich mock-up image rows with a signed `url` (full-size original) and
+ * `thumbnailUrl` (the generated small copy, roadmap 7.3 — falls back to the
+ * original's own signed URL when there is no `thumbnailStorageKey`, whether
+ * because the row predates the feature or generation failed at upload time).
+ * Preserves every input field; on storage failure both URLs are an empty
+ * string so the row still renders without crashing.
  */
-export async function signImageRefs<T extends { storageKey: string }>(
+export async function signImageRefs<T extends { storageKey: string; thumbnailStorageKey?: string | null }>(
   images: T[],
   ttlSeconds = DEFAULT_TTL_SECONDS,
-): Promise<(T & { url: string })[]> {
+): Promise<(T & { url: string; thumbnailUrl: string })[]> {
   return Promise.all(
     images.map(async (img) => {
       let url = '';
+      let thumbnailUrl = '';
       try {
         url = await getSignedUrl(img.storageKey, ttlSeconds);
+        thumbnailUrl = img.thumbnailStorageKey
+          ? await getSignedUrl(img.thumbnailStorageKey, ttlSeconds)
+          : url;
       } catch {
         // Storage not configured — leave empty; image won't render but won't crash.
       }
-      return { ...img, url };
+      return { ...img, url, thumbnailUrl };
     }),
   );
 }

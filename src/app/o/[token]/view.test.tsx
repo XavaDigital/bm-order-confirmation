@@ -149,7 +149,7 @@ describe('CustomerOrderView', () => {
             fabrics: [],
             notes: null,
             sizing: [],
-            images: [{ id: 'img-1', caption: null, url: 'https://example.com/mockup.png' }],
+            images: [{ id: 'img-1', caption: null, url: 'https://example.com/mockup.png', thumbnailUrl: 'https://example.com/mockup.png' }],
             sizeCharts: [],
           },
           {

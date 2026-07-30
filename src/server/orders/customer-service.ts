@@ -68,6 +68,41 @@ export async function getOrderForCustomer(rawToken: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Confirmed-order PDF (roadmap 7.2) — reuses the same active token as the
+// confirmation page, so the download link keeps working after confirmation
+// (confirmOrder() never revokes the token). Deliberately narrower than
+// getOrderForCustomer(): no images/roster, since OrderPdf.tsx renders neither.
+// ---------------------------------------------------------------------------
+
+export async function getConfirmedOrderForPdf(
+  rawToken: string,
+  codeCookie: string | null | undefined,
+) {
+  const access = await resolveActiveToken(orderAccess, rawToken);
+  if (!access) throw new Error('invalid_token');
+  assertAccessCodeSatisfied(access, codeCookie);
+
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, access.orderId),
+    with: {
+      garments: {
+        orderBy: (g, { asc }) => [asc(g.sortOrder)],
+        with: {
+          sizing: { orderBy: (s, { asc }) => [asc(s.sortOrder)] },
+        },
+      },
+    },
+  });
+
+  if (!order) throw new Error('invalid_token');
+  // Not revealed as a distinct reason — the download link only ever appears
+  // on the page once the order is confirmed, so this is a stale-link edge case.
+  if (order.status !== 'confirmed') throw new Error('invalid_token');
+
+  return order;
+}
+
+// ---------------------------------------------------------------------------
 // Per-order access code verification
 // ---------------------------------------------------------------------------
 

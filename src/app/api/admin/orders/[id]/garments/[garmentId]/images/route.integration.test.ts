@@ -173,9 +173,34 @@ describe('POST /api/admin/orders/[id]/garments/[garmentId]/images', () => {
     expect(res.status).toBe(201);
     expect(json.url).toBe('https://signed.example.com/mock');
     expect(json.caption).toBe('Front view');
+    // Not a real image, so thumbnail generation fails silently — only the
+    // original upload happens.
     expect(uploadFile).toHaveBeenCalledTimes(1);
 
     const rows = await db.query.mockupImages.findMany({ where: eq(schema.mockupImages.garmentId, garmentId) });
     expect(rows).toHaveLength(1);
+    expect(rows[0].thumbnailStorageKey).toBeNull();
+  });
+
+  it('generates and uploads a thumbnail for a real image, persisting the key', async () => {
+    const { orderId, garmentId } = await seedOrderWithGarment();
+    const sharp = (await import('sharp')).default;
+    const pngBuffer = await sharp({
+      create: { width: 800, height: 600, channels: 3, background: { r: 10, g: 20, b: 30 } },
+    })
+      .png()
+      .toBuffer();
+    const file = new File([new Uint8Array(pngBuffer)], 'mockup.png', { type: 'image/png' });
+
+    const res = await POST(multipartRequest({ file }), {
+      params: Promise.resolve({ id: orderId, garmentId }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(uploadFile).toHaveBeenCalledTimes(2);
+
+    const rows = await db.query.mockupImages.findMany({ where: eq(schema.mockupImages.garmentId, garmentId) });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].thumbnailStorageKey).toMatch(/^mockups\/.*\/thumb-.*\.webp$/);
   });
 });

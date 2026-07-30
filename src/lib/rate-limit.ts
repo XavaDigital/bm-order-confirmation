@@ -54,6 +54,8 @@ export const RATE_LIMITS = {
   credential: { maxRequests: 5, windowMs: 15 * 60 * 1_000 },
   /** 2FA code verification: 5 / 5 min. */
   twoFactor: { maxRequests: 5, windowMs: 5 * 60 * 1_000 },
+  /** Customer-facing PDF render (read, but expensive): 20 / 15 min. */
+  customerPdf: { maxRequests: 20, windowMs: 15 * 60 * 1_000 },
 } as const;
 
 export type RateLimitPreset = { maxRequests: number; windowMs: number };

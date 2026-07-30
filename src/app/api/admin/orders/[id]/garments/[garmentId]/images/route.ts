@@ -5,9 +5,11 @@ import {
   uploadFile,
   getSignedUrl,
   mockupKey,
+  mockupThumbnailKey,
   isStorageConfigured,
   StorageUnavailableError,
 } from '@/lib/storage';
+import { generateThumbnail } from '@/lib/image-thumbnail';
 import { parseMultipartFormData, parseUploadedFile } from '@/lib/uploads';
 import { defineRoute } from '@/lib/route-handler';
 import { logger } from '@/lib/logger';
@@ -47,7 +49,25 @@ export const POST = defineRoute<{ id: string; garmentId: string }>({
     try {
       await uploadFile(key, buffer, file.type);
 
-      const image = await addMockupImage(garmentId, { storageKey: key, caption }, { actorEmail: session!.email });
+      // Best-effort thumbnail: a generation or upload failure here must not
+      // fail the request — the gallery falls back to the full-size original.
+      let thumbnailStorageKey: string | null = null;
+      const thumbnail = await generateThumbnail(buffer);
+      if (thumbnail) {
+        const thumbKey = mockupThumbnailKey(orderId, garmentId, filename);
+        try {
+          await uploadFile(thumbKey, thumbnail, 'image/webp');
+          thumbnailStorageKey = thumbKey;
+        } catch (err) {
+          logger.warn('[admin/images POST] thumbnail upload failed', err);
+        }
+      }
+
+      const image = await addMockupImage(
+        garmentId,
+        { storageKey: key, thumbnailStorageKey, caption },
+        { actorEmail: session!.email },
+      );
       const url = await getSignedUrl(key, 4 * 3600); // 4-hour signed URL for immediate admin preview
 
       return NextResponse.json({ ...image, url }, { status: 201 });
