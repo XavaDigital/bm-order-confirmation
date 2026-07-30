@@ -308,6 +308,12 @@ export function PoPdf({
                       .map(([label, valueText]) => (
                         <LabelValueRow key={label} label={label} value={valueText} />
                       ))}
+                  {(g.sizeCharts ?? []).length > 0 && (
+                    <LabelValueRow
+                      label="Size charts"
+                      value={(g.sizeCharts ?? []).map((c) => c.name).join(', ')}
+                    />
+                  )}
                   {g.notes && <LabelValueRow label="Notes" value={g.notes} />}
                   {g.lines.length > 0 && (
                     <View style={s.table}>
@@ -315,6 +321,7 @@ export function PoPdf({
                         <Text style={s.col}>Size</Text>
                         <Text style={s.col}>Player Name</Text>
                         <Text style={s.col}>Number</Text>
+                        <Text style={s.col}>Qty</Text>
                         {/* Custom columns as captured in THIS revision. */}
                         {(g.sizingColumns ?? []).map((c) => (
                           <Text key={c.label} style={s.col}>
@@ -331,6 +338,8 @@ export function PoPdf({
                           <Text style={s.col}>{row.size ?? '—'}</Text>
                           <Text style={s.col}>{row.playerName ?? '—'}</Text>
                           <Text style={s.col}>{row.playerNumber ?? '—'}</Text>
+                          {/* Pre-quantity revisions have no value — one each. */}
+                          <Text style={s.col}>{String(row.quantity ?? 1)}</Text>
                           {(g.sizingColumns ?? []).map((c) => (
                             <Text key={c.label} style={s.col}>
                               {row.customValues?.[c.label] ?? '—'}
@@ -357,14 +366,20 @@ export function PoPdf({
           <View style={s.section}>
             <Text style={s.sectionTitle}>Design &amp; font files</Text>
             {(snapshot.assets ?? []).map((asset, i) => (
-              <View key={`${asset.url}-${i}`} style={s.row}>
+              <View key={`${asset.url ?? asset.storageKey}-${i}`} style={s.row}>
                 <Text style={s.label}>
                   {asset.kind === 'font' ? 'Font' : asset.kind === 'design' ? 'Design' : 'File'}
                 </Text>
                 <Text style={s.value}>
                   {[
                     asset.garmentName ? `${asset.name} (${asset.garmentName})` : asset.name,
-                    asset.url,
+                    // What the file is FOR — "for Player Number" — so the
+                    // factory knows which text field each font belongs to.
+                    asset.usage ? `for ${asset.usage}` : null,
+                    // A link is printed; an uploaded file cannot be, because a
+                    // signed URL expires and this document must still work
+                    // months later — it travels as an email attachment instead.
+                    asset.url ?? (asset.storageKey ? 'supplied as an attachment with this PO' : null),
                     asset.notes,
                   ]
                     .filter(Boolean)

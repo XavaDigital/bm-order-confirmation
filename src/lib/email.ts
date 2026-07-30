@@ -589,6 +589,11 @@ export interface SendSupplierPoEmailParams {
    * before.
    */
   portalUrl?: string | null;
+  /**
+   * Uploaded fonts/design files and size charts riding alongside the PDF —
+   * the files themselves, because a signed URL inside a sent email expires.
+   */
+  extraAttachments?: { filename: string; content: Buffer; contentType?: string }[];
 }
 
 export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Promise<void> {
@@ -654,6 +659,7 @@ export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Pr
         content: params.pdf,
         contentType: 'application/pdf',
       },
+      ...(params.extraAttachments ?? []),
     ],
   });
 }

@@ -12,6 +12,7 @@ import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
 import { createOrderSchema } from './contract';
+import { createOrderAssetSchema, updateOrderAssetSchema } from './assets-contract';
 import { createOrder, duplicateOrder, getOrderAdmin } from './service';
 import {
   createOrderAsset,
@@ -258,5 +259,144 @@ describe('reprints', () => {
       .where(eq(schema.orders.id, reprint.orderId));
     expect(row).toBeDefined();
     expect(row.sourceOrderId).toBeNull();
+  });
+});
+
+/**
+ * A font has to say what it is FOR, and may be an upload rather than a link.
+ * The link-xor-upload rule is enforced in three places on purpose: the Zod
+ * contract, the service (which is the only layer that can see the stored row),
+ * and a database check constraint as the backstop.
+ */
+describe('order assets — usage and uploads', () => {
+  const fontLink = {
+    kind: 'font' as const,
+    name: 'Squad Numbers',
+    usage: 'playerNumber',
+    url: 'https://drive.google.com/file/d/font',
+    includeOnPo: true,
+  };
+
+  it('records what a font is used for', async () => {
+    const { orderId } = await seedOrder();
+
+    const asset = await createOrderAsset(orderId, createOrderAssetSchema.parse(fontLink), {});
+
+    expect(asset).toMatchObject({ usage: 'playerNumber', name: 'Squad Numbers' });
+  });
+
+  // The usage names a user-defined sizing column, so it cannot be an enum.
+  it('accepts a custom sizing-column label as the usage', async () => {
+    const { orderId } = await seedOrder();
+
+    const asset = await createOrderAsset(
+      orderId,
+      createOrderAssetSchema.parse({ ...fontLink, usage: 'Secondary Name' }),
+      {},
+    );
+
+    expect(asset.usage).toBe('Secondary Name');
+  });
+
+  it('stores an uploaded font by its storage key', async () => {
+    const { orderId } = await seedOrder();
+
+    const asset = await createOrderAsset(
+      orderId,
+      createOrderAssetSchema.parse({
+        kind: 'font',
+        name: 'Squad Numbers',
+        usage: 'playerNumber',
+        storageKey: 'assets/fonts/squad.otf',
+        includeOnPo: true,
+      }),
+      {},
+    );
+
+    expect(asset).toMatchObject({ storageKey: 'assets/fonts/squad.otf', url: null });
+  });
+
+  it('refuses a file that is both a link and an upload', () => {
+    expect(() =>
+      createOrderAssetSchema.parse({ ...fontLink, storageKey: 'assets/fonts/squad.otf' }),
+    ).toThrow();
+  });
+
+  it('refuses a file that is neither', () => {
+    expect(() =>
+      createOrderAssetSchema.parse({ kind: 'font', name: 'Nameless', includeOnPo: false }),
+    ).toThrow();
+  });
+
+  /**
+   * The case the contract cannot catch: replacing a link with an upload sends
+   * only the storageKey, and the row still holds a url. Left alone that trips
+   * the database check constraint and surfaces as a 500 instead of a swap.
+   */
+  it('clears the link when an upload replaces it', async () => {
+    const { orderId } = await seedOrder();
+    const asset = await createOrderAsset(orderId, createOrderAssetSchema.parse(fontLink), {});
+
+    const updated = await updateOrderAsset(
+      orderId,
+      asset.id,
+      updateOrderAssetSchema.parse({ storageKey: 'assets/fonts/squad.otf' }),
+      {},
+    );
+
+    expect(updated).toMatchObject({ storageKey: 'assets/fonts/squad.otf', url: null });
+  });
+
+  it('clears the upload when a link replaces it', async () => {
+    const { orderId } = await seedOrder();
+    const asset = await createOrderAsset(
+      orderId,
+      createOrderAssetSchema.parse({
+        kind: 'font',
+        name: 'Squad Numbers',
+        storageKey: 'assets/fonts/squad.otf',
+        includeOnPo: true,
+      }),
+      {},
+    );
+
+    const updated = await updateOrderAsset(
+      orderId,
+      asset.id,
+      updateOrderAssetSchema.parse({ url: 'https://drive.google.com/file/d/new' }),
+      {},
+    );
+
+    expect(updated).toMatchObject({ url: 'https://drive.google.com/file/d/new', storageKey: null });
+  });
+
+  it('refuses a patch that would leave the file with no source at all', () => {
+    expect(() => updateOrderAssetSchema.parse({ url: null })).toThrow();
+    expect(() => updateOrderAssetSchema.parse({ url: null, storageKey: null })).toThrow();
+  });
+
+  it('carries usage and the storage key through to the PO snapshot input', async () => {
+    const { orderId } = await seedOrder();
+    await createOrderAsset(
+      orderId,
+      createOrderAssetSchema.parse({
+        kind: 'font',
+        name: 'Squad Numbers',
+        usage: 'playerNumber',
+        storageKey: 'assets/fonts/squad.otf',
+        includeOnPo: true,
+      }),
+      {},
+    );
+
+    const [asset] = await loadPoAssets(orderId);
+
+    expect(asset).toMatchObject({
+      kind: 'font',
+      name: 'Squad Numbers',
+      usage: 'playerNumber',
+      storageKey: 'assets/fonts/squad.otf',
+      url: null,
+    });
   });
 });

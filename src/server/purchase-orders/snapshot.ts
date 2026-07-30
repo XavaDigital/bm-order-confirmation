@@ -10,7 +10,14 @@
  * Variance and coverage match by these ids ONLY, never by size-string
  * similarity: a row whose id is gone was deleted, full stop.
  */
-import type { GarmentTypeOption, PoSnapshotAsset, PoSnapshot, PoSnapshotGarment, PoSnapshotLine } from '@/db/schema';
+import type {
+  GarmentTypeOption,
+  PoSnapshotAsset,
+  PoSnapshot,
+  PoSnapshotGarment,
+  PoSnapshotLine,
+  PoSnapshotSizeChart,
+} from '@/db/schema';
 
 // ---------------------------------------------------------------------------
 // Live-row input shapes (structural — drizzle query results satisfy them)
@@ -51,8 +58,20 @@ export interface LiveGarment {
   selectedOptions?: Record<string, string> | null;
   /** The garment's user-defined sizing-column definitions. */
   sizingColumns?: GarmentTypeOption[] | null;
+  /** Linked reference charts, as drizzle's relation shape. Optional so pure
+   *  callers that never loaded the relation keep working. */
+  sizeChartLinks?: { sizeChart: { id: string; name: string; storageKey: string | null } | null }[];
   notes: string | null;
   sizing: LiveSizingRow[];
+}
+
+/** Chart links → the snapshot shape, dropping any dangling link rows. */
+function toSnapshotSizeCharts(g: LiveGarment): PoSnapshotSizeChart[] {
+  return (g.sizeChartLinks ?? [])
+    .map((link) => link.sizeChart)
+    .filter((chart): chart is NonNullable<typeof chart> => chart !== null)
+    .map((chart) => ({ id: chart.id, name: chart.name, storageKey: chart.storageKey ?? null }))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +124,7 @@ export function buildPoSnapshot(
         selectedFabrics: g.selectedFabrics ?? null,
         selectedOptions: g.selectedOptions ?? null,
         sizingColumns: g.sizingColumns ?? [],
+        sizeCharts: toSnapshotSizeCharts(g),
         notes: g.notes ?? null,
         lines: g.sizing.map(toSnapshotLine),
       }),
@@ -273,6 +293,26 @@ export function detectVariance(
     compareField('selectedFabrics', snap.selectedFabrics, live.selectedFabrics ?? null);
     compareField('selectedOptions', snap.selectedOptions, live.selectedOptions ?? null);
     compareField('notes', snap.notes, live.notes ?? null);
+
+    /**
+     * Chart LINKAGE is variance — the factory cuts to these. Skipped entirely
+     * for snapshots that predate chart capture (`sizeCharts` undefined): what
+     * they were linked to back then is unknowable, and comparing against [] would
+     * flag every pre-existing PO the first time someone opened it. Compared by
+     * id but REPORTED by name, so renaming a chart in the library neither flags
+     * every sent PO nor shows uuids in the variance panel.
+     */
+    if (snap.sizeCharts !== undefined) {
+      const snapIds = snap.sizeCharts.map((c) => c.id).sort();
+      const liveCharts = toSnapshotSizeCharts(live);
+      if (!jsonEqual(snapIds, liveCharts.map((c) => c.id).sort())) {
+        fieldChanges.push({
+          field: 'sizeCharts',
+          from: snap.sizeCharts.map((c) => c.name),
+          to: liveCharts.map((c) => c.name),
+        });
+      }
+    }
 
     const lines: PoVarianceLine[] = [];
     const snapLineById = new Map(snap.lines.map((l) => [l.sizingRowId, l]));

@@ -22,6 +22,8 @@ import {
 import type { PoSnapshot } from '@/db/schema';
 import { isUniqueViolation } from '@/lib/db-errors';
 import { sendSupplierPoEmail } from '@/lib/email';
+import { getFileBuffer } from '@/lib/storage';
+import { logger } from '@/lib/logger';
 import { pickDefined } from '@/lib/patch';
 import { generateToken, buildSupplierPortalUrl } from '@/lib/tokens';
 import { mintToken, revokeActiveTokens } from '@/server/access/tokens';
@@ -76,6 +78,11 @@ async function loadOrderGarments(orderId: string) {
     with: {
       sizing: { orderBy: (s, { asc }) => [asc(s.sortOrder), asc(s.createdAt)] },
       garmentType: { columns: { name: true } },
+      // The reference charts the factory cuts to — captured into the revision
+      // snapshot, and compared by variance so a re-linked chart flags the PO.
+      sizeChartLinks: {
+        with: { sizeChart: { columns: { id: true, name: true, storageKey: true } } },
+      },
     },
   });
 }
@@ -590,6 +597,52 @@ export interface RenderPoPdfProps {
  * `sent` through the normal status machine (stamping `sentAt`), and a
  * `po.sent` outbox event + audit row are recorded on the parent order.
  */
+/**
+ * The files that ride the supplier email alongside the PDF: uploaded assets
+ * (fonts, design files) and the size charts each garment cuts to.
+ *
+ * From the SNAPSHOT, not the live rows — the email must match the document of
+ * record. As actual attachments, not signed URLs, because a URL in a sent
+ * email expires and the factory opens these weeks later.
+ *
+ * A file that cannot be fetched is skipped with a warning rather than failing
+ * the send: the PDF itself is the contract, the attachments are supporting
+ * material, and blocking a PO on a single unreadable object helps nobody. The
+ * PDF names every file it expects, so a gap is visible to the recipient too.
+ */
+async function collectSnapshotAttachments(
+  snapshot: PoSnapshot,
+): Promise<{ filename: string; content: Buffer }[]> {
+  const wanted = new Map<string, string>(); // storageKey -> filename
+
+  for (const asset of snapshot.assets ?? []) {
+    if (asset.storageKey) {
+      const ext = asset.storageKey.split('.').pop() ?? 'bin';
+      wanted.set(asset.storageKey, `${asset.name}.${ext}`);
+    }
+  }
+  // Charts dedupe across garments — two garments cutting to the same chart
+  // should not attach it twice.
+  for (const garment of snapshot.garments) {
+    for (const chart of garment.sizeCharts ?? []) {
+      if (chart.storageKey && !wanted.has(chart.storageKey)) {
+        const ext = chart.storageKey.split('.').pop() ?? 'bin';
+        wanted.set(chart.storageKey, `size-chart-${chart.name}.${ext}`);
+      }
+    }
+  }
+
+  const attachments: { filename: string; content: Buffer }[] = [];
+  for (const [key, filename] of wanted) {
+    try {
+      attachments.push({ filename, content: await getFileBuffer(key) });
+    } catch (err) {
+      logger.warn('[po/send] attachment skipped — could not read from storage', { key, filename, err });
+    }
+  }
+  return attachments;
+}
+
 export async function sendPurchaseOrder(
   id: string,
   meta: ActorMeta,
@@ -656,6 +709,7 @@ export async function sendPurchaseOrder(
     reason: latest.reason,
     pdf,
     portalUrl,
+    extraAttachments: await collectSnapshotAttachments(latest.snapshot),
   });
 
   // First send moves draft → sent via the normal status machine (sentAt stamp

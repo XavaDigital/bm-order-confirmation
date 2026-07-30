@@ -25,6 +25,13 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# The migration journal, for the startup check in src/server/db/startup-check.ts.
+# Standalone tracing cannot see this: it is read with readFileSync at runtime,
+# not imported, so nothing in the module graph points at it. Without this COPY
+# the check finds no journal, reports "unknown", and starts anyway — which is
+# exactly what it did on revision 00011, silently protecting nothing.
+COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
+
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000

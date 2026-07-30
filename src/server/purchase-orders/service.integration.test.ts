@@ -614,6 +614,10 @@ describe('factory-facing data boundary', () => {
       'notes',
       'selectedFabrics',
       'selectedOptions',
+      // Deliberate addition (2026-07-30): the reference charts the factory
+      // cuts to. Carries chart id/name/storageKey only — nothing customer-
+      // identifying.
+      'sizeCharts',
       'sizingColumns',
     ]);
 

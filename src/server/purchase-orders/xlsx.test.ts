@@ -148,6 +148,7 @@ describe('buildPoWorkbook', () => {
       'Size',
       'Player Name',
       'Number',
+      'Qty',
       'Notes',
     ]);
     expect(all).toHaveLength(6); // header + 5 lines
@@ -161,8 +162,15 @@ describe('buildPoWorkbook', () => {
       'M',
       'Alex',
       '7',
+      // The rows() helper stringifies; numeric-ness is asserted on the cell below.
+      '1',
       'sleeve',
     ]);
+
+    // Qty must be a real number cell, not text — the factory SUMs this column,
+    // and Excel's SUM silently skips text cells, understating the run.
+    const qtyCell = sheet.getRow(2).getCell(8);
+    expect(typeof qtyCell.value).toBe('number');
 
     // Sizeless line gets the same '(no size)' wording as the PDF/summary.
     expect(all[4][4]).toBe('(no size)');
@@ -193,7 +201,9 @@ describe('buildPoWorkbook', () => {
     const row = rows(sheet)[1];
 
     // Leading quote makes Excel treat these as literal text, not formulas.
-    for (const value of [row[4], row[5], row[6], row[7]]) {
+    // row[7] is the numeric Qty column, which cannot carry a formula string —
+    // the untrusted text fields around it are what must be neutralised.
+    for (const value of [row[4], row[5], row[6], row[8]]) {
       expect(value.startsWith("'")).toBe(true);
     }
     // And nothing became a live formula cell.
