@@ -135,6 +135,53 @@ export async function pushProductionStatus(
 }
 
 /**
+ * Register this order's THIN index row on the hub (fleet thread
+ * 2026-07-31-orders-from-email, David's ruling: the projects pattern).
+ * Idempotent on (system:'order_platform', externalId = our order uuid) —
+ * replay returns the existing row. Read the BODY, not the status code.
+ * Returns the hub order id to stamp onto orders.hub_order_id, or null on any
+ * failure (callers are fire-and-forget; the next push heals by re-registering).
+ */
+export async function registerHubOrder(input: {
+  customerId: string;
+  contactId?: string | null;
+  orderNumber: string;
+  status: string;
+  orderValue?: number | null;
+  currency?: string | null;
+  externalId: string;
+  url: string;
+}): Promise<string | null> {
+  const res = await call('/orders', {
+    method: 'POST',
+    body: { ...input, system: 'order_platform' },
+  });
+  if (!res || !res.ok) return null;
+  try {
+    const body = (await res.json()) as { id?: string; order?: { id?: string } };
+    return body.id ?? body.order?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Snapshot push to the hub index row — status chip, value, url. Snapshot-not-
+ * events (designflow D1): a dropped push is healed by the next one, so
+ * best-effort is safe; the outbox retry on top makes it at-least-once.
+ */
+export async function patchHubOrder(
+  hubOrderId: string,
+  patch: { status?: string; orderValue?: number | null; currency?: string | null; url?: string },
+): Promise<boolean> {
+  const res = await call(`/orders/${encodeURIComponent(hubOrderId)}`, {
+    method: 'PATCH',
+    body: patch,
+  });
+  return Boolean(res?.ok);
+}
+
+/**
  * Create (or link to) a hub customer — idempotent on email. A 409 means the
  * hub found multiple plausible candidates; the caller must disambiguate.
  */

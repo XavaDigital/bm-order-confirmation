@@ -190,14 +190,37 @@ async function stageDisplayName(
 // Registry
 // ---------------------------------------------------------------------------
 
+/**
+ * Hub index snapshot push (fleet thread 2026-07-31-orders-from-email).
+ * Registered on every event that can change the CRM chip or value — the
+ * outbox is the one choke point every transition passes through, so the push
+ * happens by construction (designflow's D1 lesson: wire it at the effects
+ * layer or call sites forget). `strict` so a failed push retries with the
+ * event's backoff; the push is an idempotent snapshot, so re-runs are safe.
+ * The tx is passed through — the sync must not touch the global db from
+ * inside the batch transaction.
+ */
+async function handleHubOrderIndexSync(event: DomainEvent, tx: Transaction): Promise<void> {
+  const { syncOrderIndexToHub } = await import('@/server/hub/order-sync');
+  await syncOrderIndexToHub(event.aggregateId, { executor: tx, strict: true });
+}
+
 const EVENT_HANDLERS: Record<string, EventHandler[]> = {
-  'order.confirmed': [handleGoogleAdsConversion, handleConfirmationEmail, handleCustomerReceiptEmail],
-  'order.changes_requested': [handleChangesRequestedEmail],
+  'order.confirmed': [handleGoogleAdsConversion, handleConfirmationEmail, handleCustomerReceiptEmail, handleHubOrderIndexSync],
+  'order.changes_requested': [handleChangesRequestedEmail, handleHubOrderIndexSync],
   'order.color_sample_requested': [handleColorSampleRequestedEmail],
   'order.note_added': [handleNoteAddedNotification],
   'workflow.stage_entered': [handleStageEnteredNotification],
-  'po.sent': [handlePoSentNotification],
-  'po.supplier_updated': [handlePoSupplierUpdatedNotification],
+  'po.sent': [handlePoSentNotification, handleHubOrderIndexSync],
+  'po.supplier_updated': [handlePoSupplierUpdatedNotification, handleHubOrderIndexSync],
+  // Chip-affecting events with no other handler.
+  'order.viewed': [handleHubOrderIndexSync],
+  'order.updated': [handleHubOrderIndexSync],
+  'order.cancelled': [handleHubOrderIndexSync],
+  'order.status_changed': [handleHubOrderIndexSync],
+  'po.created': [handleHubOrderIndexSync],
+  'po.status_changed': [handleHubOrderIndexSync],
+  'po.cancelled': [handleHubOrderIndexSync],
 };
 
 // ---------------------------------------------------------------------------

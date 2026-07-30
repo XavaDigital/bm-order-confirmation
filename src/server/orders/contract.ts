@@ -103,6 +103,13 @@ export const createOrderSchema = z.object({
   // The id is a hint into the hub's core.customer — no cross-DB FK.
   hubCustomerId: z.string().uuid().optional(),
   hubCustomerName: z.string().min(1).optional(),
+  // The contact who placed the order (within the hub customer) — same
+  // cross-DB-hint semantics. Set by the email-relay create and the admin UI.
+  hubContactId: z.string().uuid().optional(),
+  hubContactName: z.string().min(1).optional(),
+  // One-way pointer to the originating DesignFlow project (their uuid —
+  // rename/merge-stable per the fleet thread). No sync either direction.
+  designProjectRef: z.string().uuid().optional(),
 });
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;

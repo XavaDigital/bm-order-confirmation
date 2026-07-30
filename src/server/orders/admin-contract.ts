@@ -20,6 +20,9 @@ export const updateOrderSchema = z.object({
   // Sales Hub CRM association — null unlinks
   hubCustomerId: z.string().uuid().nullable().optional(),
   hubCustomerName: z.string().min(1).nullable().optional(),
+  hubContactId: z.string().uuid().nullable().optional(),
+  hubContactName: z.string().min(1).nullable().optional(),
+  designProjectRef: z.string().uuid().nullable().optional(),
 });
 
 export const addGarmentSchema = z.object({

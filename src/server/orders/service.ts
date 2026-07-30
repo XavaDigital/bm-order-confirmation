@@ -286,6 +286,9 @@ export async function createOrder(
         createdBy: createdBy ?? null,
         hubCustomerId: input.hubCustomerId ?? null,
         hubCustomerName: input.hubCustomerName ?? null,
+        hubContactId: input.hubContactId ?? null,
+        hubContactName: input.hubContactName ?? null,
+        designProjectRef: input.designProjectRef ?? null,
       })
       .returning({ id: orders.id });
 
@@ -322,6 +325,13 @@ export async function createOrder(
   });
     return orderNumber;
   });
+
+  // Post-commit, fire-and-forget: register/refresh the hub's thin index row.
+  // Creation emits no outbox event, so this is the create-path wiring; every
+  // later transition syncs from the outbox handler instead.
+  void import('@/server/hub/order-sync').then(({ syncOrderIndexToHub }) =>
+    syncOrderIndexToHub(createdOrderId),
+  );
 
   return { orderId: createdOrderId, orderNumber, token: rawToken, url: buildConfirmationUrl(rawToken) };
 }
@@ -630,6 +640,10 @@ export async function duplicateOrder(
         // Same customer, same hub association
         hubCustomerId: source.hubCustomerId ?? null,
         hubCustomerName: source.hubCustomerName ?? null,
+        hubContactId: source.hubContactId ?? null,
+        hubContactName: source.hubContactName ?? null,
+        // A reprint is the same design — the project pointer carries forward.
+        designProjectRef: source.designProjectRef ?? null,
         // A reprint records what it reprints; a plain duplicate does not, so
         // "reprint of" never appears on an unrelated copy.
         sourceOrderId: isReprint ? source.id : null,
@@ -692,6 +706,13 @@ export async function duplicateOrder(
   });
     return orderNumber;
   });
+
+  // Post-commit, fire-and-forget: register/refresh the hub's thin index row.
+  // Creation emits no outbox event, so this is the create-path wiring; every
+  // later transition syncs from the outbox handler instead.
+  void import('@/server/hub/order-sync').then(({ syncOrderIndexToHub }) =>
+    syncOrderIndexToHub(createdOrderId),
+  );
 
   return { orderId: createdOrderId, orderNumber, token: rawToken, url: buildConfirmationUrl(rawToken) };
 }

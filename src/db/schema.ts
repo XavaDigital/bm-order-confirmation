@@ -177,6 +177,32 @@ export const orders = confirmation.table(
     hubCustomerId: uuid('hub_customer_id'),
     hubCustomerName: text('hub_customer_name'),
 
+    /**
+     * The contact who placed the order, within the hub customer. Same
+     * cross-database-hint rules as hubCustomerId: uuid + best-effort name
+     * snapshot, re-stamped on read if the hub reports a tombstone hop. The
+     * contact must keep resolving after leaving the customer — hub's
+     * GET /contacts/:id answers for ended memberships by contract.
+     */
+    hubContactId: uuid('hub_contact_id'),
+    hubContactName: text('hub_contact_name'),
+
+    /**
+     * The hub's thin index row for this order (fleet thread
+     * 2026-07-31-orders-from-email). Stamped from the register POST; the
+     * status push PATCHes by this id. Null = not registered yet — the push
+     * path heals by re-registering (idempotent on our order uuid).
+     */
+    hubOrderId: uuid('hub_order_id'),
+
+    /**
+     * One-way link to the originating DesignFlow project — their project
+     * uuid, which survives renames and customer merges (their D3 commitment).
+     * Deep link renders as designflow.beastmode.co.nz/projects/<uuid>.
+     * No sync in either direction by design.
+     */
+    designProjectRef: uuid('design_project_ref'),
+
     // Set when this order was created as a REPRINT of another (a repeat job).
     // A real self-FK (same table, same DB, so it can be enforced — unlike
     // hubCustomerId which is a cross-database hint). `set null` rather than
