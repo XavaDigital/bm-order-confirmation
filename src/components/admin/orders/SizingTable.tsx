@@ -60,9 +60,9 @@ function toLocal(rows: Props['initialRows']): SizingRow[] {
     size: r.size ?? '',
     playerName: r.playerName ?? '',
     playerNumber: r.playerNumber ?? '',
-    // Shown blank rather than "1" — a column of ones is noise on named kit,
-    // where one-per-person is the rule and bulk lines are the exception.
-    quantity: r.quantity != null && r.quantity !== 1 ? String(r.quantity) : '',
+    // Explicit "1", not blank: players sometimes order multiples of their own
+    // named kit, so the cell must read as an editable value on every row.
+    quantity: String(r.quantity ?? 1),
     notes: r.notes ?? '',
     customValues: { ...(r.customValues ?? {}) },
   }));
@@ -99,7 +99,7 @@ export function SizingTable({
         size: '',
         playerName: '',
         playerNumber: '',
-        quantity: '',
+        quantity: '1',
         notes: '',
         customValues: {},
       },
@@ -226,7 +226,7 @@ export function SizingTable({
     },
     {
       title: (
-        <Tooltip title="How many of this line to make. Blank = 1 — use for bulk unnamed stock, e.g. Medium × 20.">
+        <Tooltip title="How many of this line to make — a player ordering two of their own kit, or bulk stock like Medium × 20.">
           <span>Qty</span>
         </Tooltip>
       ),
