@@ -76,6 +76,11 @@ async function loadOrderGarments(orderId: string) {
     with: {
       sizing: { orderBy: (s, { asc }) => [asc(s.sortOrder), asc(s.createdAt)] },
       garmentType: { columns: { name: true } },
+      // The reference charts the factory cuts to — captured into the revision
+      // snapshot, and compared by variance so a re-linked chart flags the PO.
+      sizeChartLinks: {
+        with: { sizeChart: { columns: { id: true, name: true, storageKey: true } } },
+      },
     },
   });
 }

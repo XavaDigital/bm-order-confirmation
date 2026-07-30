@@ -46,6 +46,9 @@ describe('buildPoSnapshot', () => {
           selectedFabrics: { 'Outer Fabric': 'Cotton Fleece' },
           selectedOptions: { 'Zip Type': 'pullover' },
           sizingColumns: [],
+          // Empty because the fixture loaded no chart links — [] means "loaded
+          // and none", distinct from a legacy snapshot's missing key.
+          sizeCharts: [],
           notes: 'front print',
           lines: [
             {
@@ -682,5 +685,98 @@ describe('asset variance', () => {
     ]);
 
     expect(varianceCounts(variance)).toEqual({ added: 0, modified: 1, removed: 0 });
+  });
+});
+
+/**
+ * Size charts entered the snapshot after quantity did, so the same
+ * compatibility rule applies: a snapshot that never recorded charts must not
+ * produce variance against a live garment that has them.
+ */
+describe('size charts in the snapshot', () => {
+  const chartLink = (id: string, name: string) => ({
+    sizeChart: { id, name, storageKey: `size-charts/${id}.png` },
+  });
+
+  it('captures linked charts, sorted and without dangling links', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({
+        sizeChartLinks: [
+          chartLink('c2', 'Womens Fitted'),
+          chartLink('c1', 'Adult Unisex'),
+          { sizeChart: null }, // dangling link row — dropped, not crashed on
+        ],
+      }),
+    ]);
+
+    expect(snapshot.garments[0].sizeCharts).toEqual([
+      { id: 'c1', name: 'Adult Unisex', storageKey: 'size-charts/c1.png' },
+      { id: 'c2', name: 'Womens Fitted', storageKey: 'size-charts/c2.png' },
+    ]);
+  });
+
+  it('snapshots an empty list when the relation was loaded and empty', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({ sizeChartLinks: [] }),
+    ]);
+
+    expect(snapshot.garments[0].sizeCharts).toEqual([]);
+  });
+
+  it('reports a re-linked chart as variance, by name', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({ sizeChartLinks: [chartLink('c1', 'Adult Unisex')] }),
+    ]);
+    const live = liveGarment({ sizeChartLinks: [chartLink('c2', 'Womens Fitted')] });
+
+    const variance = detectVariance([live], snapshot);
+
+    expect(variance.hasVariance).toBe(true);
+    expect(variance.garments[0].fieldChanges).toContainEqual({
+      field: 'sizeCharts',
+      from: ['Adult Unisex'],
+      to: ['Womens Fitted'],
+    });
+  });
+
+  // Renaming a chart in the library must not flag every PO that references it.
+  it('does not report a renamed chart as variance', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({ sizeChartLinks: [chartLink('c1', 'Adult Unisex')] }),
+    ]);
+    const live = liveGarment({ sizeChartLinks: [chartLink('c1', 'Adult Unisex v2')] });
+
+    expect(detectVariance([live], snapshot).hasVariance).toBe(false);
+  });
+
+  /**
+   * The back-compat case: a revision cut before charts were captured has no
+   * sizeCharts key at all. What it was linked to is unknowable, so it must not
+   * be compared — flagging every pre-existing PO would teach people to ignore
+   * the variance banner.
+   */
+  it('does not invent variance for a snapshot that predates chart capture', () => {
+    const legacy = {
+      orderNumber: 'OC-1',
+      garments: [
+        {
+          garmentId: 'g-1',
+          name: 'Team Hoodie',
+          garmentTypeId: 'type-1',
+          garmentTypeName: 'Pullover Hoodie',
+          fabrics: ['Cotton Fleece'],
+          selectedFabrics: { 'Outer Fabric': 'Cotton Fleece' },
+          selectedOptions: { 'Zip Type': 'pullover' },
+          notes: 'front print',
+          lines: [],
+        },
+      ],
+    } as PoSnapshot;
+    const live = liveGarment({
+      sizing: [],
+      sizeChartLinks: [chartLink('c1', 'Adult Unisex')],
+    });
+
+    expect(detectVariance([live], legacy).hasVariance).toBe(false);
   });
 });
