@@ -13,25 +13,41 @@ export async function parseMultipartFormData(request: NextRequest): Promise<Form
 }
 
 /**
- * Pull the `file` field out of a multipart form, validate its content type
- * and size, and read it into a Buffer. Returns a 400 response on any
- * validation failure. `maxBytes` must be a whole number of megabytes (it is
- * echoed back in the size-limit error message).
+ * Pull the `file` field out of a multipart form, validate it, and read it into
+ * a Buffer. Returns a 400 response on any validation failure. `maxBytes` must
+ * be a whole number of megabytes (it is echoed back in the size-limit error
+ * message).
+ *
+ * Validation is by MIME type (`allowedTypes`) or by filename extension
+ * (`allowedExtensions`) — give at least one. Extensions exist for fonts and
+ * design files, where browsers routinely send `application/octet-stream` (or
+ * vendor-specific strings like `application/postscript` for .ai), so a MIME
+ * allowlist would reject legitimate files depending on the uploader's OS.
  */
 export async function parseUploadedFile(
   formData: FormData,
   {
     allowedTypes,
+    allowedExtensions,
     maxBytes,
     typeErrorMessage,
-  }: { allowedTypes: readonly string[]; maxBytes: number; typeErrorMessage: string },
+  }: {
+    allowedTypes?: readonly string[];
+    /** Lowercase, without the dot: ['otf', 'woff2']. */
+    allowedExtensions?: readonly string[];
+    maxBytes: number;
+    typeErrorMessage: string;
+  },
 ): Promise<{ file: File; buffer: Buffer } | NextResponse> {
   const file = formData.get('file');
   if (!(file instanceof File)) {
     return NextResponse.json({ error: 'Missing "file" field' }, { status: 400 });
   }
 
-  if (!allowedTypes.includes(file.type)) {
+  const typeOk = allowedTypes?.includes(file.type) ?? false;
+  const ext = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : '';
+  const extOk = allowedExtensions?.includes(ext) ?? false;
+  if (!typeOk && !extOk) {
     return NextResponse.json({ error: typeErrorMessage }, { status: 400 });
   }
 

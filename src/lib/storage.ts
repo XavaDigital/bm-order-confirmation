@@ -138,3 +138,8 @@ export function signatureKey(orderId: string, filename: string): string {
 export function sizeChartKey(filename: string): string {
   return `size-charts/${filename}`;
 }
+
+/** Build a namespaced storage key for an uploaded order asset (font/design file). */
+export function orderAssetKey(orderId: string, filename: string): string {
+  return `assets/${orderId}/${filename}`;
+}
