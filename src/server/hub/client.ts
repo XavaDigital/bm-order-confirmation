@@ -27,6 +27,14 @@ export interface HubCustomer {
   resolvedFrom?: string;
 }
 
+export interface HubContact {
+  id: string;
+  name: string;
+  email?: string | null;
+  /** Set when a future contact merge tombstones the requested id. */
+  resolvedFrom?: string;
+}
+
 export type CreateHubCustomerResult =
   | { outcome: 'linked'; customer: HubCustomer }
   | { outcome: 'ambiguous'; candidates: HubCustomer[] }
@@ -132,6 +140,45 @@ export async function pushProductionStatus(
     body: { status },
   });
   return Boolean(res?.ok);
+}
+
+/**
+ * A customer's ACTIVE contacts — the picker surface. Historical rendering of
+ * an order's contact goes through getHubContact instead, which by contract
+ * answers for ended memberships (never filter history on active membership —
+ * fleet trap 3).
+ */
+export async function listHubCustomerContacts(customerId: string): Promise<HubContact[]> {
+  const res = await call(`/customers/${encodeURIComponent(customerId)}/contacts`);
+  if (!res || !res.ok) return [];
+  try {
+    const body = (await res.json()) as { items?: Record<string, unknown>[] } | Record<string, unknown>[];
+    const rows = Array.isArray(body) ? body : (body.items ?? []);
+    return rows.map((row) => ({
+      id: String(row.id),
+      name: String(row.name ?? row.displayName ?? ''),
+      email: (row.email as string | null | undefined) ?? null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** One contact by id — answers for ended memberships and soft-deleted rows. */
+export async function getHubContact(contactId: string): Promise<HubContact | null> {
+  const res = await call(`/contacts/${encodeURIComponent(contactId)}`);
+  if (!res || !res.ok) return null;
+  try {
+    const row = (await res.json()) as Record<string, unknown>;
+    return {
+      id: String(row.id),
+      name: String(row.name ?? row.displayName ?? ''),
+      email: (row.email as string | null | undefined) ?? null,
+      ...(typeof row.resolvedFrom === 'string' && { resolvedFrom: row.resolvedFrom }),
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
