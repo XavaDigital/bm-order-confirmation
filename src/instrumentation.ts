@@ -16,6 +16,12 @@ export async function register() {
   // and through them nodemailer — into the edge bundle, where `crypto` and `fs`
   // do not resolve and the build fails.
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    // Before anything else touches the database. A build ahead of its migration
+    // must not take traffic — see assertMigrationsApplied for what it does and,
+    // more importantly, what it refuses to do.
+    const { assertMigrationsApplied } = await import('@/server/db/startup-check');
+    await assertMigrationsApplied();
+
     const { startScheduler } = await import('@/server/scheduler/runtime');
     startScheduler();
   }
