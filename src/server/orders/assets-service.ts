@@ -55,7 +55,10 @@ export async function createOrderAsset(
         garmentId: input.garmentId ?? null,
         kind: input.kind,
         name: input.name,
-        url: input.url,
+        usage: input.usage ?? null,
+        // The contract has already established exactly one of these is set.
+        url: input.url ?? null,
+        storageKey: input.storageKey ?? null,
         notes: input.notes ?? null,
         includeOnPo: input.includeOnPo,
         sortOrder: input.sortOrder ?? Number(maxSort) + 1,
@@ -88,10 +91,25 @@ export async function updateOrderAsset(
   const existing = await loadAssetOrThrow(orderId, id);
   if (patch.garmentId) await assertGarmentBelongsToOrder(existing.orderId, patch.garmentId);
 
+  /**
+   * The link-xor-upload rule has to hold on the RESULT, and only the stored row
+   * knows what the other side currently is. The contract cannot see that, so a
+   * patch setting `storageKey` on a row that already has a `url` reaches here
+   * looking valid and would violate the database's check constraint — a 500
+   * instead of a message. Clear the side being replaced.
+   */
+  const resolved = { ...patch };
+  if (patch.url != null && patch.storageKey === undefined && existing.storageKey != null) {
+    resolved.storageKey = null;
+  }
+  if (patch.storageKey != null && patch.url === undefined && existing.url != null) {
+    resolved.url = null;
+  }
+
   const updated = await db.transaction(async (tx) => {
     const [row] = await tx
       .update(orderAssets)
-      .set({ ...pickDefined(patch), updatedAt: new Date() })
+      .set({ ...pickDefined(resolved), updatedAt: new Date() })
       .where(eq(orderAssets.id, id))
       .returning();
 
@@ -143,7 +161,15 @@ export async function loadPoAssets(orderId: string) {
   return rows.map((row) => ({
     kind: row.kind,
     name: row.name,
-    url: row.url,
+    usage: row.usage ?? null,
+    url: row.url ?? null,
+    /**
+     * The KEY, not a signed URL. A signed URL expires, and this goes into an
+     * immutable revision snapshot — storing one would leave a dead link on a
+     * document that is supposed to still render years later. Documents sign it
+     * at render time instead.
+     */
+    storageKey: row.storageKey ?? null,
     notes: row.notes ?? null,
     garmentName: row.garment?.name ?? null,
   }));
