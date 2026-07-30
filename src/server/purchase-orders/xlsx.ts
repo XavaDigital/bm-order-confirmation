@@ -125,7 +125,7 @@ function buildSummarySheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
     row++;
     sectionTitle(sheet, row++, 'Design & font files');
     const assetHeader = sheet.getRow(row++);
-    assetHeader.values = ['Type', 'Name', 'Link'];
+    assetHeader.values = ['Type', 'Name', 'Used for', 'Link'];
     styleTableHeader(assetHeader);
     for (const asset of assets) {
       const label = asset.garmentName
@@ -135,9 +135,11 @@ function buildSummarySheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
       assetRow.values = [
         asset.kind,
         neutralizeFormula(label),
+        neutralizeFormula(asset.usage ?? ''),
         // Left as text, not a hyperlink object: Excel's HYPERLINK handling is
         // one more thing to sanitise, and a plain URL is copy-pasteable.
-        neutralizeFormula(asset.url),
+        // An uploaded file has no durable URL — it rides the send email.
+        neutralizeFormula(asset.url ?? (asset.storageKey ? '(attachment)' : '')),
       ];
     }
   }
@@ -190,6 +192,7 @@ function buildLinesSheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
     { header: 'Size', key: 'size', width: 12 },
     { header: 'Player Name', key: 'playerName', width: 22 },
     { header: 'Number', key: 'playerNumber', width: 10 },
+    { header: 'Qty', key: 'quantity', width: 8 },
     ...customLabels.map((label) => ({ header: label, key: `custom:${label}`, width: 18 })),
     { header: 'Notes', key: 'notes', width: 30 },
   ];
@@ -216,6 +219,8 @@ function buildLinesSheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
         size: line.size?.trim() ? neutralizeFormula(line.size) : NO_SIZE_LABEL,
         playerName: neutralizeFormula(line.playerName),
         playerNumber: neutralizeFormula(line.playerNumber),
+        // A real number so Excel can SUM it; pre-quantity lines are one each.
+        quantity: line.quantity ?? 1,
         ...custom,
         notes: neutralizeFormula(line.notes),
       });

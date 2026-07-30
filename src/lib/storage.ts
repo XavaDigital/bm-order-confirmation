@@ -115,6 +115,21 @@ export async function getSignedUrl(
   );
 }
 
+/**
+ * Read a stored file back into memory — for attaching uploaded assets and size
+ * charts to the supplier email. Signed URLs are wrong for that job: a URL in a
+ * sent email expires (7-day signature ceiling), the attachment does not.
+ */
+export async function getFileBuffer(key: string): Promise<Buffer> {
+  try {
+    const res = await client().send(new GetObjectCommand({ Bucket: bucket(), Key: key }));
+    return Buffer.from(await res.Body!.transformToByteArray());
+  } catch (err) {
+    rethrowConfigError(err);
+    throw err;
+  }
+}
+
 /** Delete a file from storage. */
 export async function deleteFile(key: string): Promise<void> {
   try {
