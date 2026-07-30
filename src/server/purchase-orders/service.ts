@@ -18,6 +18,9 @@ import {
   purchaseOrderRevisions,
   purchaseOrders,
   suppliers,
+  workflowStages,
+  workflowStageTasks,
+  workflowTaskCompletions,
 } from '@/db/schema';
 import type { PoSnapshot } from '@/db/schema';
 import { isUniqueViolation } from '@/lib/db-errors';
@@ -68,6 +71,38 @@ async function loadPoOrThrow(id: string) {
   const po = await db.query.purchaseOrders.findFirst({ where: eq(purchaseOrders.id, id) });
   if (!po) throw new NotFoundError('Purchase order');
   return po;
+}
+
+/**
+ * The order's confirmed pre-production checks, for the revision snapshot.
+ * One row per confirming person (that is what makes "checked" and
+ * "double-checked" two entries rather than one), newest last.
+ */
+async function loadOrderChecks(orderId: string) {
+  const rows = await db
+    .select({
+      taskName: workflowStageTasks.name,
+      stageName: workflowStages.name,
+      byEmail: workflowTaskCompletions.confirmedByEmail,
+      at: workflowTaskCompletions.confirmedAt,
+    })
+    .from(workflowTaskCompletions)
+    .innerJoin(workflowStageTasks, eq(workflowStageTasks.id, workflowTaskCompletions.taskId))
+    .innerJoin(workflowStages, eq(workflowStages.id, workflowStageTasks.stageId))
+    .where(
+      and(
+        eq(workflowTaskCompletions.entityType, 'order'),
+        eq(workflowTaskCompletions.entityId, orderId),
+      ),
+    )
+    .orderBy(workflowTaskCompletions.confirmedAt);
+
+  return rows.map((r) => ({
+    taskName: r.taskName,
+    stageName: r.stageName ?? null,
+    byEmail: r.byEmail ?? null,
+    at: r.at.toISOString(),
+  }));
 }
 
 /** All garments of an order with sizing rows + type name — the snapshot/variance input. */
@@ -152,9 +187,14 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput, meta?
   }
 
   const snapshot = buildPoSnapshot(
-    { orderNumber: order.orderNumber, reprintOfOrderNumber: order.sourceOrder?.orderNumber ?? null },
+    {
+      orderNumber: order.orderNumber,
+      reprintOfOrderNumber: order.sourceOrder?.orderNumber ?? null,
+      preparedByEmail: meta?.actorEmail ?? null,
+    },
     selected,
     await loadPoAssets(order.id),
+    await loadOrderChecks(order.id),
   );
 
   const create = () =>
@@ -792,9 +832,14 @@ export async function issueRevision(id: string, input: IssueRevisionInput, meta?
   }
 
   const snapshot = buildPoSnapshot(
-    { orderNumber: order.orderNumber, reprintOfOrderNumber: order.sourceOrder?.orderNumber ?? null },
+    {
+      orderNumber: order.orderNumber,
+      reprintOfOrderNumber: order.sourceOrder?.orderNumber ?? null,
+      preparedByEmail: meta?.actorEmail ?? null,
+    },
     selected,
     await loadPoAssets(order.id),
+    await loadOrderChecks(order.id),
   );
   const revisionNumber = latest.revisionNumber + 1;
 

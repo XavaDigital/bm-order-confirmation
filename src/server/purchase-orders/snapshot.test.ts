@@ -35,6 +35,8 @@ describe('buildPoSnapshot', () => {
     expect(snapshot).toEqual({
       orderNumber: 'OC-AB12CD34',
       reprintOfOrderNumber: null,
+      preparedByEmail: null,
+      checks: [],
       assets: [],
       garments: [
         {
@@ -778,5 +780,37 @@ describe('size charts in the snapshot', () => {
     });
 
     expect(detectVariance([live], legacy).hasVariance).toBe(false);
+  });
+});
+
+describe('provenance in the snapshot', () => {
+  it('records who prepared the revision and which checks preceded it', () => {
+    const snapshot = buildPoSnapshot(
+      { orderNumber: 'OC-1', preparedByEmail: 'sam@beastmode.co.nz' },
+      [liveGarment()],
+      [],
+      [
+        {
+          taskName: 'Artwork approved',
+          stageName: 'Artwork',
+          byEmail: 'ana@beastmode.co.nz',
+          at: '2026-07-30T01:00:00.000Z',
+        },
+        // The same task confirmed by a second person IS the double-check.
+        {
+          taskName: 'Artwork approved',
+          stageName: 'Artwork',
+          byEmail: 'ben@beastmode.co.nz',
+          at: '2026-07-30T02:00:00.000Z',
+        },
+      ],
+    );
+
+    expect(snapshot.preparedByEmail).toBe('sam@beastmode.co.nz');
+    expect(snapshot.checks).toHaveLength(2);
+    expect(snapshot.checks?.map((c) => c.byEmail)).toEqual([
+      'ana@beastmode.co.nz',
+      'ben@beastmode.co.nz',
+    ]);
   });
 });

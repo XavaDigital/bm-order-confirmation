@@ -271,8 +271,33 @@ export function PoPdf({
             {expectedShipDate && (
               <LabelValueRow label="Expected ship" value={expectedShipDate} />
             )}
+            {snapshot.preparedByEmail && (
+              <LabelValueRow label="Prepared by" value={snapshot.preparedByEmail} />
+            )}
           </View>
         </View>
+
+        {(snapshot.checks ?? []).length > 0 && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Checked before issue</Text>
+            {(snapshot.checks ?? []).map((check, i) => (
+              <View key={`${check.taskName}-${i}`} style={s.row}>
+                <Text style={s.label}>{check.taskName}</Text>
+                <Text style={s.value}>
+                  {[
+                    check.byEmail ?? 'system',
+                    new Date(check.at).toLocaleDateString('en-NZ', {
+                      day: 'numeric', month: 'short', year: 'numeric',
+                    }),
+                    check.stageName ? `(${check.stageName})` : null,
+                  ]
+                    .filter(Boolean)
+                    .join('  ·  ')}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
 
         {amended && revisionReason && (
           <View style={s.section}>

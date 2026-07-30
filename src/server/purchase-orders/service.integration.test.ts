@@ -600,8 +600,14 @@ describe('factory-facing data boundary', () => {
     const snapshot = po.revision.snapshot;
     expect(Object.keys(snapshot).sort()).toEqual([
       'assets',
+      // Deliberate addition (2026-07-31): which pre-production checks were
+      // confirmed before issue, and by whom. Staff emails reaching the
+      // supplier document is the point — requested as "who checked it, who
+      // double-checked it" on the production order.
+      'checks',
       'garments',
       'orderNumber',
+      'preparedByEmail',
       'reprintOfOrderNumber',
     ]);
     expect(Object.keys(snapshot.garments[0]).sort()).toEqual([

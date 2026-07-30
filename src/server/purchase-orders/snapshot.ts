@@ -13,6 +13,7 @@
 import type {
   GarmentTypeOption,
   PoSnapshotAsset,
+  PoSnapshotCheck,
   PoSnapshot,
   PoSnapshotGarment,
   PoSnapshotLine,
@@ -105,14 +106,21 @@ export function buildPoSnapshot(
     orderNumber: string;
     /** Set when this order is a reprint — the factory reuses the prior layout. */
     reprintOfOrderNumber?: string | null;
+    /** Who cut this revision. */
+    preparedByEmail?: string | null;
   },
   garments: LiveGarment[],
   /** Assets flagged includeOnPo, captured so a regenerated PDF still matches. */
   assets: PoSnapshotAsset[] = [],
+  /** Order checks confirmed BEFORE this revision was cut — later confirmations
+   *  belong to the next revision, which is what keeps the document honest. */
+  checks: PoSnapshotCheck[] = [],
 ): PoSnapshot {
   return {
     orderNumber: order.orderNumber,
     reprintOfOrderNumber: order.reprintOfOrderNumber ?? null,
+    preparedByEmail: order.preparedByEmail ?? null,
+    checks,
     assets,
     garments: garments.map(
       (g): PoSnapshotGarment => ({

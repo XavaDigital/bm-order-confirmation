@@ -836,6 +836,20 @@ export interface PoSnapshotLine {
   customValues?: Record<string, string> | null;
 }
 
+/**
+ * A pre-production check that had been confirmed when this revision was cut.
+ * "Checked" on a document means checked BEFORE it was issued — a confirmation
+ * recorded after the send belongs to the next revision, not this one.
+ */
+export interface PoSnapshotCheck {
+  taskName: string;
+  stageName: string | null;
+  /** Denormalised at confirm time; survives the user being renamed. */
+  byEmail: string | null;
+  /** ISO timestamp. */
+  at: string;
+}
+
 /** A size chart the factory should cut to, captured at revision time. */
 export interface PoSnapshotSizeChart {
   id: string;
@@ -886,6 +900,10 @@ export interface PoSnapshot {
   assets?: PoSnapshotAsset[];
   /** "Reprint of OC-…" reference, so the factory can reuse the prior layout. */
   reprintOfOrderNumber?: string | null;
+  /** Who cut this revision — the staff email from the acting session. */
+  preparedByEmail?: string | null;
+  /** Order-level checks confirmed before this revision was cut. */
+  checks?: PoSnapshotCheck[];
 }
 
 export const purchaseOrders = confirmation.table(
