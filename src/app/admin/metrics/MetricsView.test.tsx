@@ -8,7 +8,9 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof MetricsView>> 
     totalValueNZD: 0,
     avgOrderValueNZD: 0,
     confirmationRatePct: 0,
+    changesRequestedRatePct: 0,
     avgTimeToConfirmDays: null,
+    avgSentToConfirmDays: null,
     trend: [],
     colorSampleHoldsCount: 0,
     role: 'sales' as const,
@@ -16,6 +18,7 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof MetricsView>> 
     deadFailedEventsCount: 0,
     timeToConfirmBuckets: [],
     pipelineValueTrend: [],
+    conversionValueTrend: [],
     topClubs: [],
     poStatusCounts: [],
     garmentTypePopularity: [],
@@ -100,6 +103,53 @@ describe('MetricsView', () => {
     // spans, so match on the stat card's combined text rather than one node.
     const timeTitle = screen.getByText('Avg. Time to Confirm', { selector: '.ant-statistic-title' });
     expect((timeTitle.closest('.ant-statistic') as HTMLElement).textContent).toContain('3.4');
+  });
+
+  it('renders changes-requested rate and average time to respond', () => {
+    render(
+      <MetricsView
+        {...baseProps({
+          changesRequestedRatePct: 17,
+          avgSentToConfirmDays: 2.1,
+        })}
+      />,
+    );
+
+    const rateTitle = screen.getByText('Changes Requested Rate', { selector: '.ant-statistic-title' });
+    expect(within(rateTitle.closest('.ant-statistic') as HTMLElement).getByText('17')).toBeInTheDocument();
+
+    const timeTitle = screen.getByText('Avg. Time to Respond', { selector: '.ant-statistic-title' });
+    expect((timeTitle.closest('.ant-statistic') as HTMLElement).textContent).toContain('2.1');
+  });
+
+  it('shows an em dash for average time to respond when there are no confirmed orders', () => {
+    render(<MetricsView {...baseProps({ avgSentToConfirmDays: null })} />);
+
+    const timeTitle = screen.getByText('Avg. Time to Respond', { selector: '.ant-statistic-title' });
+    expect(within(timeTitle.closest('.ant-statistic') as HTMLElement).getByText('—')).toBeInTheDocument();
+  });
+
+  it('shows the empty state for conversion value when nothing has been confirmed in 6 months', () => {
+    render(
+      <MetricsView
+        {...baseProps({ conversionValueTrend: [{ month: '2026-06-01', label: 'Jun 26', valueNZD: 0 }] })}
+      />,
+    );
+    expect(screen.getByText(/no orders confirmed in the last 6 months/i)).toBeInTheDocument();
+  });
+
+  it('renders the conversion value chart instead of its empty state once orders have confirmed value', () => {
+    render(
+      <MetricsView
+        {...baseProps({
+          conversionValueTrend: [
+            { month: '2026-05-01', label: 'May 26', valueNZD: 1200 },
+            { month: '2026-06-01', label: 'Jun 26', valueNZD: 3400 },
+          ],
+        })}
+      />,
+    );
+    expect(screen.queryByText(/no orders confirmed in the last 6 months/i)).not.toBeInTheDocument();
   });
 
   it('shows an em dash for average time to confirm when there are no confirmed orders', () => {

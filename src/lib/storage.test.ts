@@ -43,6 +43,7 @@ import {
   getSignedUrl,
   deleteFile,
   mockupKey,
+  mockupThumbnailKey,
   signatureKey,
   sizeChartKey,
   isStorageConfigured,
@@ -189,6 +190,18 @@ describe('getSignedUrl', () => {
 describe('key builders', () => {
   it('mockupKey namespaces by order and garment', () => {
     expect(mockupKey('order-1', 'garment-1', 'a.png')).toBe('mockups/order-1/garment-1/a.png');
+  });
+
+  it('mockupThumbnailKey namespaces alongside the original and forces .webp', () => {
+    expect(mockupThumbnailKey('order-1', 'garment-1', 'a.png')).toBe(
+      'mockups/order-1/garment-1/thumb-a.webp',
+    );
+  });
+
+  it('mockupThumbnailKey strips whatever extension the original had', () => {
+    expect(mockupThumbnailKey('order-1', 'garment-1', 'a.jpeg')).toBe(
+      'mockups/order-1/garment-1/thumb-a.webp',
+    );
   });
 
   it('signatureKey namespaces by order', () => {

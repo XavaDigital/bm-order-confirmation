@@ -144,6 +144,12 @@ export function mockupKey(orderId: string, garmentId: string, filename: string):
   return `mockups/${orderId}/${garmentId}/${filename}`;
 }
 
+/** Build a namespaced storage key for a mock-up image's generated thumbnail (always .webp). */
+export function mockupThumbnailKey(orderId: string, garmentId: string, filename: string): string {
+  const base = filename.replace(/\.[^.]+$/, '');
+  return `mockups/${orderId}/${garmentId}/thumb-${base}.webp`;
+}
+
 /** Build a namespaced storage key for a signature image. */
 export function signatureKey(orderId: string, filename: string): string {
   return `signatures/${orderId}/${filename}`;

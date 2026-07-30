@@ -596,6 +596,11 @@ export const mockupImages = confirmation.table(
       .notNull()
       .references(() => garments.id, { onDelete: 'cascade' }),
     storageKey: text('storage_key').notNull(),
+    // Best-effort resized copy generated at upload time (roadmap 7.3) so the
+    // customer gallery grid doesn't pull the full-size original just to show
+    // a 160x120 tile. Nullable: rows predating this feature, and any row
+    // where thumbnail generation failed, fall back to `storageKey`.
+    thumbnailStorageKey: text('thumbnail_storage_key'),
     caption: text('caption'),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

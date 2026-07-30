@@ -11,6 +11,7 @@ import {
   Space,
   Alert,
   Tag,
+  Button,
   message,
 } from 'antd';
 import {
@@ -82,7 +83,7 @@ export interface CustomerOrderViewProps {
 // ---------------------------------------------------------------------------
 // Already confirmed panel
 // ---------------------------------------------------------------------------
-function AlreadyConfirmedPanel({ orderNumber }: { orderNumber: string }) {
+function AlreadyConfirmedPanel({ orderNumber, token }: { orderNumber: string; token: string }) {
   return (
     <StatusPage icon={<CheckCircleFilled style={{ fontSize: 64, color: '#52c41a', marginBottom: 24 }} />}>
       <Title style={{ color: '#fff', marginBottom: 8 }}>Order Confirmed</Title>
@@ -90,6 +91,13 @@ function AlreadyConfirmedPanel({ orderNumber }: { orderNumber: string }) {
         Order <strong style={{ color: '#fff' }}>{orderNumber}</strong> has already been
         confirmed. No further action is required.
       </Text>
+      <Button
+        icon={<FilePdfOutlined />}
+        href={`/api/o/${token}/pdf`}
+        style={{ marginTop: 20 }}
+      >
+        Download PDF
+      </Button>
     </StatusPage>
   );
 }
@@ -100,9 +108,11 @@ function AlreadyConfirmedPanel({ orderNumber }: { orderNumber: string }) {
 function SuccessPanel({
   orderNumber,
   confirmedAt,
+  token,
 }: {
   orderNumber: string;
   confirmedAt: string;
+  token: string;
 }) {
   return (
     <StatusPage icon={<CheckCircleFilled style={{ fontSize: 72, color: '#52c41a', marginBottom: 24 }} />} maxWidth={520}>
@@ -125,6 +135,13 @@ function SuccessPanel({
       <Paragraph style={{ color: 'rgba(255,255,255,0.55)', marginTop: 32, fontSize: 14 }}>
         Thank you. Your {SALES_REP_LABEL} will be in touch with next steps.
       </Paragraph>
+      <Button
+        icon={<FilePdfOutlined />}
+        href={`/api/o/${token}/pdf`}
+        style={{ marginTop: 8 }}
+      >
+        Download PDF
+      </Button>
     </StatusPage>
   );
 }
@@ -177,7 +194,7 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
   if (order.status === 'confirmed') {
     return (
       <ConfigProvider theme={darkTheme}>
-        <AlreadyConfirmedPanel orderNumber={order.orderNumber} />
+        <AlreadyConfirmedPanel orderNumber={order.orderNumber} token={token} />
       </ConfigProvider>
     );
   }
@@ -195,7 +212,7 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
   if (result) {
     return (
       <ConfigProvider theme={darkTheme}>
-        <SuccessPanel orderNumber={result.orderNumber} confirmedAt={result.confirmedAt} />
+        <SuccessPanel orderNumber={result.orderNumber} confirmedAt={result.confirmedAt} token={token} />
       </ConfigProvider>
     );
   }

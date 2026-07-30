@@ -1,0 +1,1 @@
+ALTER TABLE "confirmation"."mockup_images" ADD COLUMN "thumbnail_storage_key" text;

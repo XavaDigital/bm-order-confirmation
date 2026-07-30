@@ -49,6 +49,7 @@ export default async function CustomerOrderPage({ params }: Props) {
         id: img.id,
         caption: img.caption,
         url: img.url,
+        thumbnailUrl: img.thumbnailUrl,
       })),
       sizeCharts: await signChartRefs(
         g.sizeChartLinks.filter((l) => l.sizeChart).map((l) => l.sizeChart!),
