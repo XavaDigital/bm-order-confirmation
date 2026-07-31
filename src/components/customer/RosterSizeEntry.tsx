@@ -70,6 +70,7 @@ export function RosterSizeEntry({
           allowClear
           style={{ width: '100%' }}
           disabled={disabled}
+          aria-label={`Size for ${garment.name}`}
         />
       ) : (
         <Input
@@ -78,6 +79,7 @@ export function RosterSizeEntry({
           placeholder="Enter your size (for example: XS, S, M, L)"
           maxLength={64}
           disabled={disabled}
+          aria-label={`Size for ${garment.name}`}
         />
       )}
     </div>

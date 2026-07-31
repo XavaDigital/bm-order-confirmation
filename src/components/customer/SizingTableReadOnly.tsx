@@ -87,6 +87,7 @@ export function SizingTableReadOnly({
       rowKey="_key"
       pagination={false}
       size="small"
+      scroll={{ x: 'max-content' }}
       style={{
         border: '1px solid rgba(255,255,255,0.1)',
         borderRadius: 6,

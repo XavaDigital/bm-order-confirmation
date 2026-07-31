@@ -75,6 +75,7 @@ export function AcknowledgmentPanel({ checked, onChange }: Props) {
   return (
     <div>
       <div
+        aria-live="polite"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -97,30 +98,31 @@ export function AcknowledgmentPanel({ checked, onChange }: Props) {
         {ACKNOWLEDGMENTS.map((ack) => (
           <div
             key={ack.key}
-            onClick={() => toggle(ack.key)}
             style={{
               display: 'flex',
               alignItems: 'flex-start',
-              gap: 12,
               padding: '12px 16px',
               background: checked.has(ack.key)
                 ? 'rgba(82,196,26,0.08)'
                 : 'rgba(255,255,255,0.04)',
               border: `1px solid ${checked.has(ack.key) ? 'rgba(82,196,26,0.35)' : 'rgba(255,255,255,0.1)'}`,
               borderRadius: 6,
-              cursor: 'pointer',
               transition: 'all 0.15s',
             }}
           >
+            {/* ack.text as Checkbox children (not a sibling) so antd wraps both
+                in one real <label> — gives the checkbox its accessible name and
+                click-anywhere-on-text-to-toggle natively, no manual div onClick
+                + stopPropagation hack needed. */}
             <Checkbox
               checked={checked.has(ack.key)}
               onChange={() => toggle(ack.key)}
-              onClick={(e) => e.stopPropagation()}
-              style={{ marginTop: 1, flexShrink: 0 }}
-            />
-            <Typography.Text style={{ color: 'rgba(255,255,255,0.85)', lineHeight: 1.5 }}>
-              {ack.text}
-            </Typography.Text>
+              style={{ alignItems: 'flex-start', width: '100%' }}
+            >
+              <Typography.Text style={{ color: 'rgba(255,255,255,0.85)', lineHeight: 1.5 }}>
+                {ack.text}
+              </Typography.Text>
+            </Checkbox>
           </div>
         ))}
       </Space>

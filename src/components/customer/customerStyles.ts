@@ -24,7 +24,9 @@ export const CARD_BODY_STYLES: { body: CSSProperties } = {
  * bottom margin spread it: `{ ...FIELD_LABEL_STYLE, marginBottom: 10 }`.
  */
 export const FIELD_LABEL_STYLE: CSSProperties = {
-  color: 'rgba(255,255,255,0.45)',
+  // 0.45 measured ~4.37:1 against the panel background — just under the 4.5:1
+  // WCAG AA minimum for small text. 0.55 clears it (~5.8:1).
+  color: 'rgba(255,255,255,0.55)',
   fontSize: 12,
   textTransform: 'uppercase',
   letterSpacing: 1,
@@ -40,7 +42,8 @@ export const WARNING_SURFACE_STYLE: CSSProperties = {
 
 /** Passed to antd `<Descriptions styles={DESCRIPTIONS_STYLES}>`. */
 export const DESCRIPTIONS_STYLES: { label: CSSProperties; content: CSSProperties } = {
-  label: { color: 'rgba(255,255,255,0.45)', fontSize: 12 },
+  // See FIELD_LABEL_STYLE above — same contrast fix (0.45 → 0.55).
+  label: { color: 'rgba(255,255,255,0.55)', fontSize: 12 },
   content: { color: 'rgba(255,255,255,0.9)' },
 };
 
