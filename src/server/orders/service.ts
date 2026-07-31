@@ -255,12 +255,71 @@ export type CreateOrderResult = {
   url: string;
 };
 
+/**
+ * A hub-linked create with no customer block (the email relay, per David's
+ * ruling: the relay carries the id, never a name — uuids survive renames and
+ * merges, name strings drift). Resolved against the hub at create time; a
+ * failure REFUSES the create as a 503 rather than storing a placeholder,
+ * because the relay is idempotent on externalRef and retries — a refused
+ * create heals, a placeholder name persists.
+ */
+async function resolveCustomerFromHub(input: CreateOrderInput): Promise<{
+  name: string;
+  email: string;
+  contact?: string;
+  clubName?: string;
+  hubCustomerName: string;
+  hubContactName: string | null;
+}> {
+  const { getHubCustomer, getHubContact } = await import('@/server/hub/client');
+  const customer = await getHubCustomer(input.hubCustomerId!);
+  if (!customer) throw new HubUnavailableError();
+  const contact = input.hubContactId ? await getHubContact(input.hubContactId) : null;
+  if (input.hubContactId && !contact) throw new HubUnavailableError();
+
+  return {
+    // The person is the contact when known; the row's name is the org/club.
+    name: contact?.name ?? customer.name,
+    email: contact?.email ?? customer.email ?? '',
+    contact: contact?.name,
+    clubName: customer.name,
+    hubCustomerName: customer.name,
+    hubContactName: contact?.name ?? null,
+  };
+}
+
+export class HubUnavailableError extends Error {
+  // The suffix maps to 503 in defineRoute; the message is surfaced, so it
+  // tells the relay operator what actually happened.
+  name = 'HubUnavailableError';
+  constructor() {
+    super('Could not resolve the customer from the Sales Hub — try again.');
+  }
+}
+
 export async function createOrder(
   input: CreateOrderInput,
   createdBy?: string,
 ): Promise<CreateOrderResult> {
   const rawToken = generateToken();
   let createdOrderId = '';
+
+  // Resolve BEFORE the transaction — a network call inside it would hold the
+  // tx open (and deadlock PGlite in tests).
+  const customer = input.customer
+    ? {
+        ...input.customer,
+        hubCustomerName: input.hubCustomerName ?? input.customer.name,
+        hubContactName: input.hubContactName ?? null,
+      }
+    : await resolveCustomerFromHub(input);
+
+  // The relay's order label + first note, folded into internal notes so
+  // nothing the salesperson typed is lost.
+  const relayNotes =
+    [input.name ? `Order name: ${input.name}` : null, input.notes ?? null]
+      .filter(Boolean)
+      .join('\n') || null;
 
   const orderNumber = await withOrderNumberRetry(async (orderNumber) => {
   await db.transaction(async (tx) => {
@@ -270,10 +329,10 @@ export async function createOrder(
         orderNumber,
         source: input.source,
         externalRef: input.externalRef,
-        customerName: input.customer.name,
-        customerEmail: input.customer.email,
-        customerContact: input.customer.contact,
-        clubName: input.customer.clubName,
+        customerName: customer.name,
+        customerEmail: customer.email,
+        customerContact: customer.contact,
+        clubName: customer.clubName,
         orderValueAmount: input.orderValue ? input.orderValue.amount.toFixed(2) : null,
         orderValueCurrency: input.orderValue?.currency ?? 'NZD',
         invoiceUrl: input.invoiceUrl,
@@ -285,10 +344,11 @@ export async function createOrder(
         status: 'draft',
         createdBy: createdBy ?? null,
         hubCustomerId: input.hubCustomerId ?? null,
-        hubCustomerName: input.hubCustomerName ?? null,
+        hubCustomerName: input.hubCustomerId ? customer.hubCustomerName : null,
         hubContactId: input.hubContactId ?? null,
-        hubContactName: input.hubContactName ?? null,
+        hubContactName: input.hubContactId ? customer.hubContactName : null,
         designProjectRef: input.designProjectRef ?? null,
+        ...(relayNotes && { internalNotes: relayNotes }),
       })
       .returning({ id: orders.id });
 

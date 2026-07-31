@@ -9,6 +9,22 @@ vi.mock('@/db', async () => {
   return { db, schema };
 });
 
+// A hoisted holder rather than per-test mockResolvedValue: the factory's
+// closures read it at CALL time, so the stubs hold regardless of how the
+// runner resets mock implementations between registrations.
+const hubStub = vi.hoisted(() => ({
+  customer: null as { id: string; name: string; email?: string | null } | null,
+  contact: null as { id: string; name: string; email?: string | null } | null,
+}));
+vi.mock('@/server/hub/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/server/hub/client')>();
+  return {
+    ...actual,
+    getHubCustomer: vi.fn(async () => hubStub.customer),
+    getHubContact: vi.fn(async () => hubStub.contact),
+  };
+});
+
 import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
@@ -170,5 +186,81 @@ describe('POST /api/capability/v1/orders/[id]/notes', () => {
       params: Promise.resolve({ id: '00000000-0000-4000-8000-000000000000' }),
     });
     expect(res.status).toBe(404);
+  });
+});
+
+
+/**
+ * The email-relay create (fleet thread 2026-07-31, David's ruling): the relay
+ * carries hubCustomerId — never a customer name — and my side resolves the
+ * person from the hub. Minimal body: { hubCustomerId, externalRef, name?,
+ * notes? }, no customer block, no garments.
+ */
+describe('POST /api/capability/v1/orders — hub relay body', () => {
+  const HUB_CUSTOMER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const HUB_CONTACT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+  function relayRequest(body: Record<string, unknown>) {
+    return new NextRequest('http://localhost/api/capability/v1/orders', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.INBOUND_CAPABILITY_SECRET}`,
+        'X-Acting-User': 'sam@beastmode.co.nz',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('creates a draft from hubCustomerId alone, resolving the customer from the hub', async () => {
+    hubStub.customer = { id: HUB_CUSTOMER, name: 'Wildcats Netball', email: 'club@wildcats.nz' };
+    hubStub.contact = { id: HUB_CONTACT, name: 'Jane Coach', email: 'jane@wildcats.nz' };
+
+    const res = await POST(relayRequest({
+      hubCustomerId: HUB_CUSTOMER,
+      hubContactId: HUB_CONTACT,
+      externalRef: 'hub-order-1',
+      name: 'Winter hoodies 2026',
+      notes: 'Customer wants a quote by Friday',
+    }));
+
+    const resBody = await res.clone().json();
+    expect({ status: res.status, body: resBody }).toMatchObject({ status: 201 });
+    const row = await db.query.orders.findFirst({
+      where: eq(schema.orders.externalRef, 'hub-order-1'),
+    });
+    expect(row).toMatchObject({
+      status: 'draft',
+      // The person is the contact; the row name is the org.
+      customerName: 'Jane Coach',
+      customerEmail: 'jane@wildcats.nz',
+      clubName: 'Wildcats Netball',
+      hubCustomerId: HUB_CUSTOMER,
+      hubCustomerName: 'Wildcats Netball',
+      hubContactId: HUB_CONTACT,
+      hubContactName: 'Jane Coach',
+    });
+    // The composer's label and note both survive, in the internal notes.
+    expect(row!.internalNotes).toContain('Winter hoodies 2026');
+    expect(row!.internalNotes).toContain('quote by Friday');
+  });
+
+  it('503s (and creates nothing) when the hub cannot resolve the customer — the relay retries', async () => {
+    hubStub.customer = null;
+
+    const res = await POST(relayRequest({ hubCustomerId: HUB_CUSTOMER, externalRef: 'hub-order-2' }));
+
+    expect(res.status).toBe(503);
+    expect(await db.query.orders.findFirst({
+      where: eq(schema.orders.externalRef, 'hub-order-2'),
+    })).toBeUndefined();
+  });
+
+  // The standalone contract is unchanged: no hub id means the old rules.
+  it('still refuses a standalone create with no customer or garments', () => {
+    expect(() => createOrderSchema.parse({})).toThrow();
+    expect(() =>
+      createOrderSchema.parse({ customer: { name: 'A', email: 'a@b.c' } }),
+    ).toThrow(/at least one garment/);
   });
 });

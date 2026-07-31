@@ -68,12 +68,31 @@ export const createOrderSchema = z.object({
   source: z.enum(['internal_admin', 'platform']).optional().default('internal_admin'),
   externalRef: z.string().optional(),
 
-  customer: z.object({
-    name: z.string().min(1),
-    email: z.string().email(),
-    contact: z.string().optional(),
-    clubName: z.string().optional(),
-  }),
+  /**
+   * OPTIONAL when `hubCustomerId` is given (David's ruling, fleet thread
+   * 2026-07-31): the email relay carries the hub customer id, never a name —
+   * a uuid is stable through renames and merges, a name string drifts. The
+   * service resolves name/email from the hub at create time. Standalone
+   * orders (no hub id) still require it — enforced by the superRefine below.
+   */
+  customer: z
+    .object({
+      name: z.string().min(1),
+      email: z.string().email(),
+      contact: z.string().optional(),
+      clubName: z.string().optional(),
+    })
+    .optional(),
+
+  /**
+   * Relay conveniences from the email composer (keys as salesflow's relay
+   * sends them): an order label and a first note, folded into the draft's
+   * internal notes so nothing the salesperson typed is lost. The hub index
+   * row keeps `name` as the display label; this side has no order-name column
+   * and does not need one.
+   */
+  name: z.string().trim().max(200).optional(),
+  notes: z.string().trim().max(4000).optional(),
 
   orderValue: z
     .object({
@@ -94,7 +113,13 @@ export const createOrderSchema = z.object({
     })
     .optional(),
 
-  garments: z.array(garmentSchema).min(1, 'an order needs at least one garment'),
+  /**
+   * A hub-linked relay create may arrive with NO garments — the email
+   * composer is metadata-only and staff complete the draft here. Standalone
+   * creates still need at least one; the superRefine at the bottom enforces
+   * the pair of rules together.
+   */
+  garments: z.array(garmentSchema).default([]),
 
   // optionally enable the per-order confirmation code (default off — link alone works)
   requireAccessCode: z.boolean().optional().default(false),
@@ -110,6 +135,26 @@ export const createOrderSchema = z.object({
   // One-way pointer to the originating DesignFlow project (their uuid —
   // rename/merge-stable per the fleet thread). No sync either direction.
   designProjectRef: z.string().uuid().optional(),
+}).superRefine((value, ctx) => {
+  // The pair of standalone-vs-relay rules. A hub-linked create may omit both
+  // (the service resolves the customer from the hub; staff add garments); a
+  // standalone create must carry both, as it always has.
+  if (!value.hubCustomerId) {
+    if (!value.customer) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['customer'],
+        message: 'customer is required unless hubCustomerId is given',
+      });
+    }
+    if (value.garments.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['garments'],
+        message: 'an order needs at least one garment',
+      });
+    }
+  }
 });
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
