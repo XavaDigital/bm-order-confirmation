@@ -27,6 +27,7 @@ import {
   isEmailConfigured,
   sendInviteEmail,
   sendMagicLink,
+  sendNotificationEmail,
   sendStaffChangeRequestEmail,
   sendStaffColorSampleRequestEmail,
   sendStaffConfirmationEmail,
@@ -471,5 +472,38 @@ describe('sendSupplierPoEmail', () => {
     expect(call.text).toContain('supersedes all previous versions');
     expect(call.text).toContain('Two sizes changed after customer review');
     expect(call.html).toContain('Two sizes changed after customer review');
+  });
+});
+
+describe('sendNotificationEmail', () => {
+  it('throws when SMTP is not configured', async () => {
+    await expect(
+      sendNotificationEmail({
+        to: 'staff@b.com',
+        toName: 'Staff',
+        subject: 'A purchase order was sent',
+        html: '<p>PO-1 has gone to the supplier</p>',
+        text: 'PO-1 has gone to the supplier',
+      }),
+    ).rejects.toThrow('SMTP is not configured');
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it('delivers the pre-rendered subject/html/text as-is, with no extra template wrapping', async () => {
+    configureSmtp();
+    await sendNotificationEmail({
+      to: 'staff@b.com',
+      toName: 'Staff',
+      subject: 'A purchase order was sent',
+      html: '<p>PO-1 has gone to the supplier</p>',
+      text: 'PO-1 has gone to the supplier',
+    });
+
+    expect(sendMail).toHaveBeenCalledTimes(1);
+    const call = sendMail.mock.calls[0][0];
+    expect(call.to).toBe('Staff <staff@b.com>');
+    expect(call.subject).toBe('A purchase order was sent');
+    expect(call.html).toBe('<p>PO-1 has gone to the supplier</p>');
+    expect(call.text).toBe('PO-1 has gone to the supplier');
   });
 });
