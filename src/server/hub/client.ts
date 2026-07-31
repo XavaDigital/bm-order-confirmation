@@ -164,6 +164,51 @@ export async function listHubCustomerContacts(customerId: string): Promise<HubCo
   }
 }
 
+export interface HubCustomerProject {
+  /** The HUB project id (not DesignFlow's). */
+  hubProjectId: string;
+  name: string;
+  designStatus?: string | null;
+  /**
+   * DesignFlow's project uuid, from the `design_tool` external reference —
+   * the value orders.design_project_ref stores (rename/merge-stable, fleet
+   * thread D3). Null when the hub project has no DesignFlow counterpart,
+   * in which case there is nothing to link an order to.
+   */
+  designProjectRef: string | null;
+}
+
+/**
+ * A hub customer's design projects, for the order↔project link picker.
+ * Reads the same aggregation MailFlow's tabs use (`/customers/:id/projects`,
+ * paginated envelope); tombstoned customer ids resolve one hop hub-side.
+ */
+export async function listHubCustomerProjects(customerId: string): Promise<HubCustomerProject[]> {
+  const res = await call(`/customers/${encodeURIComponent(customerId)}/projects?limit=100`);
+  if (!res?.ok) return [];
+  try {
+    const body = (await res.json()) as {
+      items?: Array<{
+        id?: unknown;
+        name?: unknown;
+        designStatus?: unknown;
+        externalReferences?: Array<{ system?: unknown; externalId?: unknown }>;
+      }>;
+    };
+    return (body.items ?? []).map((row) => ({
+      hubProjectId: String(row.id),
+      name: String(row.name ?? ''),
+      designStatus: typeof row.designStatus === 'string' ? row.designStatus : null,
+      designProjectRef:
+        row.externalReferences?.find((r) => r.system === 'design_tool')?.externalId != null
+          ? String(row.externalReferences.find((r) => r.system === 'design_tool')!.externalId)
+          : null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 /** One contact by id — answers for ended memberships and soft-deleted rows. */
 export async function getHubContact(contactId: string): Promise<HubContact | null> {
   const res = await call(`/contacts/${encodeURIComponent(contactId)}`);

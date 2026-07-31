@@ -56,6 +56,7 @@ import { AuditLogTab } from '@/components/admin/orders/AuditLogTab';
 import { RosterPanel } from '@/components/admin/orders/RosterPanel';
 import { ProductionPanel } from '@/components/admin/orders/ProductionPanel';
 import { OrderAssetsPanel } from '@/components/admin/orders/OrderAssetsPanel';
+import { DesignProjectLinkControl } from '@/components/admin/orders/DesignProjectLinkControl';
 import { NotesThread } from '@/components/admin/orders/NotesThread';
 import { StageChecklist } from '@/components/admin/workflow/StageChecklist';
 import { useProductionSummary } from '@/lib/use-production-summary';
@@ -672,21 +673,12 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
             </Tag>
           </Tooltip>
         )}
-        {order.designProjectRef && (
-          <Tooltip title="Open the originating design project in DesignFlow">
-            {/* One-way pointer — DesignFlow's uuid is rename/merge-stable and
-                the URL format is their committed contract (fleet thread D3). */}
-            <a
-              href={`https://designflow.beastmode.co.nz/projects/${order.designProjectRef}`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <Tag icon={<LinkOutlined />} color="purple">
-                Design project
-              </Tag>
-            </a>
-          </Tooltip>
-        )}
+        <DesignProjectLinkControl
+          orderId={order.id}
+          hubCustomerId={order.hubCustomerId}
+          designProjectRef={order.designProjectRef}
+          onChanged={() => router.refresh()}
+        />
         {order.customerName && (
           <Typography.Text type="secondary">— {order.customerName}</Typography.Text>
         )}
