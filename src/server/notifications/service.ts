@@ -15,6 +15,7 @@ import * as email from '@/lib/email';
 import {
   generateAccessToken,
   getOrderAdmin,
+  ConflictError,
   NotFoundError,
 } from '@/server/orders/service';
 import {
@@ -48,6 +49,19 @@ export async function sendOrderConfirmationLink(
 ): Promise<{ url: string }> {
   const order = await getOrderAdmin(orderId);
   if (!order) throw new NotFoundError('Order');
+
+  /**
+   * A hub-linked order can be created with the contact/branding fields blank
+   * (they resolve from the CRM, whose contact may have no email). The order
+   * page cannot be SENT without one — enforced here, at send time, with words
+   * that say what to do, rather than at create time where it would block the
+   * email-relay flow.
+   */
+  if (!order.customerEmail || !order.customerName) {
+    throw new ConflictError(
+      'Add a contact name and email under "Order page contact & branding" before sending the order page.',
+    );
+  }
 
   const { url } = await generateAccessToken(orderId, { actorEmail: meta.actorEmail });
 

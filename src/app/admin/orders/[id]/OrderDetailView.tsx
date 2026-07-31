@@ -404,7 +404,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
             value={hubContact}
             onSelect={setHubContact}
           />
-          <OrderForm form={form} initialValues={initialValues} />
+          <OrderForm form={form} initialValues={initialValues} hubLinked={hubCustomer !== null} />
           <Card
             size="small"
             style={{ borderColor: SEMANTIC.warning, background: 'rgba(250, 173, 20, 0.06)' }}

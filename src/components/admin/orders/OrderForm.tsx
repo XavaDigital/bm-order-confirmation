@@ -25,6 +25,13 @@ interface Props {
   initialValues?: Partial<OrderFormValues>;
   form: FormInstance<OrderFormValues>;
   disabled?: boolean;
+  /**
+   * True when a Sales Hub customer is linked. The contact/branding fields
+   * then stop being required at form level — the server resolves them from
+   * the CRM contact when omitted, and sending the order page enforces an
+   * email at send time. Standalone orders (no hub) keep the old rules.
+   */
+  hubLinked?: boolean;
 }
 
 const CURRENCY_OPTIONS = [
@@ -39,7 +46,7 @@ const SHIPPING_OPTIONS = [
   { value: 'later', label: 'Provide later' },
 ];
 
-export function OrderForm({ initialValues, form, disabled }: Props) {
+export function OrderForm({ initialValues, form, disabled, hubLinked = false }: Props) {
   const defaults: Partial<OrderFormValues> = {
     orderValueCurrency: 'NZD',
     shippingMode: 'prefilled',
@@ -61,28 +68,34 @@ export function OrderForm({ initialValues, form, disabled }: Props) {
       disabled={disabled}
       size="middle"
     >
-      <Typography.Title level={5} style={{ marginBottom: 16, marginTop: 0 }}>
-        Customer
+      <Typography.Title level={5} style={{ marginBottom: 4, marginTop: 0 }}>
+        Order page contact &amp; branding
       </Typography.Title>
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 13 }}>
+        Shown on the customer-facing order page and used to email the link.
+        {hubLinked
+          ? ' Optional — left blank, these fill from the linked CRM customer and contact; they must be set before the order page is sent.'
+          : ''}
+      </Typography.Paragraph>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
         <Form.Item
           name="customerName"
-          label="Customer Name"
-          rules={[{ required: true, message: 'Required' }]}
+          label="Contact Name"
+          rules={[{ required: !hubLinked, message: 'Required' }]}
         >
-          <Input placeholder="Jane Smith" />
+          <Input placeholder={hubLinked ? 'From CRM contact' : 'Jane Smith'} />
         </Form.Item>
 
         <Form.Item
           name="customerEmail"
           label="Email"
           rules={[
-            { required: true, message: 'Required' },
+            { required: !hubLinked, message: 'Required' },
             { type: 'email', message: 'Enter a valid email' },
           ]}
         >
-          <Input placeholder="jane@teamclub.co.nz" />
+          <Input placeholder={hubLinked ? 'From CRM contact' : 'jane@teamclub.co.nz'} />
         </Form.Item>
 
         <Form.Item name="customerContact" label="Contact / Phone">

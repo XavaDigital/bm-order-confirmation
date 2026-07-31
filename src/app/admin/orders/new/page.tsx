@@ -18,6 +18,7 @@ import { ArrowLeftOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/ico
 import Link from 'next/link';
 import { OrderForm, toApiPayload, type OrderFormValues } from '@/components/admin/orders/OrderForm';
 import { CustomerHubSelect, type HubCustomerPick } from '@/components/admin/orders/CustomerHubSelect';
+import { ContactHubSelect, type HubContactPick } from '@/components/admin/orders/ContactHubSelect';
 import { getJson, postJson } from '@/lib/api-fetch';
 
 const { Title } = Typography;
@@ -44,6 +45,14 @@ export default function NewOrderPage() {
   const [submitting, setSubmitting] = useState(false);
   const [types, setTypes] = useState<GarmentTypeOption[]>([]);
   const [hubCustomer, setHubCustomer] = useState<HubCustomerPick | null>(null);
+  const [hubContact, setHubContact] = useState<HubContactPick | null>(null);
+  const [hubConfigured, setHubConfigured] = useState(false);
+
+  useEffect(() => {
+    getJson<{ configured: boolean }>('/api/admin/hub/status')
+      .then((s) => setHubConfigured(s.configured))
+      .catch(() => setHubConfigured(false));
+  }, []);
 
   useEffect(() => {
     getJson<GarmentTypeOption[]>('/api/admin/garment-types?active=1', 'Failed to load garment types')
@@ -98,18 +107,31 @@ export default function NewOrderPage() {
       return;
     }
 
+    // David's ruling: orders should never lack a hub customer. Enforced only
+    // while the hub seam is configured, so standalone/dev keeps working.
+    if (hubConfigured && !hubCustomer) {
+      message.error('Select the Sales Hub customer this order belongs to');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const payload = toApiPayload(values as unknown as Record<string, unknown>);
 
       const body = {
         source: 'internal_admin',
-        customer: {
-          name: payload.customerName,
-          email: payload.customerEmail,
-          contact: payload.customerContact ?? undefined,
-          clubName: payload.clubName ?? undefined,
-        },
+        // Hub-linked with the branding fields left blank: omit the block and
+        // the server resolves contact/branding from the CRM contact.
+        ...(payload.customerName && payload.customerEmail
+          ? {
+              customer: {
+                name: payload.customerName,
+                email: payload.customerEmail,
+                contact: payload.customerContact ?? undefined,
+                clubName: payload.clubName ?? undefined,
+              },
+            }
+          : {}),
         orderValue:
           payload.orderValueAmount != null
             ? {
@@ -131,6 +153,10 @@ export default function NewOrderPage() {
         ...(hubCustomer && {
           hubCustomerId: hubCustomer.id,
           hubCustomerName: hubCustomer.name,
+        }),
+        ...(hubContact && {
+          hubContactId: hubContact.id,
+          hubContactName: hubContact.name,
         }),
       };
 
@@ -172,21 +198,39 @@ export default function NewOrderPage() {
 
       <Card>
         {/* Renders nothing unless the Sales Hub integration is configured */}
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {hubConfigured && (
+            <Typography.Text strong>
+              Customer <Typography.Text type="danger">*</Typography.Text>
+            </Typography.Text>
+          )}
           <CustomerHubSelect
             value={hubCustomer}
             onSelect={(customer) => {
               setHubCustomer(customer);
+              if (customer?.id !== hubCustomer?.id) setHubContact(null);
               if (customer) {
+                // Branding prefill: the org/club from the customer row. The
+                // person fills from the contact pick below.
+                form.setFieldsValue({ clubName: customer.name });
+              }
+            }}
+          />
+          <ContactHubSelect
+            customerId={hubCustomer?.id ?? null}
+            value={hubContact}
+            onSelect={(contact) => {
+              setHubContact(contact);
+              if (contact) {
                 form.setFieldsValue({
-                  customerName: customer.name,
-                  ...(customer.email && { customerEmail: customer.email }),
+                  customerName: contact.name,
+                  ...(contact.email && { customerEmail: contact.email }),
                 });
               }
             }}
           />
         </div>
-        <OrderForm form={form} />
+        <OrderForm form={form} hubLinked={hubCustomer !== null} />
 
         <Divider />
 
