@@ -205,9 +205,34 @@ async function handleHubOrderIndexSync(event: DomainEvent, tx: Transaction): Pro
   await syncOrderIndexToHub(event.aggregateId, { executor: tx, strict: true });
 }
 
+/**
+ * Hub communications-timeline push (mailflow's M3, salesflow's visibility
+ * ruling): lifecycle events only. Deliberately NOT strict — the module never
+ * throws — because a failure here would re-run this event's email handlers on
+ * retry, and those resend (see the header). The hub ingest is idempotent on
+ * (channel, externalRef = the event id), so the re-runs that do happen are
+ * replay-safe. The `created` item is pushed from the create path in
+ * orders/service.ts, which emits no outbox event.
+ *
+ * Must stay registered AFTER handleHubOrderIndexSync: handlers run in array
+ * order, and the index sync stamps hub_order_id, which the timeline item
+ * reads to link itself to the hub order row.
+ */
+async function handleHubTimelinePush(event: DomainEvent, tx: Transaction): Promise<void> {
+  const { pushOrderTimelineEvent } = await import('@/server/hub/timeline');
+  const kind = event.eventType === 'order.confirmed' ? 'confirmed' : 'changes_requested';
+  const p = event.payload as { comment?: string };
+  await pushOrderTimelineEvent(event.aggregateId, kind, {
+    externalRef: event.id,
+    occurredAt: event.createdAt,
+    comment: p.comment ?? null,
+    executor: tx,
+  });
+}
+
 const EVENT_HANDLERS: Record<string, EventHandler[]> = {
-  'order.confirmed': [handleGoogleAdsConversion, handleConfirmationEmail, handleCustomerReceiptEmail, handleHubOrderIndexSync],
-  'order.changes_requested': [handleChangesRequestedEmail, handleHubOrderIndexSync],
+  'order.confirmed': [handleGoogleAdsConversion, handleConfirmationEmail, handleCustomerReceiptEmail, handleHubOrderIndexSync, handleHubTimelinePush],
+  'order.changes_requested': [handleChangesRequestedEmail, handleHubOrderIndexSync, handleHubTimelinePush],
   'order.color_sample_requested': [handleColorSampleRequestedEmail],
   'order.note_added': [handleNoteAddedNotification],
   'workflow.stage_entered': [handleStageEnteredNotification],

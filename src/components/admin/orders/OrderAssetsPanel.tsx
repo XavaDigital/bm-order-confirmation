@@ -27,6 +27,7 @@ import {
 } from 'antd';
 import {
   DeleteOutlined,
+  DownloadOutlined,
   EditOutlined,
   LinkOutlined,
   PaperClipOutlined,
@@ -37,6 +38,7 @@ import type { ColumnType } from 'antd/es/table';
 import { deleteJson, patchJson, postForm, postJson } from '@/lib/api-fetch';
 import { useAdminResource } from '@/lib/use-admin-resource';
 import type { OrderAssetKind } from '@/db/schema';
+import { DesignAssetPickerModal } from './DesignAssetPickerModal';
 
 export interface OrderAsset {
   id: string;
@@ -58,6 +60,8 @@ export interface OrderAsset {
 interface Props {
   orderId: string;
   garments: Array<{ id: string; name: string }>;
+  /** The originating DesignFlow project — enables the pull-from-DesignFlow picker. */
+  designProjectRef?: string | null;
 }
 
 const KIND_LABEL: Record<OrderAssetKind, string> = {
@@ -88,8 +92,9 @@ interface FormValues {
  */
 const USAGE_SUGGESTIONS = [{ value: 'Player Name' }, { value: 'Player Number' }];
 
-export function OrderAssetsPanel({ orderId, garments }: Props) {
+export function OrderAssetsPanel({ orderId, garments, designProjectRef }: Props) {
   const { message } = App.useApp();
+  const [pickerOpen, setPickerOpen] = useState(false);
   const { data, loading, error, reload } = useAdminResource<OrderAsset[]>(
     `/api/admin/orders/${orderId}/assets`,
     { errorMessage: 'Failed to load design files', toast: false },
@@ -343,10 +348,24 @@ export function OrderAssetsPanel({ orderId, garments }: Props) {
         <Typography.Title level={5} style={{ margin: 0, flex: 1 }}>
           Design &amp; font files
         </Typography.Title>
+        {designProjectRef && (
+          <Button icon={<DownloadOutlined />} onClick={() => setPickerOpen(true)}>
+            Pull from DesignFlow
+          </Button>
+        )}
         <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>
           Add file
         </Button>
       </div>
+
+      {designProjectRef && (
+        <DesignAssetPickerModal
+          orderId={orderId}
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          onImported={reload}
+        />
+      )}
 
       {error ? (
         <Typography.Text type="danger">{error}</Typography.Text>

@@ -84,6 +84,11 @@ const schema = z.object({
   CAPABILITY_API_URL: z.string().url().optional(),
   CAPABILITY_API_SECRET: z.string().optional(),
 
+  // DesignFlow's public origin — where the asset-picker's BROWSER calls the
+  // token-authorised action API. Not a credential (the hub-minted
+  // X-Action-Token is the auth), so a default is safe; override for staging.
+  DESIGNFLOW_URL: z.string().url().default('https://designflow.beastmode.co.nz'),
+
   // bm-identity — the fleet identity service (Google SSO + per-app grants).
   // A FOURTH, separate credential: per-app secrets are the fleet norm, so this
   // is never the shared CAPABILITY_API_SECRET or the inbound one.

@@ -231,6 +231,113 @@ export async function patchHubOrder(
 }
 
 /**
+ * Reverse lookup on the hub's external-reference registry: recover the HUB
+ * entity id from our own (or a sibling's) id. Used to find the hub project id
+ * for a DesignFlow project uuid (`system:'design_tool'`) — the action-token
+ * mint is keyed by the HUB id, while we deliberately store DesignFlow's
+ * rename/merge-stable uuid.
+ */
+export async function lookupHubEntityId(
+  system: string,
+  externalId: string,
+  entityType: 'customer' | 'order' | 'project',
+): Promise<string | null> {
+  const res = await call(
+    `/external-references?system=${encodeURIComponent(system)}&externalId=${encodeURIComponent(externalId)}`,
+  );
+  if (!res?.ok) return null;
+  try {
+    const rows = (await res.json()) as Array<{ entityType?: string; entityId?: string }>;
+    return rows.find((r) => r.entityType === entityType)?.entityId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export type MintActionTokenResult =
+  | { outcome: 'ok'; token: string; expiresAt: string }
+  | { outcome: 'refused'; status: number; message: string }
+  | { outcome: 'error' };
+
+/**
+ * Action-token brokerage (capability-api.md): the hub authorises, DesignFlow
+ * mints, and OUR BROWSER then calls DesignFlow's /api/action/v1 directly with
+ * the token — bytes never transit the hub or our server. `hubProjectId` is the
+ * HUB project id (see lookupHubEntityId); `actingUser` is the staff member's
+ * identity user id and is required by the hub.
+ *
+ * Refusals are surfaced with the hub's status so the route can explain WHY the
+ * picker cannot open (409 = DesignFlow doesn't know the project, 403 = acting
+ * user not permitted, 503/502 = brokerage down) instead of a blanket failure.
+ */
+export async function mintProjectActionToken(
+  hubProjectId: string,
+  action: string,
+  actingUser: string,
+): Promise<MintActionTokenResult> {
+  const res = await call(`/projects/${encodeURIComponent(hubProjectId)}/action-tokens`, {
+    method: 'POST',
+    body: { action },
+    actingUser,
+  });
+  if (!res) return { outcome: 'error' };
+  try {
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { message?: string };
+      return {
+        outcome: 'refused',
+        status: res.status,
+        message: body.message ?? `The hub refused the token (${res.status})`,
+      };
+    }
+    const body = (await res.json()) as { token?: string; expiresAt?: string };
+    if (!body.token) return { outcome: 'error' };
+    return { outcome: 'ok', token: body.token, expiresAt: body.expiresAt ?? '' };
+  } catch {
+    return { outcome: 'error' };
+  }
+}
+
+/**
+ * Ingest one item onto the hub's customer communications timeline
+ * (`POST /communications`, capability-api.md §7). Idempotent hub-side on
+ * (channel, externalRef) — a replay returns the existing row — so callers may
+ * safely re-run. Fleet convention (salesflow, thread 2026-07-31): the timeline
+ * is the customer's cross-fleet history; push only what belongs there.
+ */
+export async function postHubCommunication(input: {
+  channel: 'note';
+  direction: 'inbound' | 'outbound';
+  occurredAt: Date;
+  customerId: string;
+  contactId?: string | null;
+  /** The HUB order id (orders.hub_order_id), not our own uuid. */
+  orderId?: string | null;
+  externalRef: string;
+  subject: string;
+  snippet?: string | null;
+}): Promise<boolean> {
+  // The hub validates optional fields with .optional(), which rejects null —
+  // absent fields must be OMITTED, not sent as null.
+  const res = await call('/communications', {
+    method: 'POST',
+    body: {
+      channel: input.channel,
+      direction: input.direction,
+      sourceApp: 'orders',
+      occurredAt: input.occurredAt.toISOString(),
+      customerId: input.customerId,
+      externalRef: input.externalRef,
+      subject: input.subject,
+      ...(input.contactId != null && { contactId: input.contactId }),
+      ...(input.orderId != null && { orderId: input.orderId }),
+      ...(input.snippet != null && { snippet: input.snippet }),
+    },
+  });
+  return Boolean(res?.ok);
+}
+
+/**
  * Create (or link to) a hub customer — idempotent on email. A 409 means the
  * hub found multiple plausible candidates; the caller must disambiguate.
  */

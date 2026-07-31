@@ -386,12 +386,24 @@ export async function createOrder(
     return orderNumber;
   });
 
-  // Post-commit, fire-and-forget: register/refresh the hub's thin index row.
-  // Creation emits no outbox event, so this is the create-path wiring; every
-  // later transition syncs from the outbox handler instead.
-  void import('@/server/hub/order-sync').then(({ syncOrderIndexToHub }) =>
-    syncOrderIndexToHub(createdOrderId),
-  );
+  // Post-commit, fire-and-forget: register/refresh the hub's thin index row
+  // and file the "created" item on the customer timeline. Creation emits no
+  // outbox event, so this is the create-path wiring; every later transition
+  // syncs from the outbox handler instead. `<orderId>:created` keys the
+  // timeline item so a re-run cannot duplicate it.
+  // Sequenced: the register stamps hub_order_id, which the timeline item
+  // reads to link itself to the hub order row.
+  void (async () => {
+    const [{ syncOrderIndexToHub }, { pushOrderTimelineEvent }] = await Promise.all([
+      import('@/server/hub/order-sync'),
+      import('@/server/hub/timeline'),
+    ]);
+    await syncOrderIndexToHub(createdOrderId);
+    await pushOrderTimelineEvent(createdOrderId, 'created', {
+      externalRef: `${createdOrderId}:created`,
+      occurredAt: new Date(),
+    });
+  })();
 
   return { orderId: createdOrderId, orderNumber, token: rawToken, url: buildConfirmationUrl(rawToken) };
 }
@@ -767,12 +779,24 @@ export async function duplicateOrder(
     return orderNumber;
   });
 
-  // Post-commit, fire-and-forget: register/refresh the hub's thin index row.
-  // Creation emits no outbox event, so this is the create-path wiring; every
-  // later transition syncs from the outbox handler instead.
-  void import('@/server/hub/order-sync').then(({ syncOrderIndexToHub }) =>
-    syncOrderIndexToHub(createdOrderId),
-  );
+  // Post-commit, fire-and-forget: register/refresh the hub's thin index row
+  // and file the "created" item on the customer timeline. Creation emits no
+  // outbox event, so this is the create-path wiring; every later transition
+  // syncs from the outbox handler instead. `<orderId>:created` keys the
+  // timeline item so a re-run cannot duplicate it.
+  // Sequenced: the register stamps hub_order_id, which the timeline item
+  // reads to link itself to the hub order row.
+  void (async () => {
+    const [{ syncOrderIndexToHub }, { pushOrderTimelineEvent }] = await Promise.all([
+      import('@/server/hub/order-sync'),
+      import('@/server/hub/timeline'),
+    ]);
+    await syncOrderIndexToHub(createdOrderId);
+    await pushOrderTimelineEvent(createdOrderId, 'created', {
+      externalRef: `${createdOrderId}:created`,
+      occurredAt: new Date(),
+    });
+  })();
 
   return { orderId: createdOrderId, orderNumber, token: rawToken, url: buildConfirmationUrl(rawToken) };
 }

@@ -516,6 +516,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
         <OrderAssetsPanel
           orderId={order.id}
           garments={order.garments.map((g) => ({ id: g.id, name: g.name }))}
+          designProjectRef={order.designProjectRef}
         />
       ),
     },
