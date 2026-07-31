@@ -94,14 +94,20 @@ describe('POST /api/capability/v1/orders', () => {
     expect(res.status).toBe(400);
   });
 
-  it('creates a platform-sourced order with the hub association and returns the link', async () => {
+  it('creates a platform-sourced order and returns the relay contract: id + ADMIN deep link, never the magic link', async () => {
     const res = await POST(request('/api/capability/v1/orders', orderBody()));
     const json = await res.json();
 
     expect(res.status).toBe(201);
-    expect(json.orderId).toBeTruthy();
-    expect(json.token).toBeTruthy();
-    expect(json.url).toContain('/o/');
+    // The hub relay reads `id` and registers `url` as the CRM deep link
+    // (fleet thread 2026-08-01) — so the url must be the admin page, and the
+    // customer magic-link token must not cross this surface at all.
+    expect(json.id).toBeTruthy();
+    expect(json.orderId).toBe(json.id);
+    expect(json.created).toBe(true);
+    expect(json.url).toContain(`/admin/orders/${json.id}`);
+    expect(json.url).not.toContain('/o/');
+    expect(json.token).toBeUndefined();
 
     const order = await db.query.orders.findFirst({ where: eq(schema.orders.id, json.orderId) });
     expect(order!.source).toBe('platform');
@@ -126,7 +132,9 @@ describe('POST /api/capability/v1/orders', () => {
     const replayJson = await replay.json();
 
     expect(replay.status).toBe(200);
+    expect(replayJson.id).toBe(firstJson.id);
     expect(replayJson.orderId).toBe(firstJson.orderId);
+    expect(replayJson.created).toBe(false);
     expect(replayJson.existing).toBe(true);
 
     const count = await db.query.orders.findMany({

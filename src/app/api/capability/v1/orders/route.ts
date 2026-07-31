@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createOrder, getOrderByExternalRef } from '@/server/orders/service';
 import { createOrderSchema } from '@/server/orders/contract';
 import { defineRoute } from '@/lib/route-handler';
+import { env } from '@/lib/env';
 
 /**
  * Inbound capability surface (fleet convention — see bm-designflow's
@@ -9,7 +10,28 @@ import { defineRoute } from '@/lib/route-handler';
  * here. Guarded by the per-app INBOUND_CAPABILITY_SECRET bearer + a required
  * X-Acting-User header for attribution. Idempotent on `externalRef` (the
  * caller's own id for the order) — a replay returns the existing order.
+ *
+ * Response shape (pinned with salesflow, fleet thread 2026-08-01): the relay
+ * reads `id` off the 2xx and registers `url` as the order_platform deep link.
+ * `id` = our order uuid; `url` = the ADMIN deep link. The customer magic-link
+ * (raw token + /o/ URL) is deliberately NOT returned on this surface — the
+ * hub would file it as the CRM deep link and every CRM reader would hold the
+ * customer's secret URL. Staff send the link from this app instead. (The
+ * x-api-key POST /api/orders platform surface still returns it; that contract
+ * is unchanged.)
  */
+function orderResponse(orderId: string, orderNumber: string, created: boolean) {
+  return {
+    id: orderId,
+    orderId,
+    orderNumber,
+    url: `${env.APP_BASE_URL}/admin/orders/${orderId}`,
+    created,
+    // Legacy field predating `created`; kept so older readers keep working.
+    existing: !created,
+  };
+}
+
 export const POST = defineRoute<Record<string, never>, typeof createOrderSchema._type>({
   auth: 'capability',
   tag: 'capability/orders POST',
@@ -21,13 +43,16 @@ export const POST = defineRoute<Record<string, never>, typeof createOrderSchema.
       const existing = await getOrderByExternalRef(body.externalRef);
       if (existing) {
         return NextResponse.json(
-          { orderId: existing.id, orderNumber: existing.orderNumber, existing: true },
+          orderResponse(existing.id, existing.orderNumber, false),
           { status: 200 },
         );
       }
     }
 
     const result = await createOrder({ ...body, source: 'platform' });
-    return NextResponse.json(result, { status: 201 });
+    return NextResponse.json(
+      orderResponse(result.orderId, result.orderNumber, true),
+      { status: 201 },
+    );
   },
 });
