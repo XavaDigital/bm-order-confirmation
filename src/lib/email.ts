@@ -665,6 +665,25 @@ export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Pr
 }
 
 // ---------------------------------------------------------------------------
+// Workflow notification emails — pre-rendered by the notifications sender
+// pass (src/server/notifications/email-sender.ts) from an inbox_items row.
+// Unlike every other export in this file, the content isn't templated here:
+// dispatchNotification() already built the html/text, this just delivers it.
+// ---------------------------------------------------------------------------
+
+export interface SendNotificationEmailParams {
+  to: string;
+  toName: string;
+  subject: string;
+  html: string;
+  text: string;
+}
+
+export async function sendNotificationEmail(params: SendNotificationEmailParams): Promise<void> {
+  await sendEmail(params);
+}
+
+// ---------------------------------------------------------------------------
 // Team roster — shared link to the manager, and per-member nudges
 // (TEAM_ROSTER_PLAN.md Phase 7)
 // ---------------------------------------------------------------------------

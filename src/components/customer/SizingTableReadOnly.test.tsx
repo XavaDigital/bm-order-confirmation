@@ -34,4 +34,15 @@ describe('SizingTableReadOnly', () => {
     // Second row's null fields fall back to an em dash placeholder.
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(3);
   });
+
+  it('enables horizontal scrolling so extra columns scroll instead of squeezing on narrow viewports', () => {
+    const { container } = render(
+      <SizingTableReadOnly
+        rows={[{ size: 'M', playerName: 'Jane Coach', playerNumber: '7', notes: null }]}
+        sizingColumns={[{ label: 'Sleeve Length', type: 'text' }]}
+      />,
+    );
+
+    expect(container.querySelector('.ant-table-scroll-horizontal')).toBeInTheDocument();
+  });
 });

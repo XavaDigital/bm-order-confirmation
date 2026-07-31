@@ -72,6 +72,17 @@ export function scheduledJobs(): ScheduledJob[] {
         return runWorkflowScans();
       },
     },
+    {
+      // Same cadence as process-outbox: dispatchNotification (which populates
+      // the email these send) runs from an outbox handler, so email delivery
+      // shouldn't lag noticeably behind the in-app inbox item it's paired with.
+      name: 'send-notification-emails',
+      intervalMs: MINUTE,
+      run: async () => {
+        const { sendPendingNotificationEmails } = await import('@/server/notifications/email-sender');
+        return sendPendingNotificationEmails();
+      },
+    },
   ];
 }
 

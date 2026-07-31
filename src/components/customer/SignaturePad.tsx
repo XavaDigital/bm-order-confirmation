@@ -2,7 +2,7 @@
 
 import { useRef, useState, useCallback, useEffect } from 'react';
 import SignatureCanvas from 'react-signature-canvas';
-import { Tabs, Button, Upload, Typography, Space } from 'antd';
+import { Tabs, Button, Upload, Typography, Space, Alert } from 'antd';
 import { ClearOutlined, UploadOutlined } from '@ant-design/icons';
 
 export interface SignatureData {
@@ -20,6 +20,7 @@ export function SignaturePad({ onChange }: Props) {
   const [canvasSize, setCanvasSize] = useState({ width: 600, height: 180 });
   const [hasDrawn, setHasDrawn] = useState(false);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Keep canvas internal resolution in sync with its CSS width so coordinates match
   useEffect(() => {
@@ -50,7 +51,11 @@ export function SignaturePad({ onChange }: Props) {
   }, [onChange]);
 
   function handleUpload(file: File) {
-    if (!file.type.startsWith('image/')) return false;
+    if (!file.type.startsWith('image/')) {
+      setUploadError(`"${file.name}" isn't an image. Please upload a JPEG, PNG or WebP file.`);
+      return false;
+    }
+    setUploadError(null);
     const reader = new FileReader();
     reader.onload = (e) => {
       const dataUrl = e.target?.result as string;
@@ -88,6 +93,7 @@ export function SignaturePad({ onChange }: Props) {
                 width: canvasSize.width,
                 height: canvasSize.height,
                 style: { width: '100%', height: canvasSize.height, display: 'block' },
+                'aria-label': 'Draw your signature',
               }}
               penColor="#1e293b"
               backgroundColor="white"
@@ -114,6 +120,15 @@ export function SignaturePad({ onChange }: Props) {
               Clear
             </Button>
           </Space>
+          {/* A drawing canvas can't be operated by keyboard or a screen reader —
+              point everyone at the working alternatives rather than pretend it's
+              accessible. */}
+          <Typography.Text
+            type="secondary"
+            style={{ display: 'block', marginTop: 8, fontSize: 12 }}
+          >
+            Can&rsquo;t sign here? Use the Upload or Skip tab above instead.
+          </Typography.Text>
         </div>
       ),
     },
@@ -147,23 +162,38 @@ export function SignaturePad({ onChange }: Props) {
           </Button>
         </div>
       ) : (
-        <Upload.Dragger
-          showUploadList={false}
-          beforeUpload={handleUpload}
-          accept="image/*"
-          style={{
-            background: 'rgba(255,255,255,0.03)',
-            border: '1px dashed rgba(255,255,255,0.25)',
-          }}
-        >
-          <UploadOutlined style={{ fontSize: 24, color: 'rgba(255,255,255,0.4)' }} />
-          <div style={{ marginTop: 8, color: 'rgba(255,255,255,0.6)' }}>
-            Click or drag an image of your signature
-          </div>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            JPEG, PNG or WebP accepted
-          </Typography.Text>
-        </Upload.Dragger>
+        <div>
+          <Upload.Dragger
+            showUploadList={false}
+            beforeUpload={handleUpload}
+            // No `accept` prop: rc-upload's own accept-based filter runs BEFORE
+            // beforeUpload and silently drops non-matching files with no
+            // callback at all — that's what made the old rejection completely
+            // silent. handleUpload is now the only gate, so every file (image
+            // or not) reaches it and a rejection gets a real, visible message.
+            style={{
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px dashed rgba(255,255,255,0.25)',
+            }}
+          >
+            <UploadOutlined style={{ fontSize: 24, color: 'rgba(255,255,255,0.4)' }} />
+            <div style={{ marginTop: 8, color: 'rgba(255,255,255,0.6)' }}>
+              Click or drag an image of your signature
+            </div>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              JPEG, PNG or WebP accepted
+            </Typography.Text>
+          </Upload.Dragger>
+          {uploadError && (
+            <Alert
+              type="error"
+              showIcon
+              message={uploadError}
+              style={{ marginTop: 8 }}
+              role="alert"
+            />
+          )}
+        </div>
       ),
     },
     {

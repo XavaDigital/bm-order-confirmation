@@ -45,7 +45,16 @@ export function SizeChartTags({ charts, onPreview, labelIcon, style }: SizeChart
                 color: 'rgba(255,255,255,0.8)',
                 cursor: 'pointer',
               }}
+              role="button"
+              tabIndex={0}
+              aria-label={`Preview size chart: ${chart.name}`}
               onClick={() => onPreview(chart)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onPreview(chart);
+                }
+              }}
             >
               {chart.name}
             </Tag>

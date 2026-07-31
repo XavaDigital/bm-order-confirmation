@@ -44,7 +44,16 @@ export function CustomerPageShell({
           }}
         >
           <div style={{ maxWidth: 860, margin: '0 auto' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 16,
+                rowGap: 8,
+                marginBottom: 12,
+              }}
+            >
               {/* Actual logo from beastmode.co.nz — SVG paths render correctly without page fonts */}
               <Image
                 src="/logo.svg"

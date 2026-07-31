@@ -10,15 +10,19 @@ const { isEmptyMock, clearMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('react-signature-canvas', () => {
-  const MockSignatureCanvas = forwardRef((props: { onEnd?: () => void }, ref) => {
-    useImperativeHandle(ref, () => ({
-      clear: clearMock,
-      isEmpty: isEmptyMock,
-      getCanvas: () => ({ toDataURL: () => 'data:image/png;base64,DRAWN' }),
-    }));
-    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
-    return <canvas data-testid="signature-canvas" onClick={() => props.onEnd?.()} />;
-  });
+  const MockSignatureCanvas = forwardRef(
+    (props: { onEnd?: () => void; canvasProps?: Record<string, unknown> }, ref) => {
+      useImperativeHandle(ref, () => ({
+        clear: clearMock,
+        isEmpty: isEmptyMock,
+        getCanvas: () => ({ toDataURL: () => 'data:image/png;base64,DRAWN' }),
+      }));
+      // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
+      return (
+        <canvas data-testid="signature-canvas" {...props.canvasProps} onClick={() => props.onEnd?.()} />
+      );
+    },
+  );
   MockSignatureCanvas.displayName = 'MockSignatureCanvas';
   return { default: MockSignatureCanvas };
 });
@@ -40,6 +44,16 @@ beforeEach(() => {
 });
 
 describe('SignaturePad', () => {
+  it('draw tab: the canvas has an accessible name and points to the alternatives', () => {
+    render(<SignaturePad onChange={vi.fn()} />);
+
+    expect(screen.getByTestId('signature-canvas')).toHaveAttribute(
+      'aria-label',
+      'Draw your signature',
+    );
+    expect(screen.getByText(/use the upload or skip tab above instead/i)).toBeInTheDocument();
+  });
+
   it('draw tab: finishing a stroke reports the drawn data URL and enables Clear', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -78,7 +92,7 @@ describe('SignaturePad', () => {
     expect(screen.getByRole('button', { name: /clear/i })).toBeDisabled();
   });
 
-  it('upload tab: a non-image file is rejected without calling onChange', async () => {
+  it('upload tab: a non-image file is rejected without calling onChange, and shows a visible error', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const { container } = render(<SignaturePad onChange={onChange} />);
@@ -90,6 +104,29 @@ describe('SignaturePad', () => {
 
     expect(onChange).not.toHaveBeenCalled();
     expect(screen.queryByAltText('Uploaded signature')).not.toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/isn't an image/i);
+  });
+
+  it('upload tab: a subsequent valid image clears the earlier error', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { container } = render(<SignaturePad onChange={onChange} />);
+
+    await user.click(screen.getByRole('tab', { name: /upload image/i }));
+    await user.upload(
+      container.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['plain text'], 'notes.txt', { type: 'text/plain' }),
+    );
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+
+    // Re-query: rc-upload may re-render its own <input> between selections.
+    await user.upload(
+      container.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['fake-bytes'], 'sig.png', { type: 'image/png' }),
+    );
+
+    expect(await screen.findByAltText('Uploaded signature')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('upload tab: an image file shows a preview and reports the uploaded data URL; Remove clears it', async () => {
