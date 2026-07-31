@@ -49,6 +49,7 @@ import { ApiError, deleteJson, patchJson, postJson } from '@/lib/api-fetch';
 import { OrderForm, toApiPayload, type OrderFormValues } from '@/components/admin/orders/OrderForm';
 import { GarmentsMasterDetail } from '@/components/admin/orders/GarmentsMasterDetail';
 import { CustomerHubSelect, type HubCustomerPick } from '@/components/admin/orders/CustomerHubSelect';
+import { ContactHubSelect, type HubContactPick } from '@/components/admin/orders/ContactHubSelect';
 import { ShareLinkPanel } from '@/components/admin/orders/ShareLinkPanel';
 import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
 import { AuditLogTab } from '@/components/admin/orders/AuditLogTab';
@@ -107,6 +108,9 @@ export interface AdminOrderData {
   changesRequestedCount: number;
   hubCustomerId?: string | null;
   hubCustomerName?: string | null;
+  hubContactId?: string | null;
+  hubContactName?: string | null;
+  designProjectRef?: string | null;
   /** Set when this order is a reprint — the source order it reprints. */
   sourceOrder?: { id: string; orderNumber: string } | null;
   reprintReason?: string | null;
@@ -162,6 +166,9 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
   const [hubCustomer, setHubCustomer] = useState<HubCustomerPick | null>(
     order.hubCustomerId ? { id: order.hubCustomerId, name: order.hubCustomerName ?? '' } : null,
   );
+  const [hubContact, setHubContact] = useState<HubContactPick | null>(
+    order.hubContactId ? { id: order.hubContactId, name: order.hubContactName ?? '' } : null,
+  );
   const [hasActiveToken, setHasActiveToken] = useState(
     order.currentAccess !== null && order.currentAccess.revokedAt === null,
   );
@@ -211,6 +218,8 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
         shippingMode: payload.shippingMode,
         hubCustomerId: hubCustomer?.id ?? null,
         hubCustomerName: hubCustomer?.name ?? null,
+        hubContactId: hubContact?.id ?? null,
+        hubContactName: hubContact?.name ?? null,
       };
 
       await patchJson(`/api/admin/orders/${order.id}`, body, 'Save failed');
@@ -381,7 +390,20 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
             />
           )}
           {/* Renders nothing unless the Sales Hub integration is configured */}
-          <CustomerHubSelect value={hubCustomer} onSelect={setHubCustomer} />
+          <CustomerHubSelect
+            value={hubCustomer}
+            onSelect={(customer) => {
+              setHubCustomer(customer);
+              // A contact only means something inside its customer — changing
+              // or clearing the customer invalidates the contact pick.
+              if (customer?.id !== hubCustomer?.id) setHubContact(null);
+            }}
+          />
+          <ContactHubSelect
+            customerId={hubCustomer?.id ?? null}
+            value={hubContact}
+            onSelect={setHubContact}
+          />
           <OrderForm form={form} initialValues={initialValues} />
           <Card
             size="small"
@@ -647,6 +669,21 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
             <Tag icon={<LinkOutlined />} color="geekblue">
               Hub: {hubCustomer.name}
             </Tag>
+          </Tooltip>
+        )}
+        {order.designProjectRef && (
+          <Tooltip title="Open the originating design project in DesignFlow">
+            {/* One-way pointer — DesignFlow's uuid is rename/merge-stable and
+                the URL format is their committed contract (fleet thread D3). */}
+            <a
+              href={`https://designflow.beastmode.co.nz/projects/${order.designProjectRef}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Tag icon={<LinkOutlined />} color="purple">
+                Design project
+              </Tag>
+            </a>
           </Tooltip>
         )}
         {order.customerName && (
