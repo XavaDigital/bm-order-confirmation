@@ -111,6 +111,9 @@ export async function syncOrderIndexToHub(
         customerId: order.hubCustomerId,
         contactId: order.hubContactId ?? null,
         orderNumber: order.orderNumber,
+        // The hub row's display label — the org/club when known, else the
+        // person. (An email-relay create carries its own label hub-side.)
+        name: order.clubName ?? order.customerName,
         status: chip,
         orderValue,
         currency,

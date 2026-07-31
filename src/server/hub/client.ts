@@ -193,6 +193,8 @@ export async function registerHubOrder(input: {
   customerId: string;
   contactId?: string | null;
   orderNumber: string;
+  /** The index row's display label (salesflow's live contract requires it). */
+  name: string;
   status: string;
   orderValue?: number | null;
   currency?: string | null;
