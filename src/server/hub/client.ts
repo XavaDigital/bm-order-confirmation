@@ -81,6 +81,19 @@ function toCustomer(row: Record<string, unknown>): HubCustomer {
   };
 }
 
+/**
+ * Rows from a hub customer response, tolerating both shapes: the live
+ * endpoints wrap in `{ items: [...] }`; a bare array is accepted too so a
+ * hub-side envelope change can't silently blank every picker again (the
+ * search shipped expecting an array and returned [] against the real
+ * `{items}` envelope — found live 2026-08-02).
+ */
+function customerRows(body: unknown): Record<string, unknown>[] {
+  if (Array.isArray(body)) return body as Record<string, unknown>[];
+  const items = (body as { items?: unknown })?.items;
+  return Array.isArray(items) ? (items as Record<string, unknown>[]) : [];
+}
+
 /** Typeahead search. Returns [] when unconfigured or on any failure. */
 export async function searchHubCustomers(query: string, limit = 20): Promise<HubCustomer[]> {
   const q = query.trim();
@@ -88,8 +101,7 @@ export async function searchHubCustomers(query: string, limit = 20): Promise<Hub
   const res = await call(`/customers?search=${encodeURIComponent(q)}&limit=${limit}`);
   if (!res?.ok) return [];
   try {
-    const rows = (await res.json()) as Record<string, unknown>[];
-    return rows.map(toCustomer);
+    return customerRows(await res.json()).map(toCustomer);
   } catch {
     return [];
   }
@@ -115,8 +127,7 @@ export async function getHubCustomersByIds(ids: string[]): Promise<HubCustomer[]
     const res = await call(`/customers?ids=${chunk.map(encodeURIComponent).join(',')}`);
     if (!res?.ok) continue;
     try {
-      const rows = (await res.json()) as Record<string, unknown>[];
-      out.push(...rows.map(toCustomer));
+      out.push(...customerRows(await res.json()).map(toCustomer));
     } catch {
       // skip malformed chunk
     }

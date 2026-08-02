@@ -56,6 +56,36 @@ describe('hub client — configured', () => {
     expect(results).toEqual([{ id: 'c1', name: 'Wildcats Netball', email: 'club@x.nz' }]);
   });
 
+  // The LIVE hub wraps list responses in { items } (bm-sales routes.ts) —
+  // the bare-array fixture above is kept only as shape tolerance. This test
+  // exists because the search shipped parsing an array and returned [] for
+  // every real query (found live 2026-08-02).
+  it('search parses the real { items } envelope', async () => {
+    configure();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        items: [{ id: 'c1', displayName: 'Wildcats Netball', name: 'Wildcats Netball', email: 'club@x.nz' }],
+      }),
+    } as Response);
+
+    expect(await searchHubCustomers('wildcats')).toEqual([
+      { id: 'c1', name: 'Wildcats Netball', email: 'club@x.nz' },
+    ]);
+  });
+
+  it('bulk ids lookup parses the { items } envelope too', async () => {
+    configure();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ items: [{ id: 'c2', name: 'Sharks FC', email: null }] }),
+    } as Response);
+
+    expect(await getHubCustomersByIds(['c2'])).toEqual([
+      { id: 'c2', name: 'Sharks FC', email: null },
+    ]);
+  });
+
   it('search skips queries shorter than 2 characters', async () => {
     configure();
     expect(await searchHubCustomers('a')).toEqual([]);

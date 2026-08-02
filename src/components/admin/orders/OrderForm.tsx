@@ -70,6 +70,16 @@ export function OrderForm({ initialValues, form, disabled, hubLinked = false }: 
       disabled={disabled}
       size="middle"
     >
+      {/* First field on the form (David, 2026-08-02) — the label staff know
+          the job by, ahead of the contact/branding block. */}
+      <Form.Item
+        name="name"
+        label="Order Name"
+        extra="A label for this order — shows beside the order number here, in the email app’s sidebar, and on the CRM customer."
+      >
+        <Input placeholder="e.g. Winter hoodies 2026" maxLength={200} />
+      </Form.Item>
+
       <Typography.Title level={5} style={{ marginBottom: 4, marginTop: 0 }}>
         Order page contact &amp; branding
       </Typography.Title>
@@ -112,14 +122,6 @@ export function OrderForm({ initialValues, form, disabled, hubLinked = false }: 
       <Typography.Title level={5} style={{ marginBottom: 16, marginTop: 8 }}>
         Order Details
       </Typography.Title>
-
-      <Form.Item
-        name="name"
-        label="Order Name"
-        extra="A label for this order — shows beside the order number here, in the email app’s sidebar, and on the CRM customer."
-      >
-        <Input placeholder="e.g. Winter hoodies 2026" maxLength={200} />
-      </Form.Item>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
         <Form.Item label="Order Value">
