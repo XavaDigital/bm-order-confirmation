@@ -87,7 +87,7 @@ describe('createOrder', () => {
 
     const result = await createOrder(input);
 
-    expect(result.orderNumber).toMatch(/^OC-[0-9A-F]{8}$/);
+    expect(result.orderNumber).toMatch(/^OC-\d{5,}$/); // sequential since 0030
     expect(tokensMatch(result.token, (await db.query.orderAccess.findFirst())!.tokenHash)).toBe(
       true,
     );

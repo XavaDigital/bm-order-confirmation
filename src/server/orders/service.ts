@@ -7,7 +7,6 @@
  * here — never write order rows from a UI component or let the platform poke the
  * tables directly.
  */
-import { randomBytes } from 'node:crypto';
 import { eq, and, ne, isNull, isNotNull, ilike, or, asc, desc, sql, count, inArray } from 'drizzle-orm';
 import { db } from '@/db';
 import {
@@ -58,15 +57,29 @@ export class ConflictError extends Error {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function generateOrderNumber(): string {
-  return `OC-${randomBytes(4).toString('hex').toUpperCase()}`;
+/**
+ * Sequential order numbers (David, 2026-08-02): OC-10001, OC-10002, … drawn
+ * from `confirmation.order_number_seq` (migration 0030). nextval never
+ * repeats, so concurrent creates cannot collide; a number burned by a failed
+ * create leaves a gap, which sequential-with-gaps accepts. Called BEFORE the
+ * insert transaction opens — never from inside one (PGlite single-connection
+ * rule). Legacy random OC-XXXXXXXX numbers stay valid and cannot collide
+ * with the numeric form.
+ */
+async function generateOrderNumber(): Promise<string> {
+  const res = await db.execute(sql`select nextval('confirmation.order_number_seq') as n`);
+  // node-postgres wraps rows ({ rows: [...] }); PGlite's driver returns the
+  // array directly — normalize so tests and prod read the same shape.
+  const rows = (res as unknown as { rows?: Array<{ n: unknown }> }).rows
+    ?? (res as unknown as Array<{ n: unknown }>);
+  return `OC-${String(rows[0].n)}`;
 }
 
 /**
  * Run `fn` with a freshly generated order number, retrying on an order-number
- * unique violation. 32 bits of randomness makes collisions rare but
- * inevitable at scale (~1.2% odds of one by 10k orders) — without the retry a
- * collision surfaces as an unhandled 500 on a create path.
+ * unique violation. With sequential numbers a collision should be impossible;
+ * the retry stays as the safety net for a mis-set sequence (e.g. restored
+ * dump), where it advances past the clash instead of 500ing a create.
  */
 async function withOrderNumberRetry<T>(
   fn: (orderNumber: string) => Promise<T>,
@@ -74,7 +87,7 @@ async function withOrderNumberRetry<T>(
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await fn(generateOrderNumber());
+      return await fn(await generateOrderNumber());
     } catch (err) {
       if (attempt < attempts && isUniqueViolation(err, 'orders_order_number_unique')) continue;
       throw err;
@@ -314,12 +327,10 @@ export async function createOrder(
       }
     : await resolveCustomerFromHub(input);
 
-  // The relay's order label + first note, folded into internal notes so
-  // nothing the salesperson typed is lost.
-  const relayNotes =
-    [input.name ? `Order name: ${input.name}` : null, input.notes ?? null]
-      .filter(Boolean)
-      .join('\n') || null;
+  // The relay's first note, folded into internal notes so nothing the
+  // salesperson typed is lost. `name` is a real column now (David,
+  // 2026-08-02) — no longer folded in here.
+  const relayNotes = input.notes?.trim() || null;
 
   const orderNumber = await withOrderNumberRetry(async (orderNumber) => {
   await db.transaction(async (tx) => {
@@ -327,6 +338,7 @@ export async function createOrder(
       .insert(orders)
       .values({
         orderNumber,
+        name: input.name?.trim() || null,
         source: input.source,
         externalRef: input.externalRef,
         customerName: customer.name,
@@ -430,6 +442,7 @@ function buildOrdersWhere(opts?: { status?: string; search?: string }) {
           ilike(orders.customerEmail, `%${opts.search}%`),
           ilike(orders.orderNumber, `%${opts.search}%`),
           ilike(orders.clubName, `%${opts.search}%`),
+          ilike(orders.name, `%${opts.search}%`),
         )
       : undefined,
   );
@@ -512,6 +525,7 @@ export async function listOrdersForExport(opts?: {
   return db
     .select({
       orderNumber: orders.orderNumber,
+      name: orders.name,
       customerName: orders.customerName,
       customerEmail: orders.customerEmail,
       clubName: orders.clubName,
@@ -714,6 +728,7 @@ export async function duplicateOrder(
         hubCustomerName: source.hubCustomerName ?? null,
         hubContactId: source.hubContactId ?? null,
         hubContactName: source.hubContactName ?? null,
+        name: source.name ?? null,
         // A reprint is the same design — the project pointer carries forward.
         designProjectRef: source.designProjectRef ?? null,
         // A reprint records what it reprints; a plain duplicate does not, so

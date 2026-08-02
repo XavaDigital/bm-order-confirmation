@@ -37,6 +37,7 @@ type SortDirection = 'ascend' | 'descend' | null;
 interface OrderRow {
   id: string;
   orderNumber: string;
+  name: string | null;
   customerName: string;
   customerEmail: string;
   clubName: string | null;
@@ -150,11 +151,20 @@ export function OrdersView({ initialView = 'board' }: Props = {}) {
     {
       title: 'Order #',
       dataIndex: 'orderNumber',
-      width: 130,
-      render: (val: string) => (
-        <Typography.Text strong style={{ fontFamily: 'monospace' }}>
-          {val}
-        </Typography.Text>
+      width: 170,
+      render: (val: string, record: OrderRow) => (
+        <div>
+          <Typography.Text strong style={{ fontFamily: 'monospace' }}>
+            {val}
+          </Typography.Text>
+          {record.name && (
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {record.name}
+              </Typography.Text>
+            </div>
+          )}
+        </div>
       ),
     },
     {

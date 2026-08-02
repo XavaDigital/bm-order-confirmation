@@ -107,6 +107,7 @@ export interface AdminOrderData {
   colorSampleRequestedAt: string | null;
   changesRequestedComment: string | null;
   changesRequestedCount: number;
+  name?: string | null;
   hubCustomerId?: string | null;
   hubCustomerName?: string | null;
   hubContactId?: string | null;
@@ -180,6 +181,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
   const [shareLinkVersion, setShareLinkVersion] = useState(0);
 
   const initialValues: Partial<OrderFormValues> = {
+    name: order.name ?? undefined,
     customerName: order.customerName,
     customerEmail: order.customerEmail,
     customerContact: order.customerContact ?? undefined,
@@ -205,6 +207,8 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
     try {
       const payload = toApiPayload(values as unknown as Record<string, unknown>);
       const body = {
+        // '' (a cleared input) means "remove the name" — the schema wants null.
+        name: String(payload.name ?? '').trim() || null,
         customerName: payload.customerName,
         customerEmail: payload.customerEmail,
         customerContact: payload.customerContact ?? null,
@@ -656,6 +660,11 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
         <Typography.Title level={3} style={{ margin: 0 }}>
           {order.orderNumber}
         </Typography.Title>
+        {order.name && (
+          <Typography.Text style={{ fontSize: 16 }} type="secondary">
+            {order.name}
+          </Typography.Text>
+        )}
         <OrderStatusBadge status={currentStatus} />
         {order.sourceOrder && (
           <Tooltip title={order.reprintReason ?? 'Reprint of an earlier order'}>

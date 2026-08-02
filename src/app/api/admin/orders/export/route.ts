@@ -5,6 +5,7 @@ import { defineRoute } from '@/lib/route-handler';
 
 const HEADER = [
   'Order Number',
+  'Order Name',
   'Customer Name',
   'Customer Email',
   'Club',
@@ -31,6 +32,7 @@ export const GET = defineRoute({
       HEADER,
       ...rows.map((o) => [
         csvCell(o.orderNumber),
+        untrustedCsvCell(o.name),
         untrustedCsvCell(o.customerName),
         untrustedCsvCell(o.customerEmail),
         untrustedCsvCell(o.clubName),

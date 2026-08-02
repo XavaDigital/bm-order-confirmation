@@ -7,6 +7,8 @@ import dayjs from 'dayjs';
 const { TextArea } = Input;
 
 export interface OrderFormValues {
+  /** Staff-facing order label — distinct from the order number. */
+  name?: string;
   customerName: string;
   customerEmail: string;
   customerContact?: string;
@@ -110,6 +112,14 @@ export function OrderForm({ initialValues, form, disabled, hubLinked = false }: 
       <Typography.Title level={5} style={{ marginBottom: 16, marginTop: 8 }}>
         Order Details
       </Typography.Title>
+
+      <Form.Item
+        name="name"
+        label="Order Name"
+        extra="A label for this order — shows beside the order number here, in the email app’s sidebar, and on the CRM customer."
+      >
+        <Input placeholder="e.g. Winter hoodies 2026" maxLength={200} />
+      </Form.Item>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
         <Form.Item label="Order Value">

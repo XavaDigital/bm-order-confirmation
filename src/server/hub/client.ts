@@ -266,7 +266,15 @@ export async function registerHubOrder(input: {
  */
 export async function patchHubOrder(
   hubOrderId: string,
-  patch: { status?: string; orderValue?: number | null; currency?: string | null; url?: string },
+  patch: {
+    status?: string;
+    orderValue?: number | null;
+    currency?: string | null;
+    url?: string;
+    orderNumber?: string;
+    /** An explicit rename of the index row (hub accepts since bm-sales 00060). */
+    name?: string;
+  },
 ): Promise<boolean> {
   const res = await call(`/orders/${encodeURIComponent(hubOrderId)}`, {
     method: 'PATCH',

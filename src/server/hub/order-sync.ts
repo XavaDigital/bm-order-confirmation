@@ -111,9 +111,9 @@ export async function syncOrderIndexToHub(
         customerId: order.hubCustomerId,
         contactId: order.hubContactId ?? null,
         orderNumber: order.orderNumber,
-        // The hub row's display label — the org/club when known, else the
-        // person. (An email-relay create carries its own label hub-side.)
-        name: order.clubName ?? order.customerName,
+        // The hub row's display label — the order's own name when staff gave
+        // it one, else the org/club, else the person.
+        name: order.name ?? order.clubName ?? order.customerName,
         status: chip,
         orderValue,
         currency,
@@ -130,7 +130,17 @@ export async function syncOrderIndexToHub(
       return; // the register carried the full snapshot; no PATCH needed
     }
 
-    const ok = await patchHubOrder(order.hubOrderId, { status: chip, orderValue, currency, url });
+    const ok = await patchHubOrder(order.hubOrderId, {
+      status: chip,
+      orderValue,
+      currency,
+      url,
+      orderNumber: order.orderNumber,
+      // A PATCH name is an explicit rename hub-side (salesflow, 2026-08-02),
+      // so only the order's OWN name goes — never the club/customer fallback,
+      // which would clobber a composer-typed name on the index row.
+      ...(order.name && { name: order.name }),
+    });
     if (!ok && opts.strict) throw new Error('hub order status push failed');
   } catch (err) {
     if (opts.strict) throw err;

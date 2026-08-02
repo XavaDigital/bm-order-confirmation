@@ -124,6 +124,19 @@ describe('POST /api/capability/v1/orders', () => {
     expect(order!.source).toBe('platform');
   });
 
+  it('assigns sequential OC-<n> order numbers (David, 2026-08-02)', async () => {
+    const first = await POST(request('/api/capability/v1/orders', orderBody({ externalRef: 'seq-1' })));
+    const second = await POST(request('/api/capability/v1/orders', orderBody({ externalRef: 'seq-2' })));
+    const a = (await first.json()).orderNumber as string;
+    const b = (await second.json()).orderNumber as string;
+
+    expect(a).toMatch(/^OC-\d{5,}$/);
+    expect(b).toMatch(/^OC-\d{5,}$/);
+    // Strictly consecutive within this test — nothing else draws between them.
+    expect(Number(b.slice(3))).toBe(Number(a.slice(3)) + 1);
+    expect(Number(a.slice(3))).toBeGreaterThanOrEqual(10001);
+  });
+
   it('is idempotent on externalRef — a replay returns the existing order with 200', async () => {
     const first = await POST(request('/api/capability/v1/orders', orderBody()));
     const firstJson = await first.json();
@@ -239,6 +252,8 @@ describe('POST /api/capability/v1/orders — hub relay body', () => {
     });
     expect(row).toMatchObject({
       status: 'draft',
+      // The composer's label is a real column (David, 2026-08-02).
+      name: 'Winter hoodies 2026',
       // The person is the contact; the row name is the org.
       customerName: 'Jane Coach',
       customerEmail: 'jane@wildcats.nz',
@@ -248,8 +263,7 @@ describe('POST /api/capability/v1/orders — hub relay body', () => {
       hubContactId: HUB_CONTACT,
       hubContactName: 'Jane Coach',
     });
-    // The composer's label and note both survive, in the internal notes.
-    expect(row!.internalNotes).toContain('Winter hoodies 2026');
+    // The composer's note survives in the internal notes.
     expect(row!.internalNotes).toContain('quote by Friday');
   });
 

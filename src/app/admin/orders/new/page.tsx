@@ -120,6 +120,7 @@ export default function NewOrderPage() {
 
       const body = {
         source: 'internal_admin',
+        ...(String(payload.name ?? '').trim() && { name: String(payload.name).trim() }),
         // Hub-linked with the branding fields left blank: omit the block and
         // the server resolves contact/branding from the CRM contact.
         ...(payload.customerName && payload.customerEmail

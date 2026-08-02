@@ -211,6 +211,13 @@
       "when": 1785421571875,
       "tag": "0029_mixed_marvel_boy",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1785665670900,
+      "tag": "0030_high_firebrand",
+      "breakpoints": true
     }
   ]
 }

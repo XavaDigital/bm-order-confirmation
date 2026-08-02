@@ -3,6 +3,8 @@ import { sizingRowSchema as baseSizingRowSchema, selectedValuesSchema } from './
 import { garmentTypeOptionSchema } from '@/server/garment-types/contract';
 
 export const updateOrderSchema = z.object({
+  /** The order's staff-facing label; null clears it. */
+  name: z.string().trim().min(1).max(200).nullable().optional(),
   customerName: z.string().min(1).optional(),
   customerEmail: z.string().email().optional(),
   customerContact: z.string().nullable().optional(),

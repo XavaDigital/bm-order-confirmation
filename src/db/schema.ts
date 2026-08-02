@@ -26,6 +26,17 @@ import {
 
 export const confirmation = pgSchema('confirmation');
 
+/**
+ * Sequential order numbers (David, 2026-08-02): OC-10001, OC-10002, …
+ * A sequence never hands out the same value twice, so concurrent creates
+ * cannot collide; a number burned by a failed create leaves a gap, which
+ * sequential-with-gaps accepts. Pre-existing random OC-XXXXXXXX numbers
+ * stay valid history and cannot collide with the numeric form.
+ */
+export const orderNumberSeq = confirmation.sequence('order_number_seq', {
+  startWith: '10001',
+});
+
 // --- enums -----------------------------------------------------------------
 // Order matters only for readability; the ordering that decides access lives in
 // src/lib/roles.ts. 'none' is the fail-closed fallback for an identity role this
@@ -134,6 +145,10 @@ export const orders = confirmation.table(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     orderNumber: text('order_number').notNull().unique(),
+    // Staff-facing label ("Winter hoodies 2026") — from the email composer's
+    // create or typed in the admin UI (David, 2026-08-02). Distinct from the
+    // order number; also the hub index row's display name when present.
+    name: text('name'),
     // who created it; lets a platform-originated order be told apart (BRIEF §15)
     source: orderSource('source').notNull().default('internal_admin'),
     // the order/quote id in the future sales platform

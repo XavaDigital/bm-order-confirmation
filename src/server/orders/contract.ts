@@ -85,11 +85,11 @@ export const createOrderSchema = z.object({
     .optional(),
 
   /**
-   * Relay conveniences from the email composer (keys as salesflow's relay
-   * sends them): an order label and a first note, folded into the draft's
-   * internal notes so nothing the salesperson typed is lost. The hub index
-   * row keeps `name` as the display label; this side has no order-name column
-   * and does not need one.
+   * `name` is the order's staff-facing label ("Winter hoodies 2026") — a real
+   * column since 2026-08-02 (David's ruling), settable from the email
+   * composer's relay create or the admin UI, and pushed as the hub index
+   * row's display name. `notes` is the composer's first note, folded into the
+   * draft's internal notes so nothing the salesperson typed is lost.
    */
   name: z.string().trim().max(200).optional(),
   notes: z.string().trim().max(4000).optional(),
