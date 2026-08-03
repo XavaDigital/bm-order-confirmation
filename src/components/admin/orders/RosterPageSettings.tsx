@@ -8,8 +8,8 @@
  */
 import { useEffect, useState } from 'react';
 import { App, Alert, Button, Input, Popconfirm, Space, Switch, Tooltip, Typography } from 'antd';
-import { CopyOutlined, ExportOutlined, LockOutlined, TeamOutlined } from '@ant-design/icons';
-import { getJson, patchJson } from '@/lib/api-fetch';
+import { CopyOutlined, ExportOutlined, LockOutlined, MailOutlined, TeamOutlined } from '@ant-design/icons';
+import { ApiError, getJson, patchJson, postJson } from '@/lib/api-fetch';
 
 interface Settings {
   enabled: boolean;
@@ -19,11 +19,40 @@ interface Settings {
   adminPasswordSet: boolean;
 }
 
-export function RosterPageSettings({ orderId }: { orderId: string }) {
+export function RosterPageSettings({
+  orderId,
+  customerEmail,
+}: {
+  orderId: string;
+  customerEmail?: string;
+}) {
   const { message } = App.useApp();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [passwordDraft, setPasswordDraft] = useState('');
   const [saving, setSaving] = useState(false);
+  const [emailing, setEmailing] = useState(false);
+
+  async function emailPage() {
+    setEmailing(true);
+    try {
+      await postJson(
+        `/api/admin/orders/${orderId}/roster/email-page`,
+        undefined,
+        'Failed to send email',
+      );
+      message.success(
+        customerEmail ? `Roster page emailed to ${customerEmail}` : 'Roster page emailed to the customer',
+      );
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 503) {
+        message.error('Email delivery is not configured on this server.');
+        return;
+      }
+      message.error(err instanceof Error ? err.message : 'Failed to send email');
+    } finally {
+      setEmailing(false);
+    }
+  }
 
   useEffect(() => {
     getJson<Settings>(`/api/admin/orders/${orderId}/roster/page-settings`, 'Failed to load roster page settings')
@@ -165,6 +194,17 @@ export function RosterPageSettings({ orderId }: { orderId: string }) {
               >
                 Copy link {settings.password ? '+ password ' : ''}for email
               </Button>
+              <Tooltip
+                title={
+                  customerEmail
+                    ? `Emails the page address${settings.password ? ' and team password' : ''} to ${customerEmail}`
+                    : undefined
+                }
+              >
+                <Button size="small" icon={<MailOutlined />} loading={emailing} onClick={() => void emailPage()}>
+                  Email to customer
+                </Button>
+              </Tooltip>
             </Space>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               Team members open the address, enter the password (if set) and their email, then add

@@ -82,6 +82,7 @@ export type DomainEventType =
   | 'roster.page_updated'
   | 'roster.import_completed'
   | 'roster.link_emailed'
+  | 'roster.page_emailed'
   | 'roster.reminder_sent'
   | 'roster.member_link_generated'
   | 'roster.member_link_emailed'

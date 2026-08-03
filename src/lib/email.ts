@@ -742,6 +742,53 @@ export async function sendRosterLinkEmail(params: SendRosterLinkParams): Promise
   });
 }
 
+export interface SendRosterPageEmailParams {
+  to: string;
+  toName: string;
+  orderNumber: string;
+  clubName: string | null;
+  url: string;
+  /** The staff-readable team password, or null when the page has none. */
+  password: string | null;
+}
+
+/**
+ * The short typeable roster PAGE (David, 2026-08-04) — url + team password in
+ * one email to the customer, mirroring the panel's copy-for-email snippet.
+ */
+export async function sendRosterPageEmail(params: SendRosterPageEmailParams): Promise<void> {
+  const subtitle = rosterSubtitle(params.clubName);
+  const passwordHtml = params.password
+    ? `<p style="margin:16px 0 0;">Team password: <strong style="color:#1f2328;">${escapeHtml(params.password)}</strong></p>`
+    : '';
+  await sendLinkEmail({
+    to: params.to,
+    toName: params.toName,
+    subject: `Team sizing page for ${APP_NAME} order ${params.orderNumber}`,
+    title: 'Team Sizing',
+    headerLabel: 'Team Roster',
+    introHtml:
+      introP(`
+                Share the page below with your team${subtitle} so each person can add themselves and
+                enter their own sizes for order <strong style="color:#1f2328;">${params.orderNumber}</strong>.
+              `) + passwordHtml,
+    buttonLabel: 'Open the Sizing Page',
+    url: params.url,
+    footnoteHtml: `
+                Each person signs in with their email and can only edit the players they added.
+                If you have any questions, contact your ${SALES_REP_LABEL}.
+              `,
+    textIntro: [
+      `Share this page with your team${subtitle} so each person can add themselves and enter their own sizes for order ${params.orderNumber}:`,
+      ...(params.password ? [``, `Team password: ${params.password}`] : []),
+    ],
+    textFooter: [
+      `Each person signs in with their email and can only edit the players they added.`,
+      `If you have any questions, contact your ${SALES_REP_LABEL}.`,
+    ],
+  });
+}
+
 export interface SendRosterMemberLinkParams {
   to: string;
   toName: string;

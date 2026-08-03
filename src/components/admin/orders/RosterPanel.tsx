@@ -369,7 +369,7 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
       {/* The short typeable page (David, 2026-08-03). The old token-link
           panel was removed as redundant (David, 2026-08-04) — existing token
           links keep working, but new sharing goes through the page above. */}
-      <RosterPageSettings orderId={orderId} />
+      <RosterPageSettings orderId={orderId} customerEmail={customerEmail} />
 
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>

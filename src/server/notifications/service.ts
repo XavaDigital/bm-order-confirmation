@@ -15,6 +15,7 @@ import * as email from '@/lib/email';
 import {
   generateAccessToken,
   getOrderAdmin,
+  getRosterPageSettings,
   ConflictError,
   NotFoundError,
 } from '@/server/orders/service';
@@ -122,6 +123,41 @@ export async function sendRosterLink(
   });
 
   return { url };
+}
+
+/**
+ * Email the short typeable roster PAGE (url + team password) to the customer
+ * (David, 2026-08-04) — the email twin of the panel's copy-for-email snippet.
+ * Requires the page to be enabled; nothing is minted, the page address and
+ * password are durable.
+ */
+export async function sendRosterPageLink(
+  orderId: string,
+  meta: { actorEmail?: string },
+): Promise<{ url: string }> {
+  const order = await getOrderAdmin(orderId);
+  if (!order) throw new NotFoundError('Order');
+
+  const page = await getRosterPageSettings(orderId);
+  if (!page.enabled) throw new ConflictError('Turn the roster page on before emailing it');
+
+  await email.sendRosterPageEmail({
+    to: order.customerEmail,
+    toName: order.customerName,
+    orderNumber: order.orderNumber,
+    clubName: order.clubName,
+    url: page.url,
+    password: page.password,
+  });
+
+  await recordAuditEvent({
+    aggregateId: orderId,
+    eventType: 'roster.page_emailed',
+    payload: { to: order.customerEmail },
+    actorEmail: meta.actorEmail ?? null,
+  });
+
+  return { url: page.url };
 }
 
 /**
