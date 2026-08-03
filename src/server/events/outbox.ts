@@ -79,6 +79,7 @@ export type DomainEventType =
   | 'roster.token_revoked'
   | 'roster.locked'
   | 'roster.unlocked'
+  | 'roster.page_updated'
   | 'roster.import_completed'
   | 'roster.link_emailed'
   | 'roster.reminder_sent'

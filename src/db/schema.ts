@@ -179,6 +179,14 @@ export const orders = confirmation.table(
     // consumers key off status, and roster progress is orthogonal to it.
     rosterLockedAt: timestamp('roster_locked_at', { withTimezone: true }),
 
+    // The short-URL roster page (David, 2026-08-03: /roster/<order-number>,
+    // typeable). Null = the page 404s; staff enable it per order on request.
+    rosterEnabledAt: timestamp('roster_enabled_at', { withTimezone: true }),
+    // Its optional password — stored READABLY like orders.accessCode (same
+    // ruling: staff must see it on demand; it may be a word, not just digits).
+    // Null = the page opens without a password.
+    rosterPassword: text('roster_password'),
+
     // Set when the customer, at confirmation time, asked for a colour book /
     // physical sample for colour matching before production (BRIEF §5 ack 2,
     // §11). Production must hold until this is resolved with the customer.
@@ -432,6 +440,30 @@ export const orderAccess = confirmation.table(
 // A team member entered manually or via CSV/XLSX import. Sizing they submit is
 // still stored as ordinary garment_sizing rows (roster_member_id set on those
 // rows), so it coexists with staff-entered sizing with no schema conflict.
+// --- roster guests (short-URL page identities; David, 2026-08-03) ----------
+// A guest is "whoever entered this email on the roster page" — no password,
+// the email IS the identifier (the page itself is the gate, via its optional
+// password or an unguessable token link). Guests own the members they add and
+// can only edit their own.
+export const rosterGuests = confirmation.table(
+  'roster_guests',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    /** Stored lowercased — the identity key on this order. */
+    email: text('email').notNull(),
+    name: text('name'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('roster_guests_order_idx').on(t.orderId),
+    uniqueIndex('roster_guests_order_email_uq').on(t.orderId, t.email),
+  ],
+);
+
 export const rosterMembers = confirmation.table(
   'roster_members',
   {
@@ -442,6 +474,10 @@ export const rosterMembers = confirmation.table(
     name: text('name').notNull(),
     playerNumber: text('player_number'),
     email: text('email'),
+    // The guest who added this member on the short-URL page. Null for
+    // staff-imported members and legacy shared-link entries — those are
+    // read-only to guests (only their creator may edit a member).
+    guestId: uuid('guest_id').references(() => rosterGuests.id, { onDelete: 'set null' }),
     sortOrder: integer('sort_order').notNull().default(0),
     submittedAt: timestamp('submitted_at', { withTimezone: true }), // null = pending
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -1627,6 +1663,12 @@ export const rosterMembersRelations = relations(rosterMembers, ({ one, many }) =
   order: one(orders, { fields: [rosterMembers.orderId], references: [orders.id] }),
   sizing: many(garmentSizing),
   memberAccess: many(rosterMemberAccess),
+  guest: one(rosterGuests, { fields: [rosterMembers.guestId], references: [rosterGuests.id] }),
+}));
+
+export const rosterGuestsRelations = relations(rosterGuests, ({ one, many }) => ({
+  order: one(orders, { fields: [rosterGuests.orderId], references: [orders.id] }),
+  members: many(rosterMembers),
 }));
 
 export const rosterAccessRelations = relations(rosterAccess, ({ one }) => ({

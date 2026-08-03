@@ -19,6 +19,7 @@ import { ApiError, deleteJson, patchJson, postJson } from '@/lib/api-fetch';
 import { useAdminResource } from '@/lib/use-admin-resource';
 import { RosterLinkPanel } from './RosterLinkPanel';
 import { RosterImportModal } from './RosterImportModal';
+import { RosterPageSettings } from './RosterPageSettings';
 
 interface RosterMember {
   id: string;
@@ -365,6 +366,9 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size={24}>
+      {/* The short typeable page (David, 2026-08-03) — the link panel below
+          stays for token links, which double as its password-skipping URLs. */}
+      <RosterPageSettings orderId={orderId} />
       <RosterLinkPanel
         orderId={orderId}
         customerEmail={customerEmail}

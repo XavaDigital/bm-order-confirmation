@@ -112,7 +112,9 @@ describe('RosterPanel', () => {
     await user.click(screen.getByRole('button', { name: /add member/i }));
 
     expect(await screen.findByText(/name is required/i)).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(1); // only the initial GET
+    // Only the mount-time GETs (roster + the roster-page settings) — no POST.
+    const nonGet = fetchMock.mock.calls.filter(([, init]) => init?.method && init.method !== 'GET');
+    expect(nonGet).toHaveLength(0);
   });
 
   it('editing a member PATCHes the endpoint and shows the updated value', async () => {

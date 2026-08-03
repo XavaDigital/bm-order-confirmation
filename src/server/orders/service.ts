@@ -1355,6 +1355,70 @@ export async function clearOrderAccessCode(
 // Lives here (not src/server/roster/service.ts) because it writes the `orders`
 // row directly, and this module is the only place order rows are mutated.
 
+/**
+ * The short-URL roster page settings (David, 2026-08-03): enabled flag +
+ * optional staff-readable password. Lives here with lockRoster because it
+ * writes the orders row.
+ */
+export async function setRosterPage(
+  orderId: string,
+  input: { enabled?: boolean; password?: string | null },
+  meta?: { actorEmail?: string },
+): Promise<{ enabled: boolean; password: string | null; url: string }> {
+  const existing = await db.query.orders.findFirst({
+    where: eq(orders.id, orderId),
+    columns: { id: true, orderNumber: true, rosterEnabledAt: true, rosterPassword: true },
+  });
+  if (!existing) throw new NotFoundError('Order');
+
+  const enabled = input.enabled ?? existing.rosterEnabledAt !== null;
+  const password =
+    input.password === undefined ? existing.rosterPassword : input.password?.trim() || null;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(orders)
+      .set({
+        rosterEnabledAt: enabled ? (existing.rosterEnabledAt ?? new Date()) : null,
+        rosterPassword: password,
+        updatedAt: new Date(),
+      })
+      .where(eq(orders.id, orderId));
+
+    await recordAuditEvent(
+      {
+        aggregateId: orderId,
+        eventType: 'roster.page_updated',
+        payload: { enabled, hasPassword: password !== null },
+        actorEmail: meta?.actorEmail ?? null,
+      },
+      tx,
+    );
+  });
+
+  return {
+    enabled,
+    password,
+    url: `${env.APP_BASE_URL}/roster/${encodeURIComponent(existing.orderNumber)}`,
+  };
+}
+
+/** Current roster-page settings for the admin panel. */
+export async function getRosterPageSettings(
+  orderId: string,
+): Promise<{ enabled: boolean; password: string | null; url: string }> {
+  const existing = await db.query.orders.findFirst({
+    where: eq(orders.id, orderId),
+    columns: { orderNumber: true, rosterEnabledAt: true, rosterPassword: true },
+  });
+  if (!existing) throw new NotFoundError('Order');
+  return {
+    enabled: existing.rosterEnabledAt !== null,
+    password: existing.rosterPassword,
+    url: `${env.APP_BASE_URL}/roster/${encodeURIComponent(existing.orderNumber)}`,
+  };
+}
+
 /** Freeze the team roster so members can no longer submit/change their sizes. */
 export async function lockRoster(
   orderId: string,
