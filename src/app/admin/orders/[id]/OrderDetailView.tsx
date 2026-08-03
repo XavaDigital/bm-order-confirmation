@@ -815,7 +815,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
                 alignSelf: 'flex-start',
               }}
             />
-            <div style={{ flex: 1, minWidth: 0, padding: 24 }}>{panelBodies}</div>
+            <div style={{ flex: 1, minWidth: 0, padding: 12 }}>{panelBodies}</div>
             {/* Right rail — the order's notes, visible whatever section is open
                 (David, 2026-08-03: the third column of the order view). */}
             <div
