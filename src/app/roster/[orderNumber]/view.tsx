@@ -14,6 +14,7 @@ import {
   Alert,
   App,
   Button,
+  Checkbox,
   ConfigProvider,
   Divider,
   Empty,
@@ -162,7 +163,10 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
   const [selectedId, setSelectedId] = useState<string | 'new' | null>(null);
   const [draftName, setDraftName] = useState('');
   const [draftSizes, setDraftSizes] = useState<DraftSizes>({});
+  // Gate on saving: sizes must come off the supplied chart (David, 2026-08-04).
+  const [chartConfirmed, setChartConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
+  const hasSizeCharts = Boolean(state?.garments.some((g) => g.sizeCharts.some((c) => c.url)));
 
   const loadState = useCallback(async () => {
     try {
@@ -208,6 +212,8 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
       setDraftName(selectedMember.name);
       setDraftSizes(draftFromMember(selectedMember, state.garments));
     }
+    // Every player's sizes need their own chart check.
+    setChartConfirmed(false);
   }, [state, selectedId, selectedMember]);
 
   async function enter() {
@@ -307,6 +313,12 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
     }
     if (!sizesComplete()) {
       message.error('Pick a size for every garment.');
+      return;
+    }
+    // Sizes must come off the supplied chart, not from what someone usually
+    // wears (David, 2026-08-04) — refuse to save without the confirmation.
+    if (hasSizeCharts && !chartConfirmed) {
+      message.error('Please confirm you checked the size chart before saving.');
       return;
     }
     setSaving(true);
@@ -571,142 +583,163 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
             <Title level={5} style={{ color: '#fff', marginTop: 0 }}>
               {g.name}
             </Title>
-            {g.images.length > 0 && (
-              <Image.PreviewGroup>
-                <Space wrap style={{ marginBottom: 12 }}>
-                  {g.images.map((img, i) => (
-                    <Image
-                      key={i}
-                      src={img.url}
-                      alt={img.caption ?? g.name}
-                      width={88}
-                      height={66}
-                      style={{ objectFit: 'cover', borderRadius: 4 }}
+
+            {/* Two columns (David, 2026-08-04): mock-ups + the garment note on
+                the left, the fields (labels above) on the right. */}
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              {(g.images.length > 0 || g.notes) && (
+                <div style={{ flex: '0 0 200px', maxWidth: 220 }}>
+                  {g.images.length > 0 && (
+                    <Image.PreviewGroup>
+                      <Space direction="vertical" size={8}>
+                        {g.images.map((img, i) => (
+                          <Image
+                            key={i}
+                            src={img.url}
+                            alt={img.caption ?? g.name}
+                            width={200}
+                            style={{ objectFit: 'cover', borderRadius: 4 }}
+                          />
+                        ))}
+                      </Space>
+                    </Image.PreviewGroup>
+                  )}
+                  {g.notes && (
+                    <Text
+                      style={{
+                        color: 'rgba(255,255,255,0.65)',
+                        display: 'block',
+                        marginTop: g.images.length > 0 ? 8 : 0,
+                        fontSize: 13,
+                      }}
+                    >
+                      {g.notes}
+                    </Text>
+                  )}
+                </div>
+              )}
+
+              <div style={{ flex: 1, minWidth: 240, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <RosterField label="Name on garment">
+                  {editable ? (
+                    <Input
+                      placeholder={draftName.trim() ? `Same as player name (${draftName.trim()})` : 'Same as player name'}
+                      value={draft?.playerName ?? ''}
+                      onChange={(e) =>
+                        setDraftSizes((prev) => ({
+                          ...prev,
+                          [g.id]: { ...prev[g.id], playerName: e.target.value },
+                        }))
+                      }
+                      style={{ maxWidth: 260 }}
+                      maxLength={120}
                     />
-                  ))}
-                </Space>
-              </Image.PreviewGroup>
-            )}
-            {g.notes && (
-              <Text style={{ color: 'rgba(255,255,255,0.65)', display: 'block', marginBottom: 12, fontSize: 13 }}>
-                {g.notes}
-              </Text>
-            )}
+                  ) : (
+                    <Text style={{ color: '#fff' }}>
+                      {current?.playerName ?? selectedMember?.name ?? '—'}
+                    </Text>
+                  )}
+                </RosterField>
 
-            {/* The stacked "table" of choices for this garment — name and
-                number included, per garment (David, 2026-08-04). */}
-            <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', rowGap: 10, alignItems: 'center' }}>
-              <Text style={{ color: 'rgba(255,255,255,0.65)' }}>Name on garment</Text>
-              {editable ? (
-                <Input
-                  placeholder={draftName.trim() ? `Same as player name (${draftName.trim()})` : 'Same as player name'}
-                  value={draft?.playerName ?? ''}
-                  onChange={(e) =>
-                    setDraftSizes((prev) => ({
-                      ...prev,
-                      [g.id]: { ...prev[g.id], playerName: e.target.value },
-                    }))
-                  }
-                  style={{ maxWidth: 260 }}
-                  maxLength={120}
-                />
-              ) : (
-                <Text style={{ color: '#fff' }}>
-                  {current?.playerName ?? selectedMember?.name ?? '—'}
-                </Text>
-              )}
+                <RosterField label="Number">
+                  {editable ? (
+                    <Input
+                      placeholder="Optional"
+                      value={draft?.playerNumber ?? ''}
+                      onChange={(e) =>
+                        setDraftSizes((prev) => ({
+                          ...prev,
+                          [g.id]: { ...prev[g.id], playerNumber: e.target.value },
+                        }))
+                      }
+                      style={{ maxWidth: 120 }}
+                      maxLength={20}
+                    />
+                  ) : (
+                    <Text style={{ color: '#fff' }}>{current?.playerNumber ?? '—'}</Text>
+                  )}
+                </RosterField>
 
-              <Text style={{ color: 'rgba(255,255,255,0.65)' }}>Number</Text>
-              {editable ? (
-                <Input
-                  placeholder="Optional"
-                  value={draft?.playerNumber ?? ''}
-                  onChange={(e) =>
-                    setDraftSizes((prev) => ({
-                      ...prev,
-                      [g.id]: { ...prev[g.id], playerNumber: e.target.value },
-                    }))
-                  }
-                  style={{ maxWidth: 120 }}
-                  maxLength={20}
-                />
-              ) : (
-                <Text style={{ color: '#fff' }}>{current?.playerNumber ?? '—'}</Text>
-              )}
+                <RosterField label="Size">
+                  {editable ? (
+                    <Select
+                      placeholder="Pick a size"
+                      value={draft?.size ?? undefined}
+                      onChange={(v) =>
+                        setDraftSizes((prev) => ({ ...prev, [g.id]: { ...prev[g.id], size: v } }))
+                      }
+                      options={g.sizes.flatMap((s) => [
+                        { value: s.label, label: s.label },
+                        ...(s.tall ? [{ value: `${s.label} Tall`, label: `${s.label} Tall` }] : []),
+                      ])}
+                      style={{ maxWidth: 260, width: '100%' }}
+                    />
+                  ) : (
+                    <Text style={{ color: '#fff' }}>{current?.size ?? '—'}</Text>
+                  )}
+                  {/* Right under the size pick, and loudly (David, 2026-08-04):
+                      sizes must come from the chart, not memory. */}
+                  {g.sizeCharts.some((c) => c.url) && (
+                    <Space wrap size={8} style={{ marginTop: 8 }}>
+                      {g.sizeCharts.map(
+                        (c) =>
+                          c.url && (
+                            <Button
+                              key={c.name}
+                              size="small"
+                              type="primary"
+                              ghost
+                              icon={<FileSearchOutlined />}
+                              href={c.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {g.sizeCharts.filter((x) => x.url).length > 1
+                                ? `Size chart — ${c.name}`
+                                : 'Check the size chart'}
+                            </Button>
+                          ),
+                      )}
+                    </Space>
+                  )}
+                </RosterField>
 
-              <Text style={{ color: 'rgba(255,255,255,0.65)' }}>Size</Text>
-              {editable ? (
-                <Select
-                  placeholder="Pick a size"
-                  value={draft?.size ?? undefined}
-                  onChange={(v) =>
-                    setDraftSizes((prev) => ({ ...prev, [g.id]: { ...prev[g.id], size: v } }))
-                  }
-                  options={g.sizes.flatMap((s) => [
-                    { value: s.label, label: s.label },
-                    ...(s.tall ? [{ value: `${s.label} Tall`, label: `${s.label} Tall` }] : []),
-                  ])}
-                  style={{ maxWidth: 260 }}
-                />
-              ) : (
-                <Text style={{ color: '#fff' }}>{current?.size ?? '—'}</Text>
-              )}
-
-              {/* Size charts sit right under the size pick, and loudly —
-                  (David, 2026-08-04) they were easy to miss at the card foot. */}
-              {g.sizeCharts.some((c) => c.url) && (
-                <>
-                  <span />
-                  <Space wrap size={8}>
-                    {g.sizeCharts.map(
-                      (c) =>
-                        c.url && (
-                          <Button
-                            key={c.name}
-                            size="small"
-                            type="primary"
-                            ghost
-                            icon={<FileSearchOutlined />}
-                            href={c.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            {g.sizeCharts.filter((x) => x.url).length > 1
-                              ? `Size chart — ${c.name}`
-                              : 'Not sure? View the size chart'}
-                          </Button>
-                        ),
-                    )}
-                  </Space>
-                </>
-              )}
-
-              {g.sizingColumns.map((col) => (
-                <RosterOptionRow
-                  key={col.label}
-                  column={col}
-                  editable={editable}
-                  value={
-                    editable
-                      ? (draft?.customValues[col.label] ?? '')
-                      : (current?.customValues?.[col.label] ?? '')
-                  }
-                  onChange={(v) =>
-                    setDraftSizes((prev) => ({
-                      ...prev,
-                      [g.id]: {
-                        ...prev[g.id],
-                        customValues: { ...prev[g.id].customValues, [col.label]: v },
-                      },
-                    }))
-                  }
-                />
-              ))}
+                {g.sizingColumns.map((col) => (
+                  <RosterOptionRow
+                    key={col.label}
+                    column={col}
+                    editable={editable}
+                    value={
+                      editable
+                        ? (draft?.customValues[col.label] ?? '')
+                        : (current?.customValues?.[col.label] ?? '')
+                    }
+                    onChange={(v) =>
+                      setDraftSizes((prev) => ({
+                        ...prev,
+                        [g.id]: {
+                          ...prev[g.id],
+                          customValues: { ...prev[g.id].customValues, [col.label]: v },
+                        },
+                      }))
+                    }
+                  />
+                ))}
+              </div>
             </div>
-
           </div>
         );
       })}
+
+      {editable && hasSizeCharts && (
+        <Checkbox
+          checked={chartConfirmed}
+          onChange={(e) => setChartConfirmed(e.target.checked)}
+          style={{ color: 'rgba(255,255,255,0.85)' }}
+        >
+          I measured against the size chart above — I didn&apos;t guess from a size I usually wear.
+        </Checkbox>
+      )}
 
       {editable && (
         <Space>
@@ -811,6 +844,18 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
   );
 }
 
+/** Label-above-field block for the garment card's column layout (David, 2026-08-04). */
+function RosterField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <Text style={{ color: 'rgba(255,255,255,0.65)', display: 'block', marginBottom: 4, fontSize: 13 }}>
+        {label}
+      </Text>
+      {children}
+    </div>
+  );
+}
+
 function RosterOptionRow({
   column,
   editable,
@@ -823,8 +868,7 @@ function RosterOptionRow({
   onChange: (v: string) => void;
 }) {
   return (
-    <>
-      <Text style={{ color: 'rgba(255,255,255,0.65)' }}>{column.label}</Text>
+    <RosterField label={column.label}>
       {editable ? (
         column.type === 'select' ? (
           <Select
@@ -833,7 +877,7 @@ function RosterOptionRow({
             value={value || undefined}
             onChange={(v) => onChange(v ?? '')}
             options={(column.options ?? []).map((o) => ({ value: o, label: o }))}
-            style={{ maxWidth: 260 }}
+            style={{ maxWidth: 260, width: '100%' }}
           />
         ) : (
           <Input
@@ -847,6 +891,6 @@ function RosterOptionRow({
       ) : (
         <Text style={{ color: '#fff' }}>{value || '—'}</Text>
       )}
-    </>
+    </RosterField>
   );
 }
