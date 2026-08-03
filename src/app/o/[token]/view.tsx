@@ -179,6 +179,7 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
   const [checkedAcks, setCheckedAcks] = useState<Set<string>>(new Set());
   const [concerns, setConcerns] = useState('');
   const [shippingAddress, setShippingAddress] = useState<Record<string, unknown> | null>(null);
+  const [addressDeferred, setAddressDeferred] = useState(false);
   const [signature, setSignature] = useState<SignatureData>({ dataUrl: null, type: 'none' });
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ orderNumber: string; confirmedAt: string } | null>(null);
@@ -218,6 +219,20 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
   }
 
   async function handleConfirm() {
+    // The address is required when this order expects the customer to enter
+    // it — unless they explicitly chose to confirm it later. The server
+    // enforces the same rule; this just catches it before a round-trip.
+    if (order.shippingMode === 'customer_entered' && !addressDeferred) {
+      const a = (shippingAddress ?? {}) as Record<string, string>;
+      const filled = (k: string) => typeof a[k] === 'string' && a[k].trim().length > 0;
+      if (!filled('line1') || !filled('city') || !filled('country')) {
+        message.error(
+          'Please complete the delivery address (street, city and country), or tick "I don\'t know the delivery address yet".',
+        );
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
       const res = await fetch('/api/o/confirm', {
@@ -227,7 +242,9 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
           token,
           acknowledgments: ACKNOWLEDGMENTS.map((a) => ({ key: a.key, text: a.text })),
           concerns: concerns.trim() || null,
-          shippingAddress: order.shippingMode === 'customer_entered' ? shippingAddress : null,
+          shippingAddress:
+            order.shippingMode === 'customer_entered' && !addressDeferred ? shippingAddress : null,
+          shippingAddressDeferred: addressDeferred,
           signatureBase64: signature.dataUrl,
           signatureType: signature.type,
         }),
@@ -489,6 +506,7 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
           mode={order.shippingMode}
           prefilledAddress={order.shippingAddress}
           onChange={(addr) => setShippingAddress(addr as Record<string, unknown>)}
+          onDeferChange={setAddressDeferred}
         />
       </Card>
 

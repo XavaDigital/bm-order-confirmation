@@ -1,6 +1,7 @@
 'use client';
 
-import { Form, Input, Typography, Alert } from 'antd';
+import { useState } from 'react';
+import { Checkbox, Form, Input, Typography, Alert } from 'antd';
 import { EnvironmentOutlined } from '@ant-design/icons';
 
 interface Address {
@@ -16,6 +17,11 @@ interface Props {
   mode: 'prefilled' | 'customer_entered' | 'later';
   prefilledAddress?: unknown;
   onChange?: (address: Address) => void;
+  /**
+   * customer_entered only: the customer ticked "confirm the address later"
+   * (they may not know the delivery address yet — David, 2026-08-03).
+   */
+  onDeferChange?: (deferred: boolean) => void;
 }
 
 function renderPrefilled(addr: unknown) {
@@ -31,7 +37,11 @@ function renderPrefilled(addr: unknown) {
   );
 }
 
-export function ShippingAddressField({ mode, prefilledAddress, onChange }: Props) {
+export function ShippingAddressField({ mode, prefilledAddress, onChange, onDeferChange }: Props) {
+  // Declared unconditionally (hooks rule); only the customer_entered branch
+  // renders the control that drives it.
+  const [deferred, setDeferred] = useState(false);
+
   if (mode === 'later') {
     return (
       <Alert
@@ -62,7 +72,34 @@ export function ShippingAddressField({ mode, prefilledAddress, onChange }: Props
 
   // customer_entered
   return (
-    <Form layout="vertical" onValuesChange={(_, all) => onChange?.(all as Address)}>
+    <div>
+      <Checkbox
+        checked={deferred}
+        onChange={(e) => {
+          setDeferred(e.target.checked);
+          onDeferChange?.(e.target.checked);
+        }}
+        style={{ color: 'rgba(255,255,255,0.75)', marginBottom: 16 }}
+      >
+        I don&apos;t know the delivery address yet — I&apos;ll confirm it with the team later
+      </Checkbox>
+      {deferred ? (
+        <Alert
+          type="info"
+          showIcon
+          icon={<EnvironmentOutlined />}
+          message="No problem — we'll confirm the delivery address with you before your order ships."
+          style={{ background: 'rgba(24,144,255,0.08)', border: '1px solid rgba(24,144,255,0.25)' }}
+        />
+      ) : (
+    <Form
+      layout="vertical"
+      // Real form value, not Input defaultValue — antd ignores defaultValue on
+      // controlled fields, so the visible "New Zealand" would never submit and
+      // the address gate would block customers who didn't retype it.
+      initialValues={{ country: 'New Zealand' }}
+      onValuesChange={(_, all) => onChange?.(all as Address)}
+    >
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
         <Form.Item name="line1" label={<span style={{ color: 'rgba(255,255,255,0.75)' }}>Address Line 1</span>}
           rules={[{ required: true, message: 'Required' }]} style={{ gridColumn: '1 / -1' }}>
@@ -84,9 +121,11 @@ export function ShippingAddressField({ mode, prefilledAddress, onChange }: Props
         </Form.Item>
         <Form.Item name="country" label={<span style={{ color: 'rgba(255,255,255,0.75)' }}>Country</span>}
           rules={[{ required: true, message: 'Required' }]}>
-          <Input placeholder="New Zealand" defaultValue="New Zealand" />
+          <Input placeholder="New Zealand" />
         </Form.Item>
       </div>
     </Form>
+      )}
+    </div>
   );
 }

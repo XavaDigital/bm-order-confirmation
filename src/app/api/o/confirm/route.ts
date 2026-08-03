@@ -15,6 +15,8 @@ const bodySchema = z.object({
   acknowledgments: z.array(ackSchema).length(REQUIRED_ACK_KEYS.length),
   concerns: z.string().max(2000).nullable().optional(),
   shippingAddress: z.record(z.unknown()).nullable().optional(),
+  /** Explicit customer choice to confirm the delivery address later. */
+  shippingAddressDeferred: z.boolean().optional().default(false),
   signatureBase64: z.string().nullable().optional(),
   signatureType: z.enum(['drawn', 'uploaded', 'none']).default('none'),
 });
@@ -38,6 +40,7 @@ export const POST = defineRoute<Record<string, never>, typeof bodySchema._type>(
         acks: body.acknowledgments,
         concerns: body.concerns ?? null,
         shippingAddress: body.shippingAddress ?? null,
+        shippingAddressDeferred: body.shippingAddressDeferred,
         signatureBase64: body.signatureBase64 ?? null,
         signatureType: body.signatureType,
         ipAddress: ip === 'unknown' ? null : ip,
@@ -70,6 +73,15 @@ export const POST = defineRoute<Record<string, never>, typeof bodySchema._type>(
       }
       if (msg.startsWith('missing_ack:')) {
         return NextResponse.json({ error: 'Missing acknowledgment', code: msg }, { status: 400 });
+      }
+      if (msg === 'address_required') {
+        return NextResponse.json(
+          {
+            error: 'Please complete the delivery address, or tick "I’ll confirm the delivery address later".',
+            code: 'address_required',
+          },
+          { status: 400 },
+        );
       }
 
       throw err;

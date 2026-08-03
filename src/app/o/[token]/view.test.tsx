@@ -74,7 +74,12 @@ async function waitForModalToClose() {
 }
 
 async function checkAllAcknowledgments(user: ReturnType<typeof userEvent.setup>) {
-  const checkboxes = screen.getAllByRole('checkbox');
+  // Only the acknowledgment boxes — the shipping section has its own
+  // "confirm the address later" checkbox that must NOT be ticked here (it
+  // nulls the address out of the payload, by design).
+  const checkboxes = screen
+    .getAllByRole('checkbox')
+    .filter((box) => !box.closest('label')?.textContent?.match(/delivery address/i));
   for (const box of checkboxes) {
     await user.click(box);
   }
@@ -433,7 +438,14 @@ describe('CustomerOrderView', () => {
 
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
     expect(body.concerns).toBe('Please double check the sizing');
-    expect(body.shippingAddress).toMatchObject({ line1: '456 Side Street', city: 'Wellington' });
+    // Country rides from the form's initialValues — the address gate requires
+    // line1/city/country, and the default must count without retyping.
+    expect(body.shippingAddress).toMatchObject({
+      line1: '456 Side Street',
+      city: 'Wellington',
+      country: 'New Zealand',
+    });
+    expect(body.shippingAddressDeferred).toBe(false);
   });
 
   it('canceling the Request Changes modal closes it without submitting', async () => {

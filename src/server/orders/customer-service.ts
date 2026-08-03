@@ -329,6 +329,8 @@ export function buildConfirmationSnapshot(
   params: {
     concerns?: string | null;
     shippingAddress?: Record<string, unknown> | null;
+    /** The customer explicitly chose to confirm the delivery address later. */
+    shippingAddressDeferred?: boolean;
   },
 ) {
   return {
@@ -355,6 +357,7 @@ export function buildConfirmationSnapshot(
       mockupImageCaptions: g.images.map((i) => i.caption).filter(Boolean),
     })),
     shippingAddress: params.shippingAddress ?? order.shippingAddress ?? null,
+    shippingAddressDeferred: params.shippingAddressDeferred === true,
   };
 }
 
@@ -381,6 +384,8 @@ export async function confirmOrder(params: {
   acks: AckInput[];
   concerns?: string | null;
   shippingAddress?: Record<string, unknown> | null;
+  /** The customer explicitly chose to confirm the delivery address later. */
+  shippingAddressDeferred?: boolean;
   signatureBase64?: string | null;
   signatureType: 'drawn' | 'uploaded' | 'none';
   ipAddress?: string | null;
@@ -416,6 +421,20 @@ export async function confirmOrder(params: {
     if (!providedKeys.has(key)) throw new Error(`missing_ack:${key}`);
   }
 
+  // Address requirement (David, 2026-08-03): 'customer_entered' means the
+  // customer supplies the address at confirmation — or EXPLICITLY defers it
+  // ("I don't know the delivery address yet"). Client validation alone let
+  // orders confirm addressless with no record of a choice; the flag makes the
+  // deferral a decision, not an accident.
+  const addressDeferred = params.shippingAddressDeferred === true;
+  if (order.shippingMode === 'customer_entered' && !addressDeferred) {
+    const a = params.shippingAddress ?? {};
+    const filled = (key: string) => typeof a[key] === 'string' && (a[key] as string).trim().length > 0;
+    if (!filled('line1') || !filled('city') || !filled('country')) {
+      throw new Error('address_required');
+    }
+  }
+
   // Upload signature outside transaction (S3 side effect)
   const sigKey = await uploadSignature(order.id, params.signatureBase64, params.signatureType);
 
@@ -423,7 +442,8 @@ export async function confirmOrder(params: {
 
   const snapshot = buildConfirmationSnapshot(order, {
     concerns: params.concerns,
-    shippingAddress: params.shippingAddress,
+    shippingAddress: addressDeferred ? null : params.shippingAddress,
+    shippingAddressDeferred: addressDeferred,
   });
 
   await db.transaction(async (tx) => {

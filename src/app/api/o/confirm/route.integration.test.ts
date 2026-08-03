@@ -113,6 +113,62 @@ describe('POST /api/o/confirm', () => {
     expect(json.confirmedAt).toBeTruthy();
   });
 
+  // The address rule (David, 2026-08-03): 'customer_entered' orders must
+  // carry a usable address at confirm — unless the customer EXPLICITLY
+  // defers it, which is recorded on the snapshot.
+  describe('customer_entered address requirement', () => {
+    function customerEnteredOrder() {
+      return createOrder(minimalOrderInput({ shipping: { mode: 'customer_entered' } }));
+    }
+
+    it('refuses an addressless confirm with code=address_required', async () => {
+      const created = await customerEnteredOrder();
+      const res = await POST(makeRequest({ token: created.token, acknowledgments: allAcks() }, uniqueIp()));
+      const json = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(json.code).toBe('address_required');
+    });
+
+    it('refuses an address missing its essential fields', async () => {
+      const created = await customerEnteredOrder();
+      const res = await POST(makeRequest({
+        token: created.token,
+        acknowledgments: allAcks(),
+        shippingAddress: { line1: '12 Main St', city: '   ' }, // no city/country
+      }, uniqueIp()));
+
+      expect(res.status).toBe(400);
+    });
+
+    it('confirms with a complete address', async () => {
+      const created = await customerEnteredOrder();
+      const res = await POST(makeRequest({
+        token: created.token,
+        acknowledgments: allAcks(),
+        shippingAddress: { line1: '12 Main St', city: 'Christchurch', country: 'New Zealand' },
+      }, uniqueIp()));
+
+      expect(res.status).toBe(200);
+    });
+
+    it('confirms with an explicit deferral and records it on the snapshot', async () => {
+      const created = await customerEnteredOrder();
+      const res = await POST(makeRequest({
+        token: created.token,
+        acknowledgments: allAcks(),
+        shippingAddressDeferred: true,
+      }, uniqueIp()));
+
+      expect(res.status).toBe(200);
+      const row = await db.query.confirmations.findFirst({
+        where: eq(schema.confirmations.orderId, created.orderId),
+      });
+      const snap = row!.confirmedSnapshot as { shippingAddressDeferred?: boolean };
+      expect(snap.shippingAddressDeferred).toBe(true);
+    });
+  });
+
   it('returns 400 for a request body that is not valid JSON', async () => {
     const res = await POST(makeRawRequest('not-json{{', uniqueIp()));
 
