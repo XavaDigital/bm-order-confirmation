@@ -705,16 +705,19 @@ describe('confirmOrder', () => {
     const customerEntered = await createOrder(
       minimalInput({ shipping: { mode: 'customer_entered' } }),
     );
+    // The address gate (2026-08-03) requires line1/city/country for
+    // customer_entered confirms — a complete address, or an explicit deferral.
+    const fullAddress = { line1: '1 Beast St', city: 'Christchurch', country: 'New Zealand' };
     await confirmOrder({
       rawToken: customerEntered.token,
       acks: allAcks(),
       signatureType: 'none',
-      shippingAddress: { line1: '1 Beast St' },
+      shippingAddress: fullAddress,
     });
     const order1 = await db.query.orders.findFirst({
       where: eq(schema.orders.id, customerEntered.orderId),
     });
-    expect(order1!.shippingAddress).toEqual({ line1: '1 Beast St' });
+    expect(order1!.shippingAddress).toEqual(fullAddress);
 
     const prefilled = await createOrder(minimalInput({ shipping: { mode: 'prefilled' } }));
     await confirmOrder({

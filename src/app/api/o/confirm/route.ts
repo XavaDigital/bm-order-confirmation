@@ -1,18 +1,21 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { confirmOrder, REQUIRED_ACK_KEYS } from '@/server/orders/customer-service';
+import { confirmOrder } from '@/server/orders/customer-service';
 import { getClientIp, rateLimitedResponse, RATE_LIMITS } from '@/lib/rate-limit';
 import { ACCESS_CODE_COOKIE } from '@/lib/access-code';
 import { defineRoute } from '@/lib/route-handler';
 
+// The required SET is dynamic (admin-editable acknowledgement_settings) —
+// confirmOrder validates every ACTIVE key is present and re-derives the
+// authoritative wording from the table; the client text is not trusted.
 const ackSchema = z.object({
-  key: z.enum(REQUIRED_ACK_KEYS),
+  key: z.string().min(1).max(120),
   text: z.string().min(1),
 });
 
 const bodySchema = z.object({
   token: z.string().min(1),
-  acknowledgments: z.array(ackSchema).length(REQUIRED_ACK_KEYS.length),
+  acknowledgments: z.array(ackSchema).max(50),
   concerns: z.string().max(2000).nullable().optional(),
   shippingAddress: z.record(z.unknown()).nullable().optional(),
   /** Explicit customer choice to confirm the delivery address later. */

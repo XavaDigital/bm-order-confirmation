@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { getOrderForCustomer, recordOrderViewed } from '@/server/orders/customer-service';
+import { listActiveAcknowledgements } from '@/server/acknowledgements/service';
 import { toGarmentDto } from '@/server/orders/mappers';
 import { signChartRefs, signImageRefs } from '@/lib/signed-urls';
 import { ACCESS_CODE_COOKIE, isAccessCodeCookieValid } from '@/lib/access-code';
@@ -77,5 +78,13 @@ export default async function CustomerOrderPage({ params }: Props) {
     garments,
   };
 
-  return <CustomerOrderView token={token} order={data} />;
+  // The live acknowledgment set (admin-editable) — the confirm re-validates
+  // against the same source server-side.
+  const acknowledgements = (await listActiveAcknowledgements()).map((a) => ({
+    key: a.key,
+    title: a.title,
+    body: a.body,
+  }));
+
+  return <CustomerOrderView token={token} order={data} acknowledgements={acknowledgements} />;
 }

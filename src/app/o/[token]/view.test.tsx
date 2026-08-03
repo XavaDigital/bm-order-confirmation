@@ -56,8 +56,16 @@ function baseOrder(overrides: Partial<CustomerOrderViewProps['order']> = {}): Cu
   };
 }
 
+// The live ack set is admin-editable and passed in from the server component.
+const TEST_ACKS = [
+  { key: 'one', title: 'First thing', body: 'I confirm the first thing.' },
+  { key: 'two', title: 'Second thing', body: 'I confirm the second thing.' },
+];
+
 function renderView(order: CustomerOrderViewProps['order']) {
-  return render(<CustomerOrderView token="raw-token" order={order} />);
+  return render(
+    <CustomerOrderView token="raw-token" order={order} acknowledgements={TEST_ACKS} />,
+  );
 }
 
 // antd's Modal leave-transition (content zoom + mask fade) waits for real
@@ -103,7 +111,9 @@ describe('CustomerOrderView', () => {
 
     expect(screen.getByRole('heading', { name: 'OC-1' })).toBeInTheDocument();
     expect(screen.getByText(/home jersey/i)).toBeInTheDocument();
-    expect(screen.getByText(/please tick all 9 acknowledgments/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(new RegExp(`please tick all ${TEST_ACKS.length} acknowledgments`, 'i')),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /confirm order/i })).toBeDisabled();
   });
 
@@ -201,7 +211,8 @@ describe('CustomerOrderView', () => {
     );
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
     expect(body.token).toBe('raw-token');
-    expect(body.acknowledgments).toHaveLength(9);
+    // One entry per acknowledgment the server handed the view.
+    expect(body.acknowledgments).toHaveLength(TEST_ACKS.length);
     expect(body.colorSampleRequested).toBeUndefined();
 
     expect(await screen.findByText('Confirmed')).toBeInTheDocument();
@@ -272,13 +283,16 @@ describe('CustomerOrderView', () => {
     expect(within(dialog).getByRole('button', { name: /submit request/i })).toBeDisabled();
   });
 
-  it('renders the colour accuracy and colour matching escalation acknowledgments among the checklist', () => {
+  it('renders every acknowledgment the server provides, title and wording', () => {
+    // The set is admin-editable and arrives via props — the view must render
+    // exactly what it is given (the seeded defaults are covered by the
+    // integration tests against the settings table).
     renderView(baseOrder());
 
-    expect(screen.getByText(/screens display colour using light \(rgb\)/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/must request a colour book or send a physical sample for matching/i),
-    ).toBeInTheDocument();
+    for (const ack of TEST_ACKS) {
+      expect(screen.getByText(ack.title)).toBeInTheDocument();
+      expect(screen.getByText(ack.body)).toBeInTheDocument();
+    }
   });
 
   it('requesting a colour sample opens a confirm modal, posts to the dedicated endpoint, and disables the action', async () => {

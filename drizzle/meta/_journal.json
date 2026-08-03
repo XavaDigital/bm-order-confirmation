@@ -218,6 +218,13 @@
       "when": 1785665670900,
       "tag": "0030_high_firebrand",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1785731722750,
+      "tag": "0031_safe_pandemic",
+      "breakpoints": true
     }
   ]
 }

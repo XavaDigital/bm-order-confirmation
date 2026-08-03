@@ -177,6 +177,12 @@ export async function recordOrderViewed(
 // Confirmation
 // ---------------------------------------------------------------------------
 
+/**
+ * The seeded default acknowledgment keys (migration 0031). The LIVE required
+ * set is the active `acknowledgement_settings` rows — this constant only
+ * remains because tests build their fixtures from it, and the test DB replays
+ * the same seed. Do not use it in product code.
+ */
 export const REQUIRED_ACK_KEYS = [
   'color_accuracy',
   'color_matching',
@@ -415,10 +421,15 @@ export async function confirmOrder(params: {
   if (!order) throw new Error('invalid_token');
   if (order.status === 'confirmed') throw new Error('already_confirmed');
 
-  // Validate all required acks are present
+  // Validate all required acks are present. The required SET is the ACTIVE
+  // acknowledgement_settings rows (admin-editable since 2026-08-03), and the
+  // agreed title/wording is taken from the TABLE, never from the client — a
+  // tampered payload can't rewrite what was agreed.
+  const { listActiveAcknowledgements } = await import('@/server/acknowledgements/service');
+  const activeAcks = await listActiveAcknowledgements();
   const providedKeys = new Set(params.acks.map((a) => a.key));
-  for (const key of REQUIRED_ACK_KEYS) {
-    if (!providedKeys.has(key)) throw new Error(`missing_ack:${key}`);
+  for (const setting of activeAcks) {
+    if (!providedKeys.has(setting.key)) throw new Error(`missing_ack:${setting.key}`);
   }
 
   // Address requirement (David, 2026-08-03): 'customer_entered' means the
@@ -440,11 +451,16 @@ export async function confirmOrder(params: {
 
   const confirmedAt = new Date();
 
-  const snapshot = buildConfirmationSnapshot(order, {
-    concerns: params.concerns,
-    shippingAddress: addressDeferred ? null : params.shippingAddress,
-    shippingAddressDeferred: addressDeferred,
-  });
+  const snapshot = {
+    ...buildConfirmationSnapshot(order, {
+      concerns: params.concerns,
+      shippingAddress: addressDeferred ? null : params.shippingAddress,
+      shippingAddressDeferred: addressDeferred,
+    }),
+    // The agreed acknowledgments, exactly as they read at confirmation time —
+    // the settings table is editable, this record is not.
+    acknowledgments: activeAcks.map((a) => ({ key: a.key, title: a.title, text: a.body })),
+  };
 
   await db.transaction(async (tx) => {
     // Guard against a concurrent double-confirmation (double-click, retried
@@ -460,14 +476,15 @@ export async function confirmOrder(params: {
 
     if (updated.length === 0) throw new Error('already_confirmed');
 
-    // a. Write acknowledgments (upsert — safe if somehow called twice)
+    // a. Write acknowledgments (upsert — safe if somehow called twice).
+    // Rows come from the ACTIVE settings, not the client payload — one row
+    // per required acknowledgment actually in force at confirmation time.
     await tx
       .insert(acknowledgments)
       .values(
-        params.acks.map((a) => ({
+        activeAcks.map((a) => ({
           orderId: order.id,
-          // Validated against REQUIRED_ACK_KEYS above; extra keys are stored as-is.
-          ackKey: a.key as AckKey,
+          ackKey: a.key,
           ackTextVersion: ACK_TEXT_VERSION,
           accepted: true,
           acceptedAt: confirmedAt,

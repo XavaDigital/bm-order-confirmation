@@ -22,6 +22,12 @@ vi.mock('@/server/orders/customer-service', () => ({
   recordOrderViewed: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('@/server/acknowledgements/service', () => ({
+  listActiveAcknowledgements: vi.fn().mockResolvedValue([
+    { id: 'a1', key: 'one', title: 'First thing', body: 'I confirm.', sortOrder: 0, isActive: true },
+  ]),
+}));
+
 vi.mock('@/lib/storage', () => ({
   getSignedUrl: vi.fn().mockResolvedValue('https://signed.example.com/asset'),
 }));

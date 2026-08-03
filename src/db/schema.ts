@@ -684,17 +684,28 @@ export const garmentSizeChartLinks = confirmation.table(
   ],
 );
 
-/** Canonical acknowledgment keys — REQUIRED_ACK_KEYS (customer-service) must stay in sync. */
-export type AckKey =
-  | 'color_accuracy'
-  | 'color_matching'
-  | 'mockup_correct'
-  | 'sizing_correct'
-  | 'size_charts_used'
-  | 'no_refunds'
-  | 'womens_unisex_sizing'
-  | 'payment_terms'
-  | 'authorised';
+/**
+ * Acknowledgment keys are free slugs since 2026-08-03: the set lives in
+ * `acknowledgement_settings` (admin-editable, migration 0031 seeds the
+ * original nine), no longer a closed union. The agreed title/wording is
+ * snapshotted per confirmation, so editing a setting never rewrites history.
+ */
+export type AckKey = string;
+
+// --- acknowledgement settings (admin-editable; David, 2026-08-03) ----------
+export const acknowledgementSettings = confirmation.table('acknowledgement_settings', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  /** Stable slug — referenced by acknowledgment rows; never re-used once retired. */
+  key: text('key').notNull().unique(),
+  /** Bold heading shown above the wording (David: draw attention to each). */
+  title: text('title').notNull(),
+  body: text('body').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  // Deactivate-never-delete: past confirmations reference the key.
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
 
 // --- acknowledgments (one row per checkbox, audit trail) ------------------
 export const acknowledgments = confirmation.table(
@@ -794,7 +805,7 @@ export const auditEvents = confirmation.table(
     id: uuid('id').defaultRandom().primaryKey(),
     // Plain text in the database, so widening this union is a type-only change
     // and needs no migration.
-    aggregateType: text('aggregate_type').notNull().$type<'order' | 'staff_user' | 'garment_type' | 'purchase_order' | 'supplier' | 'shipment' | 'workflow_stage'>(),
+    aggregateType: text('aggregate_type').notNull().$type<'order' | 'staff_user' | 'garment_type' | 'purchase_order' | 'supplier' | 'shipment' | 'workflow_stage' | 'acknowledgement_setting'>(),
     aggregateId: uuid('aggregate_id').notNull(),
     eventType: text('event_type').notNull(),
     actorEmail: text('actor_email'),

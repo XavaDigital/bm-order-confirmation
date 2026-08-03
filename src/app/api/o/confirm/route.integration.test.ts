@@ -61,7 +61,9 @@ function uniqueIp() {
 }
 
 describe('POST /api/o/confirm', () => {
-  it('returns 400 with details for a malformed body (wrong ack count)', async () => {
+  it('returns 400 (missing_ack) when required acknowledgments are absent', async () => {
+    // The required SET is dynamic (acknowledgement_settings) — an incomplete
+    // list fails in the service, not the schema.
     const created = await createOrder(minimalOrderInput());
     const req = makeRequest(
       { token: created.token, acknowledgments: allAcks().slice(0, 2) },
@@ -72,7 +74,31 @@ describe('POST /api/o/confirm', () => {
     const json = await res.json();
 
     expect(res.status).toBe(400);
-    expect(json.details).toBeDefined();
+    expect(String(json.code)).toMatch(/^missing_ack:/);
+  });
+
+  it('the required set follows the settings table, and the snapshot records titled acks', async () => {
+    // Deactivate one seeded ack — confirming WITHOUT it must now succeed,
+    // and the snapshot must carry the agreed title+wording of the rest.
+    await db
+      .update(schema.acknowledgementSettings)
+      .set({ isActive: false })
+      .where(eq(schema.acknowledgementSettings.key, 'payment_terms'));
+
+    const created = await createOrder(minimalOrderInput());
+    const acks = allAcks().filter((a) => a.key !== 'payment_terms');
+    const res = await POST(makeRequest({ token: created.token, acknowledgments: acks }, uniqueIp()));
+
+    expect(res.status).toBe(200);
+    const conf = await db.query.confirmations.findFirst({
+      where: eq(schema.confirmations.orderId, created.orderId),
+    });
+    const snapAcks = (conf!.confirmedSnapshot as {
+      acknowledgments: { key: string; title: string; text: string }[];
+    }).acknowledgments;
+    expect(snapAcks.some((a) => a.key === 'payment_terms')).toBe(false);
+    expect(snapAcks.length).toBeGreaterThan(0);
+    expect(snapAcks.every((a) => a.title.length > 0 && a.text.length > 0)).toBe(true);
   });
 
   it('returns 404 for an unknown token', async () => {

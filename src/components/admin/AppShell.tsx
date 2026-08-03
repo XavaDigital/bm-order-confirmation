@@ -8,6 +8,7 @@ import { Layout, Menu, ConfigProvider, App, Button, Tooltip } from 'antd';
 import {
   HomeOutlined,
   BarChartOutlined,
+  CheckSquareOutlined,
   FileDoneOutlined,
   FileTextOutlined,
   ProfileOutlined,
@@ -71,6 +72,11 @@ function buildNavItems(role: StaffRole) {
       key: '/admin/size-charts',
       icon: <ProfileOutlined />,
       label: <Link href="/admin/size-charts">Size Charts</Link>,
+    },
+    {
+      key: '/admin/acknowledgements',
+      icon: <CheckSquareOutlined />,
+      label: <Link href="/admin/acknowledgements">Acknowledgments</Link>,
     },
     {
       key: '/admin/metrics',

@@ -62,6 +62,10 @@ export type DomainEventType =
   | 'workflow.task_reopened'
   | 'workflow.owners_changed'
   | 'workflow.gate_overridden'
+  // Acknowledgement settings (audit-only): staff editing the customer-facing
+  // confirmation checkboxes.
+  | 'ack_setting.created'
+  | 'ack_setting.updated'
   // Stage configuration (audit-only). Who changed the shape of the board is
   // staff action history; no consumer acts on it.
   | 'workflow.stage_created'
@@ -145,7 +149,8 @@ export async function recordAuditEvent(
       | 'supplier'
       | 'shipment'
       // The column is plain text, so widening this union is a type-only change.
-      | 'workflow_stage';
+      | 'workflow_stage'
+      | 'acknowledgement_setting';
     actorEmail?: string | null;
   },
   tx?: Transaction,

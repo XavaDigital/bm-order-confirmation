@@ -31,7 +31,7 @@ import { MockupGallery } from '@/components/customer/MockupGallery';
 import { SizingTableReadOnly } from '@/components/customer/SizingTableReadOnly';
 import {
   AcknowledgmentPanel,
-  ACKNOWLEDGMENTS,
+  type Ack,
 } from '@/components/customer/AcknowledgmentPanel';
 import { ShippingAddressField } from '@/components/customer/ShippingAddressField';
 import { SignaturePad, type SignatureData } from '@/components/customer/SignaturePad';
@@ -78,6 +78,8 @@ export interface CustomerOrderViewProps {
     };
     garments: OrderGarment[];
   };
+  /** The live acknowledgment set (admin-editable), loaded server-side. */
+  acknowledgements: Ack[];
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +177,7 @@ function ChangesRequestedPanel({ orderNumber }: { orderNumber: string }) {
 // ---------------------------------------------------------------------------
 // Main confirmation view
 // ---------------------------------------------------------------------------
-export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
+export function CustomerOrderView({ token, order, acknowledgements }: CustomerOrderViewProps) {
   const [checkedAcks, setCheckedAcks] = useState<Set<string>>(new Set());
   const [concerns, setConcerns] = useState('');
   const [shippingAddress, setShippingAddress] = useState<Record<string, unknown> | null>(null);
@@ -240,7 +242,9 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           token,
-          acknowledgments: ACKNOWLEDGMENTS.map((a) => ({ key: a.key, text: a.text })),
+          // The server re-derives the authoritative title/wording from the
+          // settings table; the body text here is informational.
+          acknowledgments: acknowledgements.map((a) => ({ key: a.key, text: a.body })),
           concerns: concerns.trim() || null,
           shippingAddress:
             order.shippingMode === 'customer_entered' && !addressDeferred ? shippingAddress : null,
@@ -516,7 +520,7 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
         <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13, display: 'block', marginBottom: 16 }}>
           Please read and tick each item to confirm your order.
         </Text>
-        <AcknowledgmentPanel checked={checkedAcks} onChange={setCheckedAcks} />
+        <AcknowledgmentPanel acks={acknowledgements} checked={checkedAcks} onChange={setCheckedAcks} />
       </Card>
 
       {/* ── Signature ── */}
@@ -541,11 +545,11 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
         />
       )}
 
-      {checkedAcks.size < ACKNOWLEDGMENTS.length && (
+      {checkedAcks.size < acknowledgements.length && (
         <Alert
           type="warning"
           showIcon
-          message={`Please tick all ${ACKNOWLEDGMENTS.length} acknowledgments above before confirming.`}
+          message={`Please tick all ${acknowledgements.length} acknowledgments above before confirming.`}
           style={{ marginBottom: 20, ...WARNING_SURFACE_STYLE }}
         />
       )}
@@ -560,6 +564,7 @@ export function CustomerOrderView({ token, order }: CustomerOrderViewProps) {
         }}
       >
         <ConfirmButton
+          acks={acknowledgements}
           checkedAcks={checkedAcks}
           onConfirm={handleConfirm}
           loading={submitting}

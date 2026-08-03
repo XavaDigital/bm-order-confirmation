@@ -2,17 +2,19 @@
 
 import { Button, Popconfirm, Tooltip } from 'antd';
 import { CheckOutlined } from '@ant-design/icons';
-import { ACKNOWLEDGMENTS } from './AcknowledgmentPanel';
+import type { Ack } from './AcknowledgmentPanel';
 
 interface Props {
+  /** The live acknowledgment set (admin-editable, passed from the server). */
+  acks: Ack[];
   checkedAcks: Set<string>;
   onConfirm: () => void;
   loading: boolean;
 }
 
-export function ConfirmButton({ checkedAcks, onConfirm, loading }: Props) {
-  const allChecked = ACKNOWLEDGMENTS.every((a) => checkedAcks.has(a.key));
-  const remaining = ACKNOWLEDGMENTS.length - checkedAcks.size;
+export function ConfirmButton({ acks, checkedAcks, onConfirm, loading }: Props) {
+  const allChecked = acks.every((a) => checkedAcks.has(a.key));
+  const remaining = acks.length - checkedAcks.size;
 
   const btn = (
     <Button
