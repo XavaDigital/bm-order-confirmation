@@ -147,6 +147,9 @@ describe('the short-URL roster page', () => {
     const jersey = garments.find((g) => g.name === 'Home Jersey')!;
     expect(body.members[0].sizes[jersey.id]).toEqual({
       size: 'L',
+      // No per-garment override sent → the member's name is the print name.
+      playerName: 'Sam Player',
+      playerNumber: null,
       // 'Hacked' is not a defined column — the allowlist drops it.
       customValues: { Colour: 'Red' },
     });

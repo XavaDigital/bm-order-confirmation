@@ -536,7 +536,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
     },
     {
       key: 'share',
-      label: 'Share Link',
+      label: 'Confirmation Link',
       icon: <LinkOutlined />,
       children: (
         <ShareLinkPanel

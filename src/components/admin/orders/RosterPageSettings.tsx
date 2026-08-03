@@ -144,6 +144,28 @@ export function RosterPageSettings({ orderId }: { orderId: string }) {
                 </Popconfirm>
               )}
             </Space>
+            {/* Link + password together, email-ready (David, 2026-08-04). */}
+            <Space size={8} align="start">
+              <Button
+                size="small"
+                icon={<CopyOutlined />}
+                onClick={async () => {
+                  const snippet = [
+                    'Enter your sizes for the team order here:',
+                    settings.url,
+                    ...(settings.password ? ['', `Team password: ${settings.password}`] : []),
+                  ].join('\n');
+                  try {
+                    await navigator.clipboard.writeText(snippet);
+                    message.success('Link and password copied — paste into your email');
+                  } catch {
+                    message.error('Copy failed — please copy manually');
+                  }
+                }}
+              >
+                Copy link {settings.password ? '+ password ' : ''}for email
+              </Button>
+            </Space>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               Team members open the address, enter the password (if set) and their email, then add
               players and pick sizes. Each person can only edit the players they added.

@@ -937,7 +937,11 @@ export async function addGarment(
       tx,
     );
 
-    return (await tx.query.garments.findFirst({ where: eq(garments.id, garmentId) }))!;
+    const row = (await tx.query.garments.findFirst({ where: eq(garments.id, garmentId) }))!;
+    // The type's charts were auto-linked above — the response must SAY so, or
+    // the UI renders the fresh garment as chartless until a reload (David,
+    // 2026-08-04).
+    return { ...row, sizeChartIds: preset?.chartIds ?? [] };
   });
 }
 

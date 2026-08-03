@@ -232,7 +232,7 @@ export function GarmentsMasterDetail({
     }
     setAddingLoading(true);
     try {
-      const garment = await postJson<Pick<Garment, 'id' | 'name' | 'notes' | 'sortOrder'> & { fabrics?: string[]; garmentTypeId?: string | null; selectedOptions?: Record<string, string> | null; sizingColumns?: GarmentTypeOption[] }>(
+      const garment = await postJson<Pick<Garment, 'id' | 'name' | 'notes' | 'sortOrder'> & { fabrics?: string[]; garmentTypeId?: string | null; selectedOptions?: Record<string, string> | null; sizingColumns?: GarmentTypeOption[]; sizeChartIds?: string[] }>(
         `/api/admin/orders/${orderId}/garments`,
         {
           name: draft.name.trim(),
@@ -250,7 +250,8 @@ export function GarmentsMasterDetail({
           fabrics: garment.fabrics ?? [],
           sizing: [],
           images: [],
-          sizeChartIds: [],
+          // The server auto-links the type's size charts on create.
+          sizeChartIds: garment.sizeChartIds ?? [],
           garmentTypeId: garment.garmentTypeId ?? null,
           selectedOptions: garment.selectedOptions ?? null,
           sizingColumns: garment.sizingColumns ?? [],
@@ -337,9 +338,13 @@ export function GarmentsMasterDetail({
             />
           </Form.Item>
         </div>
-        <Form.Item label="Notes">
+        <Form.Item
+          label="Customer note"
+          extra="Shown to the customer on their confirmation page, under this garment. Staff-only discussion belongs in the order notes."
+        >
           <Input.TextArea
             rows={2}
+            placeholder="e.g. Sleeve print uses last season's artwork"
             value={draft.notes}
             onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
           />
@@ -500,12 +505,15 @@ export function GarmentsMasterDetail({
                     />
                   </Form.Item>
                 )}
-                <Form.Item label="Notes">
+                <Form.Item
+                  label="Customer note"
+                  extra="Shown to the customer on their confirmation page, under this garment."
+                >
                   <Input.TextArea
                     rows={2}
                     value={currentNotes ?? ''}
                     onChange={(e) => setEdit(garment.id, { notes: e.target.value || null })}
-                    placeholder="Garment-level notes (e.g. Chinese collar, sublimated)"
+                    placeholder="e.g. Chinese collar, sublimated"
                   />
                 </Form.Item>
               </div>
@@ -692,15 +700,27 @@ export function GarmentsMasterDetail({
     <div style={{ display: 'flex', width: '100%', alignItems: 'stretch' }}>
       <div
         style={{
-          width: 240,
+          // Sized and padded like the order page's section menu (David,
+          // 2026-08-04) — a narrow, compact rail so the detail gets the room.
+          width: 180,
           flexShrink: 0,
           display: 'flex',
           flexDirection: 'column',
-          gap: 12,
+          gap: 8,
+          // Pinned while the garment editor scrolls (David, 2026-08-04) —
+          // switching garments must not require scrolling back up. Top offset
+          // clears the fixed app header; capped height keeps a long garment
+          // list scrollable within the rail itself.
+          position: 'sticky',
+          top: 88,
+          alignSelf: 'flex-start',
+          maxHeight: 'calc(100vh - 104px)',
+          overflowY: 'auto',
         }}
       >
         <Menu
           mode="inline"
+          inlineIndent={12}
           selectedKeys={selectedId ? [selectedId] : []}
           items={listItems}
           onClick={({ key }) => {
@@ -710,9 +730,9 @@ export function GarmentsMasterDetail({
           }}
           style={{ borderInlineEnd: 0 }}
         />
-        <div style={{ padding: '0 8px 8px' }}>{addControl}</div>
+        {addControl}
       </div>
-      <Divider type="vertical" style={{ height: 'auto', margin: '0 20px' }} />
+      <Divider type="vertical" style={{ height: 'auto', margin: '0 12px' }} />
       <div style={{ flex: 1, minWidth: 0 }}>{detailPane}</div>
     </div>
   );

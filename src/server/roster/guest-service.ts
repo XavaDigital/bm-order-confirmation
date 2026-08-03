@@ -171,8 +171,20 @@ export interface RosterStateMember {
   /** Editable by the signed-in guest — their own, or anyone's for the club admin. */
   canEdit: boolean;
   addedBy: string | null;
-  /** garmentId → { size, customValues } */
-  sizes: Record<string, { size: string | null; customValues: Record<string, string> | null }>;
+  /**
+   * garmentId → the row as it will print. Name/number are PER GARMENT
+   * (David, 2026-08-04: a player may want different names/numbers on
+   * different gear); the member's own name is just their list identity.
+   */
+  sizes: Record<
+    string,
+    {
+      size: string | null;
+      playerName: string | null;
+      playerNumber: string | null;
+      customValues: Record<string, string> | null;
+    }
+  >;
 }
 
 export interface RosterStateGarment {
@@ -243,7 +255,15 @@ export async function getRosterState(
     where: eq(rosterMembers.orderId, order.id),
     orderBy: [asc(rosterMembers.sortOrder), asc(rosterMembers.createdAt)],
     with: {
-      sizing: { columns: { garmentId: true, size: true, customValues: true } },
+      sizing: {
+        columns: {
+          garmentId: true,
+          size: true,
+          playerName: true,
+          playerNumber: true,
+          customValues: true,
+        },
+      },
       guest: { columns: { id: true, email: true, name: true } },
     },
   });
@@ -270,6 +290,8 @@ export async function getRosterState(
           row.garmentId,
           {
             size: row.size ?? null,
+            playerName: row.playerName ?? null,
+            playerNumber: row.playerNumber ?? null,
             customValues: (row.customValues as Record<string, string> | null) ?? null,
           },
         ]),
@@ -283,6 +305,9 @@ export interface GuestMemberSizesInput {
   sizes: {
     garmentId: string;
     size: string;
+    /** Name/number ON THIS GARMENT — falls back to the member's name. */
+    playerName?: string | null;
+    playerNumber?: string | null;
     customValues?: Record<string, string> | null;
   }[];
 }
@@ -448,15 +473,14 @@ async function writeGuestMemberSizes(
   const existingByGarment = new Map(existingRows.map((row) => [row.garmentId, row]));
 
   const submittedAt = new Date();
-  const memberFields = {
-    playerName: member.name,
-    playerNumber: member.playerNumber ?? null,
-    notes: null,
-  };
 
   const normalized = sizes.map((row) => ({
     garmentId: row.garmentId,
     size: row.size.trim(),
+    // Per-garment name/number (David, 2026-08-04); the member's own name is
+    // the default when a garment doesn't override it.
+    playerName: row.playerName?.trim() || member.name,
+    playerNumber: row.playerNumber?.trim() || null,
     customValues: sanitizeCustomValues(
       row.customValues,
       (byGarment.get(row.garmentId)!.sizingColumns ?? []) as GarmentTypeOption[],
@@ -466,11 +490,15 @@ async function writeGuestMemberSizes(
   await db.transaction(async (tx) => {
     for (const row of normalized) {
       const existing = existingByGarment.get(row.garmentId);
+      const rowFields = {
+        size: row.size,
+        playerName: row.playerName,
+        playerNumber: row.playerNumber,
+        customValues: row.customValues,
+        notes: null,
+      };
       if (existing) {
-        await tx
-          .update(garmentSizing)
-          .set({ size: row.size, customValues: row.customValues, ...memberFields })
-          .where(eq(garmentSizing.id, existing.id));
+        await tx.update(garmentSizing).set(rowFields).where(eq(garmentSizing.id, existing.id));
       } else {
         const [{ maxSort }] = await tx
           .select({ maxSort: sql<number>`coalesce(max(${garmentSizing.sortOrder}), -1)` })
@@ -479,9 +507,7 @@ async function writeGuestMemberSizes(
         await tx.insert(garmentSizing).values({
           garmentId: row.garmentId,
           rosterMemberId: member.id,
-          size: row.size,
-          customValues: row.customValues,
-          ...memberFields,
+          ...rowFields,
           sortOrder: Number(maxSort) + 1,
         });
       }

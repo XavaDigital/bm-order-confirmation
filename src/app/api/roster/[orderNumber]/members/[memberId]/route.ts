@@ -10,6 +10,9 @@ const sizesSchema = z
     z.object({
       garmentId: z.string().uuid(),
       size: z.string().trim().min(1).max(40),
+      // Per-garment print name/number (David, 2026-08-04).
+      playerName: z.string().trim().max(120).nullable().optional(),
+      playerNumber: z.string().trim().max(20).nullable().optional(),
       customValues: z.record(z.string().max(200)).nullable().optional(),
     }),
   )

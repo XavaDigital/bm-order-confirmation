@@ -70,9 +70,8 @@ describe('RosterPanel', () => {
     expect(screen.getByText('Sam')).toBeInTheDocument();
     expect(screen.getByText('Submitted')).toBeInTheDocument();
     expect(screen.getByText('Pending')).toBeInTheDocument();
-    // RosterLinkPanel reflects the fetched access/stats state.
+    // The progress stat (formerly on the removed token-link panel).
     expect(screen.getByText('1 of 2 submitted')).toBeInTheDocument();
-    expect(screen.getByText(/active roster link exists/i)).toBeInTheDocument();
   });
 
   it('adding a member POSTs to the members endpoint and appends the row', async () => {

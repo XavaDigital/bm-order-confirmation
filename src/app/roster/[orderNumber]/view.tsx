@@ -68,7 +68,15 @@ interface RosterMember {
   mine: boolean;
   canEdit: boolean;
   addedBy: string | null;
-  sizes: Record<string, { size: string | null; customValues: Record<string, string> | null }>;
+  sizes: Record<
+    string,
+    {
+      size: string | null;
+      playerName: string | null;
+      playerNumber: string | null;
+      customValues: Record<string, string> | null;
+    }
+  >;
 }
 
 interface RosterState {
@@ -86,8 +94,12 @@ interface Props {
   token: string | null;
 }
 
-/** Per-garment working values while adding/editing a player. */
-type DraftSizes = Record<string, { size: string | null; customValues: Record<string, string> }>;
+/** Per-garment working values while adding/editing a player — name and
+ *  number live on EACH garment (David, 2026-08-04). */
+type DraftSizes = Record<
+  string,
+  { size: string | null; playerName: string; playerNumber: string; customValues: Record<string, string> }
+>;
 
 function emptyDraft(garments: RosterGarment[]): DraftSizes {
   return Object.fromEntries(
@@ -95,6 +107,8 @@ function emptyDraft(garments: RosterGarment[]): DraftSizes {
       g.id,
       {
         size: null,
+        playerName: '',
+        playerNumber: '',
         customValues: Object.fromEntries(
           g.sizingColumns.map((c) => [
             c.label,
@@ -112,6 +126,8 @@ function draftFromMember(member: RosterMember, garments: RosterGarment[]): Draft
     if (base[garmentId]) {
       base[garmentId] = {
         size: entry.size,
+        playerName: entry.playerName ?? '',
+        playerNumber: entry.playerNumber ?? '',
         customValues: { ...base[garmentId].customValues, ...(entry.customValues ?? {}) },
       };
     }
@@ -144,7 +160,6 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | 'new' | null>(null);
   const [draftName, setDraftName] = useState('');
-  const [draftNumber, setDraftNumber] = useState('');
   const [draftSizes, setDraftSizes] = useState<DraftSizes>({});
   const [saving, setSaving] = useState(false);
 
@@ -187,11 +202,9 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
     if (!state) return;
     if (selectedId === 'new') {
       setDraftName('');
-      setDraftNumber('');
       setDraftSizes(emptyDraft(state.garments));
     } else if (selectedMember) {
       setDraftName(selectedMember.name);
-      setDraftNumber(selectedMember.playerNumber ?? '');
       setDraftSizes(draftFromMember(selectedMember, state.garments));
     }
   }, [state, selectedId, selectedMember]);
@@ -299,10 +312,13 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
     try {
       const payload = {
         name: draftName.trim(),
-        playerNumber: draftNumber.trim() || null,
         sizes: state.garments.map((g) => ({
           garmentId: g.id,
           size: draftSizes[g.id].size!,
+          // Per-garment print name/number; blank name falls back to the
+          // player's name server-side.
+          playerName: draftSizes[g.id].playerName.trim() || null,
+          playerNumber: draftSizes[g.id].playerNumber.trim() || null,
           customValues: Object.fromEntries(
             Object.entries(draftSizes[g.id].customValues).filter(([, v]) => v.trim()),
           ),
@@ -524,13 +540,9 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
             style={{ width: 220 }}
             maxLength={120}
           />
-          <Input
-            placeholder="Number (optional)"
-            value={draftNumber}
-            onChange={(e) => setDraftNumber(e.target.value)}
-            style={{ width: 140 }}
-            maxLength={20}
-          />
+          <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>
+            Names and numbers are set per garment below — they can differ between garments.
+          </Text>
         </Space>
       )}
 
@@ -580,8 +592,47 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
               </Text>
             )}
 
-            {/* The stacked "table" of choices for this garment. */}
+            {/* The stacked "table" of choices for this garment — name and
+                number included, per garment (David, 2026-08-04). */}
             <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', rowGap: 10, alignItems: 'center' }}>
+              <Text style={{ color: 'rgba(255,255,255,0.65)' }}>Name on garment</Text>
+              {editable ? (
+                <Input
+                  placeholder={draftName.trim() ? `Same as player name (${draftName.trim()})` : 'Same as player name'}
+                  value={draft?.playerName ?? ''}
+                  onChange={(e) =>
+                    setDraftSizes((prev) => ({
+                      ...prev,
+                      [g.id]: { ...prev[g.id], playerName: e.target.value },
+                    }))
+                  }
+                  style={{ maxWidth: 260 }}
+                  maxLength={120}
+                />
+              ) : (
+                <Text style={{ color: '#fff' }}>
+                  {current?.playerName ?? selectedMember?.name ?? '—'}
+                </Text>
+              )}
+
+              <Text style={{ color: 'rgba(255,255,255,0.65)' }}>Number</Text>
+              {editable ? (
+                <Input
+                  placeholder="Optional"
+                  value={draft?.playerNumber ?? ''}
+                  onChange={(e) =>
+                    setDraftSizes((prev) => ({
+                      ...prev,
+                      [g.id]: { ...prev[g.id], playerNumber: e.target.value },
+                    }))
+                  }
+                  style={{ maxWidth: 120 }}
+                  maxLength={20}
+                />
+              ) : (
+                <Text style={{ color: '#fff' }}>{current?.playerNumber ?? '—'}</Text>
+              )}
+
               <Text style={{ color: 'rgba(255,255,255,0.65)' }}>Size</Text>
               {editable ? (
                 <Select

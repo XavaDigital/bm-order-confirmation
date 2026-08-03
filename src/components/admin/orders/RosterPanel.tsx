@@ -17,7 +17,6 @@ import {
 import type { ColumnType } from 'antd/es/table';
 import { ApiError, deleteJson, patchJson, postJson } from '@/lib/api-fetch';
 import { useAdminResource } from '@/lib/use-admin-resource';
-import { RosterLinkPanel } from './RosterLinkPanel';
 import { RosterImportModal } from './RosterImportModal';
 import { RosterPageSettings } from './RosterPageSettings';
 
@@ -366,20 +365,20 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size={24}>
-      {/* The short typeable page (David, 2026-08-03) — the link panel below
-          stays for token links, which double as its password-skipping URLs. */}
+      {/* The short typeable page (David, 2026-08-03). The old token-link
+          panel was removed as redundant (David, 2026-08-04) — existing token
+          links keep working, but new sharing goes through the page above. */}
       <RosterPageSettings orderId={orderId} />
-      <RosterLinkPanel
-        orderId={orderId}
-        customerEmail={customerEmail}
-        hasActiveToken={data.currentAccess !== null}
-        locked={data.locked}
-        stats={data.stats}
-      />
 
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <Typography.Text strong>Team members</Typography.Text>
+          <Space size={8}>
+            <Typography.Text strong>Team members</Typography.Text>
+            {/* Lived on the removed token-link panel; the progress stat stays. */}
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {data.stats.submitted} of {data.stats.total} submitted
+            </Typography.Text>
+          </Space>
           <Space>
             <Button
               size="small"
