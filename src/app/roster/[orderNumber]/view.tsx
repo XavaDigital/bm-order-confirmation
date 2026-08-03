@@ -32,6 +32,7 @@ import {
 import {
   CheckCircleFilled,
   DeleteOutlined,
+  FileSearchOutlined,
   LockOutlined,
   PlusOutlined,
   TeamOutlined,
@@ -651,6 +652,35 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
                 <Text style={{ color: '#fff' }}>{current?.size ?? '—'}</Text>
               )}
 
+              {/* Size charts sit right under the size pick, and loudly —
+                  (David, 2026-08-04) they were easy to miss at the card foot. */}
+              {g.sizeCharts.some((c) => c.url) && (
+                <>
+                  <span />
+                  <Space wrap size={8}>
+                    {g.sizeCharts.map(
+                      (c) =>
+                        c.url && (
+                          <Button
+                            key={c.name}
+                            size="small"
+                            type="primary"
+                            ghost
+                            icon={<FileSearchOutlined />}
+                            href={c.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {g.sizeCharts.filter((x) => x.url).length > 1
+                              ? `Size chart — ${c.name}`
+                              : 'Not sure? View the size chart'}
+                          </Button>
+                        ),
+                    )}
+                  </Space>
+                </>
+              )}
+
               {g.sizingColumns.map((col) => (
                 <RosterOptionRow
                   key={col.label}
@@ -674,18 +704,6 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
               ))}
             </div>
 
-            {g.sizeCharts.length > 0 && (
-              <Space wrap style={{ marginTop: 12 }}>
-                {g.sizeCharts.map(
-                  (c) =>
-                    c.url && (
-                      <a key={c.name} href={c.url} target="_blank" rel="noopener noreferrer">
-                        <Tag color="geekblue">Size chart: {c.name}</Tag>
-                      </a>
-                    ),
-                )}
-              </Space>
-            )}
           </div>
         );
       })}
