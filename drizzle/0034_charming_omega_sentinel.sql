@@ -1,0 +1,1 @@
+ALTER TABLE "confirmation"."orders" ADD COLUMN "roster_admin_password_hash" text;

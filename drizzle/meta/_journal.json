@@ -239,6 +239,13 @@
       "when": 1785753259406,
       "tag": "0033_illegal_marten_broadcloak",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1785755955741,
+      "tag": "0034_charming_omega_sentinel",
+      "breakpoints": true
     }
   ]
 }

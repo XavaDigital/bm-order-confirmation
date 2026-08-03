@@ -10,21 +10,21 @@ import { readRosterSessionCookie, ROSTER_SESSION_COOKIE } from '@/lib/roster-ses
 export async function requireRosterGuest(
   request: NextRequest,
   orderNumber: string,
-): Promise<{ guestId: string } | NextResponse> {
+): Promise<{ guestId: string; isAdmin: boolean } | NextResponse> {
   const order = await getRosterPageOrder(orderNumber);
   if (!order) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const guestId = readRosterSessionCookie(
+  const session = readRosterSessionCookie(
     order,
     request.cookies.get(ROSTER_SESSION_COOKIE)?.value ?? null,
   );
-  if (!guestId) {
+  if (!session) {
     return NextResponse.json(
       { error: 'Session expired — enter your email again.', code: 'session_expired' },
       { status: 401 },
     );
   }
-  return { guestId };
+  return { guestId: session.guestId, isAdmin: session.role === 'admin' };
 }
 
 /** Map guest-service thrown strings onto responses; rethrows unknown errors. */

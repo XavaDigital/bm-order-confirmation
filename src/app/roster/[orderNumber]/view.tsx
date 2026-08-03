@@ -9,7 +9,7 @@
  * the garment defines (e.g. Colour). Guests add players via a dashed Add row
  * and may edit only the players they added (email = identity).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   App,
@@ -26,6 +26,7 @@ import {
   Space,
   Spin,
   Tag,
+  Tour,
   Typography,
 } from 'antd';
 import {
@@ -65,13 +66,14 @@ interface RosterMember {
   playerNumber: string | null;
   submittedAt: string | null;
   mine: boolean;
+  canEdit: boolean;
   addedBy: string | null;
   sizes: Record<string, { size: string | null; customValues: Record<string, string> | null }>;
 }
 
 interface RosterState {
   order: { orderNumber: string; clubName: string | null; name: string | null; locked: boolean };
-  guest: { id: string; email: string; name: string | null };
+  guest: { id: string; email: string; name: string | null; isAdmin: boolean };
   garments: RosterGarment[];
   members: RosterMember[];
 }
@@ -129,6 +131,13 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
   const [guestName, setGuestName] = useState('');
   const [entering, setEntering] = useState(false);
   const [gateError, setGateError] = useState<string | null>(null);
+  /**
+   * Club-admin sub-flow, driven by the server's verdict on the email:
+   * 'setup' = first visit, choose a manager password; 'verify' = prove it.
+   */
+  const [adminMode, setAdminMode] = useState<null | 'setup' | 'verify'>(null);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminPasswordConfirm, setAdminPasswordConfirm] = useState('');
 
   // Main stage
   const [state, setState] = useState<RosterState | null>(null);
@@ -192,6 +201,16 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
       setGateError('Enter your email address.');
       return;
     }
+    if (adminMode === 'setup') {
+      if (adminPassword.length < 6) {
+        setGateError('Your manager password needs at least 6 characters.');
+        return;
+      }
+      if (adminPassword !== adminPasswordConfirm) {
+        setGateError('The manager passwords do not match.');
+        return;
+      }
+    }
     setEntering(true);
     setGateError(null);
     try {
@@ -203,10 +222,24 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
           ...(guestName.trim() && { name: guestName.trim() }),
           ...(password && { password }),
           ...(token && { token }),
+          ...(adminMode && adminPassword && { adminPassword }),
+          ...(adminMode === 'setup' && { settingAdminPassword: true }),
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        // The server tells us this email is the order's manager — switch the
+        // form into the matching manager-password mode.
+        if (data.code === 'admin_password_setup_required') {
+          setAdminMode('setup');
+          setGateError(adminMode === null ? null : (data.error ?? null));
+          return;
+        }
+        if (data.code === 'admin_password_required' || data.code === 'bad_admin_password') {
+          setAdminMode('verify');
+          setGateError(data.code === 'bad_admin_password' ? 'Incorrect manager password.' : null);
+          return;
+        }
         setGateError(
           res.status === 403
             ? 'Incorrect password.'
@@ -225,8 +258,27 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
   }
 
   const editable = Boolean(
-    state && !state.order.locked && (selectedId === 'new' || selectedMember?.mine),
+    state && !state.order.locked && (selectedId === 'new' || selectedMember?.canEdit),
   );
+
+  // First-visit tour for the club admin (David, 2026-08-03).
+  const tourKey = `bm-roster-tour-${orderNumber}`;
+  const [tourOpen, setTourOpen] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (state?.guest.isAdmin && typeof window !== 'undefined' && !localStorage.getItem(tourKey)) {
+      setTourOpen(true);
+    }
+  }, [state?.guest.isAdmin, tourKey]);
+  function closeTour() {
+    setTourOpen(false);
+    try {
+      localStorage.setItem(tourKey, '1');
+    } catch {
+      // Storage unavailable (private mode) — the tour just shows again next time.
+    }
+  }
 
   function sizesComplete(): boolean {
     if (!state) return false;
@@ -344,6 +396,41 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
                 onPressEnter={() => void enter()}
                 maxLength={120}
               />
+              {adminMode === 'setup' && (
+                <>
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="You manage this order"
+                    description="Create your manager password — it lets you edit anyone's sizes, so keep it to yourself."
+                  />
+                  <Input.Password
+                    size="large"
+                    placeholder="Choose a manager password (6+ characters)"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    maxLength={64}
+                  />
+                  <Input.Password
+                    size="large"
+                    placeholder="Repeat the manager password"
+                    value={adminPasswordConfirm}
+                    onChange={(e) => setAdminPasswordConfirm(e.target.value)}
+                    onPressEnter={() => void enter()}
+                    maxLength={64}
+                  />
+                </>
+              )}
+              {adminMode === 'verify' && (
+                <Input.Password
+                  size="large"
+                  placeholder="Your manager password"
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  onPressEnter={() => void enter()}
+                  maxLength={64}
+                />
+              )}
               <Button type="primary" size="large" block loading={entering} onClick={() => void enter()}>
                 Continue
               </Button>
@@ -447,11 +534,11 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
         </Space>
       )}
 
-      {!editable && selectedMember && !selectedMember.mine && !state.order.locked && (
+      {!editable && selectedMember && !selectedMember.canEdit && !state.order.locked && (
         <Alert
           type="info"
           showIcon
-          message="Only the person who added this player can change their sizes."
+          message="Only the person who added this player (or the team manager) can change their sizes."
         />
       )}
 
@@ -557,7 +644,7 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
           <Button type="primary" size="large" loading={saving} onClick={() => void save()}>
             {selectedId === 'new' ? 'Add player' : 'Save changes'}
           </Button>
-          {selectedId !== 'new' && selectedMember?.mine && (
+          {selectedId !== 'new' && selectedMember?.canEdit && (
             <Popconfirm
               title={`Remove ${selectedMember.name}?`}
               onConfirm={() => void removeMember(selectedMember.id)}
@@ -583,9 +670,12 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
               {teamLabel} — team sizing
             </Title>
             {state && (
-              <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
-                Signed in as {state.guest.name || state.guest.email}
-              </Text>
+              <Space size={8}>
+                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
+                  Signed in as {state.guest.name || state.guest.email}
+                </Text>
+                {state.guest.isAdmin && <Tag color="geekblue">Team manager</Tag>}
+              </Space>
             )}
           </div>
 
@@ -609,18 +699,45 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
             <Empty description={<Text style={{ color: 'rgba(255,255,255,0.5)' }}>No players</Text>} />
           ) : isNarrow ? (
             <Space direction="vertical" size={16} style={{ width: '100%' }}>
-              {memberList}
+              <div ref={listRef}>{memberList}</div>
               <Divider style={{ borderColor: 'rgba(255,255,255,0.1)', margin: '4px 0' }} />
-              {detail}
+              <div ref={detailRef}>{detail}</div>
             </Space>
           ) : (
             <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
-              <div style={{ width: 260, flexShrink: 0 }}>{memberList}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>{detail}</div>
+              <div ref={listRef} style={{ width: 260, flexShrink: 0 }}>{memberList}</div>
+              <div ref={detailRef} style={{ flex: 1, minWidth: 0 }}>{detail}</div>
             </div>
           )}
         </div>
       </div>
+
+      {/* First-visit walkthrough for the club admin. */}
+      <Tour
+        open={tourOpen}
+        onClose={closeTour}
+        onFinish={closeTour}
+        steps={[
+          {
+            title: 'Welcome, team manager',
+            description:
+              'This is your team’s sizing page. Share the address and password with the team so everyone can add themselves — or add players yourself.',
+            target: null,
+          },
+          {
+            title: 'The team',
+            description:
+              'Everyone the team has added appears here, with a green tick once their sizes are in. Click a name to see their picks. Use "Add a player" for anyone who can’t do it themselves.',
+            target: () => listRef.current!,
+          },
+          {
+            title: 'Sizes and options',
+            description:
+              'As the manager you can fix anyone’s sizes and options here — everyone else can only change the players they added themselves.',
+            target: () => detailRef.current!,
+          },
+        ]}
+      />
     </ConfigProvider>
   );
 }

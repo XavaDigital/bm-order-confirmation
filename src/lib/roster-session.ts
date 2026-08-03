@@ -3,10 +3,14 @@
  *
  * After passing the page's gate (its password, or an unguessable token link)
  * and entering an email, the guest holds a signed HttpOnly cookie binding
- * (orderId, guestId, gate-state). No server-side session row: the HMAC is the
- * proof, and binding the PASSWORD VALUE into the signature means rotating or
- * removing the password invalidates every outstanding cookie, same trick as
- * the access-code cookie.
+ * (orderId, guestId, role, gate-state). No server-side session row: the HMAC
+ * is the proof, and binding the PASSWORD VALUES into the signature means:
+ *  - rotating/removing the page password invalidates every cookie;
+ *  - staff resetting the club-admin password invalidates the ADMIN cookie
+ *    (their hash is part of the admin gate-state).
+ *
+ * Role 'admin' is the club admin — the guest whose email matches the order's
+ * customer email AND who proved it with their own password.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { env } from './env';
@@ -16,46 +20,62 @@ export const ROSTER_SESSION_COOKIE = 'bm-roster';
 // A month: team members trickle back over weeks to fix sizes.
 const COOKIE_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 
-/** The gate state a cookie was issued under — '' when the page has no password. */
-function gateState(rosterPassword: string | null): string {
-  return rosterPassword ?? '';
+export type RosterRole = 'guest' | 'admin';
+
+interface OrderGate {
+  id: string;
+  rosterPassword: string | null;
+  rosterAdminPasswordHash: string | null;
 }
 
-function sign(orderId: string, guestId: string, gate: string, expiresMs: number): string {
+/** The gate state a cookie was issued under, per role. */
+function gateState(order: OrderGate, role: RosterRole): string {
+  const page = order.rosterPassword ?? '';
+  return role === 'admin' ? `${page}|${order.rosterAdminPasswordHash ?? ''}` : page;
+}
+
+function sign(orderId: string, guestId: string, role: RosterRole, gate: string, expiresMs: number): string {
   return createHmac('sha256', env.SESSION_SECRET)
-    .update(`roster.${orderId}.${guestId}.${gate}.${expiresMs}`)
+    .update(`roster.${orderId}.${guestId}.${role}.${gate}.${expiresMs}`)
     .digest('hex');
 }
 
 export function buildRosterSessionCookie(params: {
-  orderId: string;
+  order: OrderGate;
   guestId: string;
-  rosterPassword: string | null;
+  role: RosterRole;
 }): { name: string; value: string; maxAgeSeconds: number } {
   const expiresMs = Date.now() + COOKIE_TTL_MS;
-  const gate = gateState(params.rosterPassword);
+  const gate = gateState(params.order, params.role);
   return {
     name: ROSTER_SESSION_COOKIE,
-    value: `${params.orderId}.${params.guestId}.${expiresMs}.${sign(params.orderId, params.guestId, gate, expiresMs)}`,
+    value: [
+      params.order.id,
+      params.guestId,
+      params.role,
+      expiresMs,
+      sign(params.order.id, params.guestId, params.role, gate, expiresMs),
+    ].join('.'),
     maxAgeSeconds: Math.floor(COOKIE_TTL_MS / 1_000),
   };
 }
 
-/** The guest id the cookie proves for this order, or null. */
+/** The session the cookie proves for this order, or null. */
 export function readRosterSessionCookie(
-  order: { id: string; rosterPassword: string | null },
+  order: OrderGate,
   cookieValue: string | null | undefined,
-): string | null {
+): { guestId: string; role: RosterRole } | null {
   if (!cookieValue) return null;
   const parts = cookieValue.split('.');
-  if (parts.length !== 4) return null;
+  if (parts.length !== 5) return null;
 
-  const [orderId, guestId, expiresStr, signature] = parts;
+  const [orderId, guestId, role, expiresStr, signature] = parts;
+  if (role !== 'guest' && role !== 'admin') return null;
   const expiresMs = Number(expiresStr);
   if (orderId !== order.id || !Number.isFinite(expiresMs) || expiresMs < Date.now()) return null;
 
-  const expected = Buffer.from(sign(orderId, guestId, gateState(order.rosterPassword), expiresMs));
+  const expected = Buffer.from(sign(orderId, guestId, role, gateState(order, role), expiresMs));
   const actual = Buffer.from(signature);
   if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
-  return guestId;
+  return { guestId, role };
 }

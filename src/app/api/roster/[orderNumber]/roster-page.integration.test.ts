@@ -227,6 +227,119 @@ describe('the short-URL roster page', () => {
     expect(res.status).toBe(401);
   });
 
+  it('resolves the bare numeric slug to the OC- order number', async () => {
+    const { orderNumber } = await seedRosterOrder();
+    const bare = orderNumber.replace(/^OC-/, '');
+    expect(bare).toMatch(/^\d+$/); // sequential numbers make this meaningful
+
+    const res = await ENTER(
+      jsonRequest(`/x`, { email: 'short@example.com', password: 'seahawks' }),
+      params(bare),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  describe('club admin (the order customer email)', () => {
+    it('must set a manager password on first visit, then prove it, and can edit anyone', async () => {
+      const { orderNumber, garments } = await seedRosterOrder();
+
+      // Someone else adds a player first.
+      const guestCookie = await enterAs(orderNumber, 'parent@example.com');
+      const added = await ADD_MEMBER(
+        jsonRequest(`/x`, memberBody(garments, 'Sam Player'), { cookie: guestCookie }),
+        params(orderNumber),
+      );
+      const { memberId } = await added.json();
+
+      // The manager's email alone is NOT enough — first visit demands setup.
+      const first = await ENTER(
+        jsonRequest(`/x`, { email: 'jane@example.com', password: 'seahawks' }),
+        params(orderNumber),
+      );
+      expect(first.status).toBe(409);
+      expect((await first.json()).code).toBe('admin_password_setup_required');
+
+      // Setup with a chosen password → admin session.
+      const setup = await ENTER(
+        jsonRequest(`/x`, {
+          email: 'jane@example.com',
+          password: 'seahawks',
+          adminPassword: 'manager-secret',
+          settingAdminPassword: true,
+        }),
+        params(orderNumber),
+      );
+      expect(setup.status).toBe(200);
+      expect((await setup.json()).role).toBe('admin');
+      const adminCookie = decodeURIComponent(
+        setup.headers.get('set-cookie')!.split(`${ROSTER_SESSION_COOKIE}=`)[1].split(';')[0],
+      );
+
+      // The admin edits someone else's player.
+      const patch = await UPDATE_MEMBER(
+        jsonRequest(
+          `/x`,
+          { ...memberBody(garments, 'Sam Player'), playerNumber: '12' },
+          { cookie: adminCookie, method: 'PATCH' },
+        ),
+        params(orderNumber, memberId),
+      );
+      expect(patch.status).toBe(200);
+
+      // Return visit: wrong manager password refused, right one accepted.
+      const wrong = await ENTER(
+        jsonRequest(`/x`, {
+          email: 'jane@example.com',
+          password: 'seahawks',
+          adminPassword: 'not-it',
+        }),
+        params(orderNumber),
+      );
+      expect(wrong.status).toBe(403);
+      expect((await wrong.json()).code).toBe('bad_admin_password');
+
+      const back = await ENTER(
+        jsonRequest(`/x`, {
+          email: 'jane@example.com',
+          password: 'seahawks',
+          adminPassword: 'manager-secret',
+        }),
+        params(orderNumber),
+      );
+      expect(back.status).toBe(200);
+    });
+
+    it('a staff reset invalidates the admin session and reopens setup', async () => {
+      const { orderId, orderNumber } = await seedRosterOrder();
+      const setup = await ENTER(
+        jsonRequest(`/x`, {
+          email: 'jane@example.com',
+          password: 'seahawks',
+          adminPassword: 'manager-secret',
+          settingAdminPassword: true,
+        }),
+        params(orderNumber),
+      );
+      const adminCookie = decodeURIComponent(
+        setup.headers.get('set-cookie')!.split(`${ROSTER_SESSION_COOKIE}=`)[1].split(';')[0],
+      );
+
+      await setRosterPage(orderId, { resetAdminPassword: true });
+
+      const state = await STATE(
+        jsonRequest(`/x`, undefined, { cookie: adminCookie, method: 'GET' }),
+        params(orderNumber),
+      );
+      expect(state.status).toBe(401);
+
+      const again = await ENTER(
+        jsonRequest(`/x`, { email: 'jane@example.com', password: 'seahawks' }),
+        params(orderNumber),
+      );
+      expect((await again.json()).code).toBe('admin_password_setup_required');
+    });
+  });
+
   it('a valid roster token skips the password', async () => {
     const { orderId, orderNumber } = await seedRosterOrder();
     const { generateRosterToken } = await import('@/server/roster/service');

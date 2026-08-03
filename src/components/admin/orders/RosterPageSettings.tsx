@@ -7,7 +7,7 @@
  * order access codes).
  */
 import { useEffect, useState } from 'react';
-import { App, Alert, Button, Input, Space, Switch, Tooltip, Typography } from 'antd';
+import { App, Alert, Button, Input, Popconfirm, Space, Switch, Tooltip, Typography } from 'antd';
 import { CopyOutlined, ExportOutlined, LockOutlined, TeamOutlined } from '@ant-design/icons';
 import { getJson, patchJson } from '@/lib/api-fetch';
 
@@ -15,6 +15,8 @@ interface Settings {
   enabled: boolean;
   password: string | null;
   url: string;
+  /** The club admin (order's customer email) has chosen their password. */
+  adminPasswordSet: boolean;
 }
 
 export function RosterPageSettings({ orderId }: { orderId: string }) {
@@ -29,7 +31,7 @@ export function RosterPageSettings({ orderId }: { orderId: string }) {
       .catch(() => {});
   }, [orderId]);
 
-  async function patch(body: { enabled?: boolean; password?: string | null }) {
+  async function patch(body: { enabled?: boolean; password?: string | null; resetAdminPassword?: boolean }) {
     setSaving(true);
     try {
       const next = await patchJson<Settings>(
@@ -120,6 +122,27 @@ export function RosterPageSettings({ orderId }: { orderId: string }) {
                   Save password
                 </Button>
               </Tooltip>
+            </Space>
+            <Space wrap size={8}>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                Club manager (the order&apos;s customer email):{' '}
+                {settings.adminPasswordSet
+                  ? 'manager password set'
+                  : 'sets their manager password on first visit'}
+                {' — can edit anyone’s players.'}
+              </Typography.Text>
+              {settings.adminPasswordSet && (
+                <Popconfirm
+                  title="Reset the manager password?"
+                  description="They choose a new one on their next visit; their current sign-in stops working."
+                  onConfirm={() => void patch({ resetAdminPassword: true })}
+                  okText="Reset"
+                >
+                  <Button size="small" loading={saving}>
+                    Reset manager password
+                  </Button>
+                </Popconfirm>
+              )}
             </Space>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               Team members open the address, enter the password (if set) and their email, then add

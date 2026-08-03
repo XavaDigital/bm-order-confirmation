@@ -12,6 +12,10 @@ const bodySchema = z.object({
   password: z.string().max(64).optional(),
   /** The ?t= token from a staff-shared auto-login link. */
   token: z.string().max(200).optional(),
+  /** The club admin's own password (their email = the order's customer email). */
+  adminPassword: z.string().min(6).max(64).optional(),
+  /** First visit: the admin is CHOOSING adminPassword rather than proving it. */
+  settingAdminPassword: z.boolean().optional(),
 });
 
 /**
@@ -33,20 +37,18 @@ export const POST = defineRoute<{ orderNumber: string }, typeof bodySchema._type
     if (rateLimited) return rateLimited;
 
     try {
-      const { order, guestId } = await enterRoster({
+      const { order, guestId, role } = await enterRoster({
         orderNumber: params.orderNumber,
         email: body.email,
         name: body.name ?? null,
         password: body.password ?? null,
         token: body.token ?? null,
+        adminPassword: body.adminPassword ?? null,
+        settingAdminPassword: body.settingAdminPassword ?? false,
       });
 
-      const cookie = buildRosterSessionCookie({
-        orderId: order.id,
-        guestId,
-        rosterPassword: order.rosterPassword,
-      });
-      const res = NextResponse.json({ ok: true });
+      const cookie = buildRosterSessionCookie({ order, guestId, role });
+      const res = NextResponse.json({ ok: true, role });
       res.cookies.set(cookie.name, cookie.value, {
         httpOnly: true,
         sameSite: 'lax',
@@ -63,6 +65,28 @@ export const POST = defineRoute<{ orderNumber: string }, typeof bodySchema._type
       if (msg === 'bad_gate') {
         return NextResponse.json(
           { error: 'Incorrect password.', code: 'bad_gate' },
+          { status: 403 },
+        );
+      }
+      // Club-admin flow: the UI reads these codes to show the right fields.
+      if (msg === 'admin_password_setup_required') {
+        return NextResponse.json(
+          {
+            error: 'You manage this order — create your manager password (6+ characters) to continue.',
+            code: 'admin_password_setup_required',
+          },
+          { status: 409 },
+        );
+      }
+      if (msg === 'admin_password_required') {
+        return NextResponse.json(
+          { error: 'Enter your manager password.', code: 'admin_password_required' },
+          { status: 403 },
+        );
+      }
+      if (msg === 'bad_admin_password') {
+        return NextResponse.json(
+          { error: 'Incorrect manager password.', code: 'bad_admin_password' },
           { status: 403 },
         );
       }

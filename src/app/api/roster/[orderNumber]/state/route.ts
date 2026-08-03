@@ -12,7 +12,9 @@ export const GET = defineRoute<{ orderNumber: string }>({
     if (gate instanceof NextResponse) return gate;
 
     try {
-      return NextResponse.json(await getRosterState(params.orderNumber, gate.guestId));
+      return NextResponse.json(
+        await getRosterState(params.orderNumber, gate.guestId, gate.isAdmin),
+      );
     } catch (err) {
       return rosterErrorResponse(err);
     }

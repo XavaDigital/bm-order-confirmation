@@ -40,7 +40,7 @@ export const PATCH = defineRoute<{ orderNumber: string; memberId: string }, type
     if (gate instanceof NextResponse) return gate;
 
     try {
-      await updateGuestMember(params.orderNumber, gate.guestId, params.memberId, body);
+      await updateGuestMember(params.orderNumber, gate.guestId, params.memberId, body, gate.isAdmin);
       return NextResponse.json({ ok: true });
     } catch (err) {
       return rosterErrorResponse(err);
@@ -57,7 +57,7 @@ export const DELETE = defineRoute<{ orderNumber: string; memberId: string }>({
     if (gate instanceof NextResponse) return gate;
 
     try {
-      await removeGuestMember(params.orderNumber, gate.guestId, params.memberId);
+      await removeGuestMember(params.orderNumber, gate.guestId, params.memberId, gate.isAdmin);
       return NextResponse.json({ ok: true });
     } catch (err) {
       return rosterErrorResponse(err);

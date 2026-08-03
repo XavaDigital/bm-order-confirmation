@@ -1360,20 +1360,42 @@ export async function clearOrderAccessCode(
  * optional staff-readable password. Lives here with lockRoster because it
  * writes the orders row.
  */
+/**
+ * The short URL drops the OC- prefix (David: /roster/10023) — sequential
+ * numbers shorten to their digits; legacy random numbers stay verbatim.
+ */
+function rosterPageUrl(orderNumber: string): string {
+  const bare = /^OC-(\d+)$/.exec(orderNumber)?.[1] ?? orderNumber;
+  return `${env.APP_BASE_URL}/roster/${encodeURIComponent(bare)}`;
+}
+
 export async function setRosterPage(
   orderId: string,
-  input: { enabled?: boolean; password?: string | null },
+  input: { enabled?: boolean; password?: string | null; resetAdminPassword?: boolean },
   meta?: { actorEmail?: string },
-): Promise<{ enabled: boolean; password: string | null; url: string }> {
+): Promise<{ enabled: boolean; password: string | null; url: string; adminPasswordSet: boolean }> {
   const existing = await db.query.orders.findFirst({
     where: eq(orders.id, orderId),
-    columns: { id: true, orderNumber: true, rosterEnabledAt: true, rosterPassword: true },
+    columns: {
+      id: true,
+      orderNumber: true,
+      rosterEnabledAt: true,
+      rosterPassword: true,
+      rosterAdminPasswordHash: true,
+    },
   });
   if (!existing) throw new NotFoundError('Order');
 
   const enabled = input.enabled ?? existing.rosterEnabledAt !== null;
-  const password =
+  let password =
     input.password === undefined ? existing.rosterPassword : input.password?.trim() || null;
+  // Enabling defaults to a generated password (David) — staff can clear it after.
+  if (enabled && !existing.rosterEnabledAt && input.password === undefined && !password) {
+    password = generateAccessCode();
+  }
+  // Staff reset: the club admin chooses a new password on their next visit,
+  // and their outstanding sessions die (the hash is in the cookie signature).
+  const resetAdmin = input.resetAdminPassword === true;
 
   await db.transaction(async (tx) => {
     await tx
@@ -1381,6 +1403,7 @@ export async function setRosterPage(
       .set({
         rosterEnabledAt: enabled ? (existing.rosterEnabledAt ?? new Date()) : null,
         rosterPassword: password,
+        ...(resetAdmin && { rosterAdminPasswordHash: null }),
         updatedAt: new Date(),
       })
       .where(eq(orders.id, orderId));
@@ -1389,7 +1412,7 @@ export async function setRosterPage(
       {
         aggregateId: orderId,
         eventType: 'roster.page_updated',
-        payload: { enabled, hasPassword: password !== null },
+        payload: { enabled, hasPassword: password !== null, resetAdminPassword: resetAdmin },
         actorEmail: meta?.actorEmail ?? null,
       },
       tx,
@@ -1399,23 +1422,30 @@ export async function setRosterPage(
   return {
     enabled,
     password,
-    url: `${env.APP_BASE_URL}/roster/${encodeURIComponent(existing.orderNumber)}`,
+    url: rosterPageUrl(existing.orderNumber),
+    adminPasswordSet: resetAdmin ? false : existing.rosterAdminPasswordHash !== null,
   };
 }
 
 /** Current roster-page settings for the admin panel. */
 export async function getRosterPageSettings(
   orderId: string,
-): Promise<{ enabled: boolean; password: string | null; url: string }> {
+): Promise<{ enabled: boolean; password: string | null; url: string; adminPasswordSet: boolean }> {
   const existing = await db.query.orders.findFirst({
     where: eq(orders.id, orderId),
-    columns: { orderNumber: true, rosterEnabledAt: true, rosterPassword: true },
+    columns: {
+      orderNumber: true,
+      rosterEnabledAt: true,
+      rosterPassword: true,
+      rosterAdminPasswordHash: true,
+    },
   });
   if (!existing) throw new NotFoundError('Order');
   return {
     enabled: existing.rosterEnabledAt !== null,
     password: existing.rosterPassword,
-    url: `${env.APP_BASE_URL}/roster/${encodeURIComponent(existing.orderNumber)}`,
+    url: rosterPageUrl(existing.orderNumber),
+    adminPasswordSet: existing.rosterAdminPasswordHash !== null,
   };
 }
 

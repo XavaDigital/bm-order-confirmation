@@ -14,6 +14,8 @@ const patchSchema = z.object({
   enabled: z.boolean().optional(),
   /** null clears the password (page opens without one); min 4 when set. */
   password: z.string().trim().min(4).max(64).nullable().optional(),
+  /** Clear the club admin's password — they choose a new one on next visit. */
+  resetAdminPassword: z.boolean().optional(),
 });
 
 export const PATCH = defineRoute<{ id: string }, typeof patchSchema._type>({

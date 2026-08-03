@@ -58,12 +58,20 @@ export interface RosterPageOrder {
   orderNumber: string;
   clubName: string | null;
   name: string | null;
+  customerEmail: string;
   rosterPassword: string | null;
+  rosterAdminPasswordHash: string | null;
   rosterLockedAt: Date | null;
 }
 
-/** The roster-enabled order behind a short URL, or null (generic 404). */
-export async function getRosterPageOrder(orderNumber: string): Promise<RosterPageOrder | null> {
+/**
+ * The roster-enabled order behind a short URL, or null (generic 404).
+ * The slug is the BARE numeric order number by preference (David:
+ * /roster/10023) — a run of digits resolves as `OC-<digits>`; anything else
+ * (legacy random numbers) matches the stored order number verbatim.
+ */
+export async function getRosterPageOrder(slug: string): Promise<RosterPageOrder | null> {
+  const orderNumber = /^\d+$/.test(slug) ? `OC-${slug}` : slug;
   const order = await db.query.orders.findFirst({
     where: eq(orders.orderNumber, orderNumber),
     columns: {
@@ -71,7 +79,9 @@ export async function getRosterPageOrder(orderNumber: string): Promise<RosterPag
       orderNumber: true,
       clubName: true,
       name: true,
+      customerEmail: true,
       rosterPassword: true,
+      rosterAdminPasswordHash: true,
       rosterLockedAt: true,
       rosterEnabledAt: true,
     },
@@ -84,6 +94,12 @@ export async function getRosterPageOrder(orderNumber: string): Promise<RosterPag
  * Pass the gate and become a guest: password (or token link) + email → the
  * guest row, upserted on (order, lowercased email). Callers set the session
  * cookie from the result.
+ *
+ * CLUB ADMIN (David, 2026-08-03): the guest whose email matches the order's
+ * customer email may edit anyone's players — so that email alone must not be
+ * enough. Their first visit SETS their own password (`adminPassword` with
+ * `settingAdminPassword`); later visits must present it. Staff reset clears
+ * the hash, returning them to the first-visit flow.
  */
 export async function enterRoster(params: {
   orderNumber: string;
@@ -91,7 +107,9 @@ export async function enterRoster(params: {
   name?: string | null;
   password?: string | null;
   token?: string | null;
-}): Promise<{ order: RosterPageOrder; guestId: string }> {
+  adminPassword?: string | null;
+  settingAdminPassword?: boolean;
+}): Promise<{ order: RosterPageOrder; guestId: string; role: 'guest' | 'admin' }> {
   const order = await getRosterPageOrder(params.orderNumber);
   if (!order) notFound();
 
@@ -106,6 +124,30 @@ export async function enterRoster(params: {
 
   const email = params.email.trim().toLowerCase();
   const name = params.name?.trim() || null;
+  const isClubAdminEmail = email === order.customerEmail.trim().toLowerCase();
+
+  let role: 'guest' | 'admin' = 'guest';
+  if (isClubAdminEmail) {
+    const bcrypt = (await import('bcryptjs')).default;
+    if (!order.rosterAdminPasswordHash) {
+      // First visit: they must CHOOSE a password before becoming the admin.
+      if (!params.settingAdminPassword || !params.adminPassword || params.adminPassword.length < 6) {
+        throw new Error('admin_password_setup_required');
+      }
+      const hash = await bcrypt.hash(params.adminPassword, 12);
+      await db
+        .update(orders)
+        .set({ rosterAdminPasswordHash: hash })
+        .where(eq(orders.id, order.id));
+      order.rosterAdminPasswordHash = hash;
+      role = 'admin';
+    } else {
+      if (!params.adminPassword) throw new Error('admin_password_required');
+      const ok = await bcrypt.compare(params.adminPassword, order.rosterAdminPasswordHash);
+      if (!ok) throw new Error('bad_admin_password');
+      role = 'admin';
+    }
+  }
 
   const [guest] = await db
     .insert(rosterGuests)
@@ -116,7 +158,7 @@ export async function enterRoster(params: {
     })
     .returning({ id: rosterGuests.id });
 
-  return { order, guestId: guest.id };
+  return { order, guestId: guest.id, role };
 }
 
 export interface RosterStateMember {
@@ -124,8 +166,10 @@ export interface RosterStateMember {
   name: string;
   playerNumber: string | null;
   submittedAt: Date | null;
-  /** The signed-in guest may edit only their own members. */
+  /** Added by the signed-in guest. */
   mine: boolean;
+  /** Editable by the signed-in guest — their own, or anyone's for the club admin. */
+  canEdit: boolean;
   addedBy: string | null;
   /** garmentId → { size, customValues } */
   sizes: Record<string, { size: string | null; customValues: Record<string, string> | null }>;
@@ -145,13 +189,17 @@ export interface RosterStateGarment {
 
 export interface RosterState {
   order: { orderNumber: string; clubName: string | null; name: string | null; locked: boolean };
-  guest: { id: string; email: string; name: string | null };
+  guest: { id: string; email: string; name: string | null; isAdmin: boolean };
   garments: RosterStateGarment[];
   members: RosterStateMember[];
 }
 
 /** Everything the page renders, scoped to a verified guest. */
-export async function getRosterState(orderNumber: string, guestId: string): Promise<RosterState> {
+export async function getRosterState(
+  orderNumber: string,
+  guestId: string,
+  isAdmin = false,
+): Promise<RosterState> {
   const order = await getRosterPageOrder(orderNumber);
   if (!order) notFound();
 
@@ -207,7 +255,7 @@ export async function getRosterState(orderNumber: string, guestId: string): Prom
       name: order.name,
       locked: order.rosterLockedAt !== null,
     },
-    guest: { id: guest.id, email: guest.email, name: guest.name },
+    guest: { id: guest.id, email: guest.email, name: guest.name, isAdmin },
     garments: stateGarments,
     members: members.map((m) => ({
       id: m.id,
@@ -215,6 +263,7 @@ export async function getRosterState(orderNumber: string, guestId: string): Prom
       playerNumber: m.playerNumber ?? null,
       submittedAt: m.submittedAt ?? null,
       mine: m.guestId === guestId,
+      canEdit: isAdmin || m.guestId === guestId,
       addedBy: m.guest ? (m.guest.name || m.guest.email) : null,
       sizes: Object.fromEntries(
         m.sizing.map((row) => [
@@ -303,12 +352,13 @@ export async function addGuestMember(
   return { memberId: member.id };
 }
 
-/** Update a member this guest owns — name, number, sizes. */
+/** Update a member — their creator's, or anyone's for the club admin. */
 export async function updateGuestMember(
   orderNumber: string,
   guestId: string,
   memberId: string,
   input: { name?: string; playerNumber?: string | null; sizes: GuestMemberSizesInput['sizes'] },
+  isAdmin = false,
 ): Promise<void> {
   const order = await getRosterPageOrder(orderNumber);
   if (!order) notFound();
@@ -320,8 +370,9 @@ export async function updateGuestMember(
     columns: { id: true, name: true, playerNumber: true, guestId: true },
   });
   if (!member) notFound();
-  // Ownership: only the creator edits (David: no changing other people's sizes).
-  if (member.guestId !== guestId) forbidden();
+  // Ownership: the creator, or the club admin (David: the club admin can
+  // edit anyone's sizes; everyone else only their own).
+  if (!isAdmin && member.guestId !== guestId) forbidden();
 
   const name = input.name?.trim();
   const playerNumber = input.playerNumber === undefined ? undefined : input.playerNumber?.trim() || null;
@@ -339,11 +390,12 @@ export async function updateGuestMember(
   );
 }
 
-/** Remove a member this guest owns (with their sizing rows). */
+/** Remove a member — their creator's, or anyone's for the club admin. */
 export async function removeGuestMember(
   orderNumber: string,
   guestId: string,
   memberId: string,
+  isAdmin = false,
 ): Promise<void> {
   const order = await getRosterPageOrder(orderNumber);
   if (!order) notFound();
@@ -355,7 +407,7 @@ export async function removeGuestMember(
     columns: { id: true, guestId: true },
   });
   if (!member) notFound();
-  if (member.guestId !== guestId) forbidden();
+  if (!isAdmin && member.guestId !== guestId) forbidden();
 
   await db.transaction(async (tx) => {
     await tx.delete(garmentSizing).where(eq(garmentSizing.rosterMemberId, member.id));

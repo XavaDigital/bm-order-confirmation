@@ -184,8 +184,14 @@ export const orders = confirmation.table(
     rosterEnabledAt: timestamp('roster_enabled_at', { withTimezone: true }),
     // Its optional password — stored READABLY like orders.accessCode (same
     // ruling: staff must see it on demand; it may be a word, not just digits).
-    // Null = the page opens without a password.
+    // Null = the page opens without a password. Enabling the page generates
+    // one by default (David, 2026-08-03).
     rosterPassword: text('roster_password'),
+    // The CLUB ADMIN's own password — the guest whose email matches the
+    // order's customer email may edit anyone's players, so their email alone
+    // must not be enough to become them. Chosen by the club admin on first
+    // visit, HASHED (user-chosen secret — staff RESET it, never read it).
+    rosterAdminPasswordHash: text('roster_admin_password_hash'),
 
     // Set when the customer, at confirmation time, asked for a colour book /
     // physical sample for colour matching before production (BRIEF §5 ack 2,
