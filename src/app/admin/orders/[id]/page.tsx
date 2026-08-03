@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { getSession } from '@/lib/session';
 import { getOrderAdmin } from '@/server/orders/service';
 import { signImageRefs } from '@/lib/signed-urls';
+import { buildConfirmationUrl } from '@/lib/tokens';
 import { getChangesRequestedComment, getChangesRequestedCount } from '@/server/events/outbox';
 import { OrderDetailView, type AdminOrderData } from './OrderDetailView';
 
@@ -110,6 +111,10 @@ export default async function OrderDetailPage({ params }: Props) {
             ? order.currentAccess.revokedAt.toISOString()
             : null,
           hasAccessCode: order.currentAccess.accessCodeHash !== null,
+          // Rows predating the readable column can't reconstruct their URL.
+          url: order.currentAccess.tokenPlain
+            ? buildConfirmationUrl(order.currentAccess.tokenPlain)
+            : null,
         }
       : null,
   };

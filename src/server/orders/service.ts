@@ -393,7 +393,7 @@ export async function createOrder(
       });
     }
 
-    await insertToken(tx, orderAccess, rawToken, { orderId });
+    await insertToken(tx, orderAccess, rawToken, { orderId, tokenPlain: rawToken });
   });
     return orderNumber;
   });
@@ -778,7 +778,7 @@ export async function duplicateOrder(
       );
     }
 
-    await insertToken(tx, orderAccess, rawToken, { orderId });
+    await insertToken(tx, orderAccess, rawToken, { orderId, tokenPlain: rawToken });
 
     await emitOrderEvent(tx, {
       aggregateId: orderId,
@@ -1221,6 +1221,7 @@ export async function generateAccessToken(
     await mintToken(tx, orderAccess, rawToken, eq(orderAccess.orderId, orderId), {
       orderId,
       accessCodeHash: previous?.accessCodeHash ?? null,
+      tokenPlain: rawToken,
     });
 
     // Advance status from draft → sent on first link generation.

@@ -1,0 +1,1 @@
+ALTER TABLE "confirmation"."order_access" ADD COLUMN "token_plain" text;

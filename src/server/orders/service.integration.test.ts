@@ -703,7 +703,10 @@ describe('generateAccessToken / revokeAccessToken', () => {
       .from(schema.orderAccess)
       .where(eq(schema.orderAccess.orderId, created.orderId));
     expect(after).toHaveLength(2);
-    expect(after.filter((a) => a.revokedAt === null)).toHaveLength(1);
+    const active = after.filter((a) => a.revokedAt === null);
+    expect(active).toHaveLength(1);
+    // Readable at rest (David, 2026-08-04): the admin shows the URL forever.
+    expect(active[0].tokenPlain).toBe(token);
 
     const order = await getOrderById(created.orderId);
     expect(order!.status).toBe('sent');

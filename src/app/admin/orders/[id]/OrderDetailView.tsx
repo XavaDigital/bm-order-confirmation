@@ -129,6 +129,8 @@ export interface AdminOrderData {
     createdAt: string;
     revokedAt: string | null;
     hasAccessCode: boolean;
+    /** Null for links minted before the readable token column. */
+    url: string | null;
   } | null;
 }
 
@@ -181,6 +183,9 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
     order.currentAccess !== null && order.currentAccess.revokedAt === null,
   );
   const [tokenCreatedAt, setTokenCreatedAt] = useState(order.currentAccess?.createdAt ?? null);
+  // The URL is staff-readable at rest (David, 2026-08-04) — like the roster
+  // page URL, it never disappears after generation.
+  const [activeLinkUrl, setActiveLinkUrl] = useState(order.currentAccess?.url ?? null);
   // Bumped whenever the header's "Resend link" action changes the token, forcing
   // ShareLinkPanel to remount and pick up the new hasActiveToken/tokenCreatedAt props
   // (it otherwise only reads them once, on its own initial mount).
@@ -260,9 +265,14 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
   async function resendLink() {
     setResending(true);
     try {
-      await postJson(`/api/admin/orders/${order.id}/send-link`, undefined, 'Failed to send email');
+      const sent = await postJson<{ ok: boolean; url: string }>(
+        `/api/admin/orders/${order.id}/send-link`,
+        undefined,
+        'Failed to send email',
+      );
       setHasActiveToken(true);
       setTokenCreatedAt(new Date().toISOString());
+      setActiveLinkUrl(sent.url);
       setShareLinkVersion((v) => v + 1);
       message.success(`Link emailed to ${order.customerEmail}`);
     } catch (err) {
@@ -302,6 +312,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
       await postJson(`/api/admin/orders/${order.id}/cancel`, undefined, 'Failed to cancel order');
       setCurrentStatus('cancelled');
       setHasActiveToken(false);
+      setActiveLinkUrl(null);
       setShareLinkVersion((v) => v + 1);
       message.success('Order cancelled');
     } catch (err) {
@@ -545,6 +556,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
           customerEmail={order.customerEmail}
           hasActiveToken={hasActiveToken}
           tokenCreatedAt={tokenCreatedAt}
+          initialUrl={activeLinkUrl}
           hasAccessCode={order.currentAccess?.hasAccessCode ?? false}
           garmentSummary={{
             total: order.garments.length,
@@ -831,9 +843,9 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
                 overflowY: 'auto',
               }}
             >
-              <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
+              <SectionTitle style={{ marginBottom: 12 }}>
                 Order notes{noteCount !== null ? ` (${noteCount})` : ''}
-              </Typography.Text>
+              </SectionTitle>
               {notesThread}
             </div>
           </div>

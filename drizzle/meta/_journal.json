@@ -246,6 +246,13 @@
       "when": 1785755955741,
       "tag": "0034_charming_omega_sentinel",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1785765001866,
+      "tag": "0035_late_the_stranger",
+      "breakpoints": true
     }
   ]
 }

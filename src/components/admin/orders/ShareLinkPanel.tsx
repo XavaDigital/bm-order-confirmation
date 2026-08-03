@@ -29,6 +29,11 @@ interface Props {
   customerEmail: string;
   hasActiveToken: boolean;
   tokenCreatedAt?: string | null;
+  /**
+   * The active link's URL, readable at rest (David, 2026-08-04) — null only
+   * for links minted before the readable token column.
+   */
+  initialUrl?: string | null;
   hasAccessCode?: boolean;
   /** Defaults to "complete" so callers/tests that don't care about this can omit it. */
   garmentSummary?: GarmentCompletenessSummary;
@@ -45,11 +50,12 @@ export function ShareLinkPanel({
   customerEmail,
   hasActiveToken,
   tokenCreatedAt,
+  initialUrl = null,
   hasAccessCode = false,
   garmentSummary = DEFAULT_GARMENT_SUMMARY,
 }: Props) {
   const { message } = App.useApp();
-  const [activeUrl, setActiveUrl] = useState<string | null>(null);
+  const [activeUrl, setActiveUrl] = useState<string | null>(initialUrl);
   const [hasToken, setHasToken] = useState(hasActiveToken);
   const [tokenDate, setTokenDate] = useState(tokenCreatedAt ?? null);
   const [codeEnabled, setCodeEnabled] = useState(hasAccessCode);
@@ -296,7 +302,7 @@ export function ShareLinkPanel({
               )}
             </span>
           }
-          description="The link is only displayed once when it's generated. To copy it, use 'Email to customer' to send a fresh link directly, or 'Regenerate link' to get a new copyable URL (this invalidates the current link the customer may already have)."
+          description="This link predates the always-visible URL. Use 'Email to customer' to send a fresh link directly, or 'Regenerate link' to get one that stays visible here (either invalidates the link the customer may already have)."
         />
       )}
 
@@ -304,9 +310,11 @@ export function ShareLinkPanel({
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <Text strong>Customer link</Text>
-            <Text type="warning" style={{ fontSize: 12 }}>
-              — copy now, this won&apos;t be shown again after you leave this page
-            </Text>
+            {tokenDate && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                generated {formatDateTime(tokenDate)}
+              </Text>
+            )}
           </div>
           <div
             style={{

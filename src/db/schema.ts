@@ -431,6 +431,11 @@ export const orderAccess = confirmation.table(
     // only set when the optional per-order confirmation code is enabled (default off).
     // bcrypt hash (low-entropy code needs a slow KDF) — see src/lib/access-code.ts
     accessCodeHash: text('access_code_hash'),
+    // Staff-readable copy of the raw token (David, 2026-08-04): the confirmation
+    // URL stays visible in the admin, like the roster page URL. tokenHash remains
+    // the lookup key; rows predating this column are null and cannot show a URL
+    // until the link is regenerated.
+    tokenPlain: text('token_plain'),
   },
   (t) => [
     index('order_access_order_idx').on(t.orderId),

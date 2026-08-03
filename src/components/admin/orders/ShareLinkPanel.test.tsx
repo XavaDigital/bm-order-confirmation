@@ -44,25 +44,36 @@ describe('ShareLinkPanel', () => {
     expect(screen.getByRole('button', { name: /revoke link/i })).toBeInTheDocument();
   });
 
-  it('generating a link POSTs to the token endpoint and displays the returned url', async () => {
-    const user = userEvent.setup();
+  it('shows the stored URL on mount when initialUrl is provided (readable at rest)', () => {
+    renderPanel({ hasActiveToken: true, initialUrl: 'http://localhost/o/stored-token' });
+
+    expect(screen.getByText('http://localhost/o/stored-token')).toBeInTheDocument();
+    // No legacy "URL not shown" warning, and no auto-generate call was needed.
+    expect(screen.queryByText(/url not shown/i)).not.toBeInTheDocument();
+  });
+
+  it('auto-generates a link on mount (with an access code) and displays the returned url', async () => {
     const { fetchMock } = installMockFetch([
       {
         match: '/api/admin/orders/order-1/token',
         method: 'POST',
         response: { token: 'raw-token', url: 'http://localhost/o/raw-token' },
       },
+      { match: '/api/admin/orders/order-1/access-code', method: 'POST', response: { code: '483920' } },
     ]);
     renderPanel({ hasActiveToken: false });
 
-    await user.click(screen.getByRole('button', { name: /generate link/i }));
-
+    // No click: the panel generates on first view (David, 2026-08-04) and
+    // defaults the access code ON for the fresh link.
     expect(await screen.findByText('http://localhost/o/raw-token')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/admin/orders/order-1/token',
       expect.objectContaining({ method: 'POST' }),
     );
-    expect(await screen.findByText(/customer link generated/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/admin/orders/order-1/access-code',
+      expect.objectContaining({ method: 'POST' }),
+    );
   });
 
   it('revoking a link DELETEs the token endpoint after confirming, and hides the Revoke button', async () => {
