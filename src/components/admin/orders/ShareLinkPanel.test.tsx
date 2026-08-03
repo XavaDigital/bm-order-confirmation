@@ -36,12 +36,22 @@ describe('ShareLinkPanel', () => {
     expect(screen.queryByRole('button', { name: /revoke link/i })).not.toBeInTheDocument();
   });
 
-  it('shows the "active link exists" state and a Revoke button when there is an active token', () => {
-    renderPanel({ hasActiveToken: true });
+  it('auto-replaces an active link whose URL is not stored (pre-readable rows, no backwards compat)', async () => {
+    const { fetchMock } = installMockFetch([
+      {
+        match: '/api/admin/orders/order-1/token',
+        method: 'POST',
+        response: { token: 'raw-token', url: 'http://localhost/o/replacement' },
+      },
+      { match: '/api/admin/orders/order-1/access-code', method: 'POST', response: { code: '483920' } },
+    ]);
+    renderPanel({ hasActiveToken: true, initialUrl: null });
 
-    expect(screen.getByText(/active link exists/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /regenerate link/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /revoke link/i })).toBeInTheDocument();
+    expect(await screen.findByText('http://localhost/o/replacement')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/admin/orders/order-1/token',
+      expect.objectContaining({ method: 'POST' }),
+    );
   });
 
   it('shows the stored URL on mount when initialUrl is provided (readable at rest)', () => {
@@ -76,20 +86,12 @@ describe('ShareLinkPanel', () => {
     );
   });
 
-  it('revoking a link DELETEs the token endpoint after confirming, and hides the Revoke button', async () => {
-    const user = userEvent.setup();
-    const { fetchMock } = installMockFetch([
-      { match: '/api/admin/orders/order-1/token', method: 'DELETE', response: {} },
-    ]);
-    renderPanel({ hasActiveToken: true });
+  it('never offers Regenerate or Revoke — the visible URL made them redundant', () => {
+    renderPanel({ hasActiveToken: true, initialUrl: 'http://localhost/o/stored-token' });
 
-    await user.click(screen.getByRole('button', { name: /revoke link/i }));
-    const confirmButton = await screen.findByRole('button', { name: 'Revoke' });
-    await user.click(confirmButton);
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/admin/orders/order-1/token', { method: 'DELETE' });
-    expect(await screen.findByText(/link revoked/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /regenerate link/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /revoke link/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /generate link/i })).not.toBeInTheDocument();
   });
 
   it('emailing the link shows a "not configured" message on a 503 without changing hasToken', async () => {
@@ -239,26 +241,19 @@ describe('ShareLinkPanel', () => {
     expect(await screen.findByText(/add at least one garment before generating a customer link/i)).toBeInTheDocument();
   });
 
-  it('copies the url to the clipboard when Copy is clicked', async () => {
-    const user = userEvent.setup();
-    // user-event installs its own navigator.clipboard stub during setup(), so ours
-    // must be defined after that (and after render, which also runs before the
-    // click) or user-event's stub silently wins.
-    const writeText = vi.fn().mockResolvedValue(undefined);
+  it('renders the url with antd\'s built-in copy affordance (roster-page style)', async () => {
     installMockFetch([
       {
         match: '/api/admin/orders/order-1/token',
         method: 'POST',
         response: { token: 'raw-token', url: 'http://localhost/o/raw-token' },
       },
+      { match: '/api/admin/orders/order-1/access-code', method: 'POST', response: { code: '483920' } },
     ]);
     renderPanel({ hasActiveToken: false });
 
-    await user.click(screen.getByRole('button', { name: /generate link/i }));
     await screen.findByText('http://localhost/o/raw-token');
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    await user.click(screen.getByRole('button', { name: /copy/i }));
-
-    expect(writeText).toHaveBeenCalledWith('http://localhost/o/raw-token');
+    // Exact name: the "Copy link + code" button must not satisfy this.
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
   });
 });

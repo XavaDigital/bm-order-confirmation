@@ -557,6 +557,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
           hasActiveToken={hasActiveToken}
           tokenCreatedAt={tokenCreatedAt}
           initialUrl={activeLinkUrl}
+          orderCancelled={currentStatus === 'cancelled'}
           hasAccessCode={order.currentAccess?.hasAccessCode ?? false}
           garmentSummary={{
             total: order.garments.length,
