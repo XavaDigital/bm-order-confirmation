@@ -184,6 +184,15 @@ export const orders = confirmation.table(
     // §11). Production must hold until this is resolved with the customer.
     colorSampleRequestedAt: timestamp('color_sample_requested_at', { withTimezone: true }),
 
+    // The customer-link access code, stored RECOVERABLY by David's explicit
+    // ruling (2026-08-03): staff must be able to read it back on demand
+    // instead of regenerating every time a customer asks. It may be a custom
+    // string, not just digits. Verification still runs against the bcrypt
+    // hash on the access row (which also binds the verification cookie);
+    // this column is the staff-readable source. Deliberate trade-off: it is
+    // a per-order second factor, not an account credential.
+    accessCode: text('access_code'),
+
     // Sales Hub (bm-sales) CRM association. A plain uuid HINT, not a FK —
     // separate databases, and the hub merges duplicate customers (a stored id
     // can become a tombstone; re-stamp to the survivor on read). Non-unique:

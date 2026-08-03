@@ -1,0 +1,1 @@
+ALTER TABLE "confirmation"."orders" ADD COLUMN "access_code" text;

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Button, Space, Typography, Alert, Popconfirm, App, Divider, Tooltip, Switch } from 'antd';
+import { useEffect, useState } from 'react';
+import { Button, Input, Space, Typography, Alert, Popconfirm, App, Divider, Tooltip, Switch } from 'antd';
 import {
   LinkOutlined,
   CopyOutlined,
@@ -12,7 +12,7 @@ import {
   KeyOutlined,
 } from '@ant-design/icons';
 import { formatDateTime } from '@/lib/format';
-import { ApiError, deleteJson, postJson } from '@/lib/api-fetch';
+import { ApiError, deleteJson, getJson, postJson } from '@/lib/api-fetch';
 
 const { Text, Paragraph } = Typography;
 
@@ -54,7 +54,26 @@ export function ShareLinkPanel({
   const [tokenDate, setTokenDate] = useState(tokenCreatedAt ?? null);
   const [codeEnabled, setCodeEnabled] = useState(hasAccessCode);
   const [activeCode, setActiveCode] = useState<string | null>(null);
+  const [customCodeDraft, setCustomCodeDraft] = useState('');
+  /** An active code from before the readable column — rotate to surface it. */
+  const [legacyCode, setLegacyCode] = useState(false);
   const [loading, setLoading] = useState<'generate' | 'revoke' | 'email' | 'code' | null>(null);
+
+  // The stored code is staff-readable on demand — load it whenever a code is
+  // enabled so it displays without a regenerate dance.
+  useEffect(() => {
+    if (!codeEnabled || activeCode) return;
+    getJson<{ code: string | null; enabled: boolean; legacy: boolean }>(
+      `/api/admin/orders/${orderId}/access-code`,
+      'Failed to load the access code',
+    )
+      .then((res) => {
+        if (res.code) setActiveCode(res.code);
+        setLegacyCode(res.legacy);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per enable
+  }, [codeEnabled]);
 
   const noGarments = garmentSummary.total === 0;
   const incompleteGarments = [...new Set([...garmentSummary.missingSizing, ...garmentSummary.missingImages])];
@@ -130,18 +149,23 @@ export function ShareLinkPanel({
     }
   }
 
-  /** Enable the access code, or rotate it when already enabled. */
-  async function enableOrRotateCode() {
+  /**
+   * Enable/rotate (no argument) or set a staff-chosen code. The stored code is
+   * staff-readable afterwards (David, 2026-08-03) — no relay-it-now urgency.
+   */
+  async function setCode(customCode?: string) {
     setLoading('code');
     try {
       const data = await postJson<{ code: string }>(
         `/api/admin/orders/${orderId}/access-code`,
-        undefined,
+        customCode ? { code: customCode } : {},
         'Failed to set access code',
       );
       setActiveCode(data.code);
       setCodeEnabled(true);
-      message.success('Access code set — relay it to the customer by phone or text');
+      setCustomCodeDraft('');
+      setLegacyCode(false);
+      message.success('Access code set');
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Failed to set access code');
     } finally {
@@ -351,7 +375,7 @@ export function ShareLinkPanel({
               checked={codeEnabled}
               loading={loading === 'code'}
               disabled={!hasToken || (loading !== null && loading !== 'code')}
-              onChange={(checked) => (checked ? enableOrRotateCode() : disableCode())}
+              onChange={(checked) => (checked ? setCode() : disableCode())}
             />
           </Tooltip>
           <div>
@@ -360,8 +384,8 @@ export function ShareLinkPanel({
               Require access code
             </Text>
             <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 2 }}>
-              The customer must also enter a 6-digit code to open the order. Relay it by phone or
-              text — it is never emailed with the link. The code stays the same when the link is
+              The customer must also enter a code to open the order. Relay it by phone or text —
+              it is never emailed with the link. The code stays the same when the link is
               regenerated, and is removed when the link is revoked.
             </Text>
           </div>
@@ -369,12 +393,6 @@ export function ShareLinkPanel({
 
         {activeCode && (
           <div style={{ marginTop: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <Text strong>Access code</Text>
-              <Text type="warning" style={{ fontSize: 12 }}>
-                — copy now, this won&apos;t be shown again after you leave this page
-              </Text>
-            </div>
             <div
               style={{
                 display: 'flex',
@@ -383,11 +401,11 @@ export function ShareLinkPanel({
                 padding: '8px 12px',
                 background: 'var(--ant-color-fill-tertiary)',
                 borderRadius: 6,
-                border: '1px solid var(--ant-color-warning-border, var(--ant-color-border))',
+                border: '1px solid var(--ant-color-border)',
               }}
             >
               <KeyOutlined style={{ color: 'var(--ant-color-primary)', flexShrink: 0 }} />
-              <Text strong style={{ flex: 1, fontSize: 20, letterSpacing: 6 }}>
+              <Text strong style={{ flex: 1, fontSize: 18, letterSpacing: 2 }}>
                 {activeCode}
               </Text>
               <Button type="primary" size="small" icon={<CopyOutlined />} onClick={copyCode}>
@@ -397,28 +415,45 @@ export function ShareLinkPanel({
           </div>
         )}
 
-        {codeEnabled && !activeCode && (
+        {legacyCode && !activeCode && (
           <Alert
             style={{ marginTop: 12 }}
             type="warning"
             showIcon
             icon={<KeyOutlined />}
-            message="Access code active — code not shown"
-            description={
-              <span>
-                The code is only displayed once when it&apos;s set. If the customer lost it,
-                generate a new one (the old code stops working).{' '}
-                <Button
-                  size="small"
-                  loading={loading === 'code'}
-                  disabled={loading !== null && loading !== 'code'}
-                  onClick={enableOrRotateCode}
-                >
-                  Generate new code
-                </Button>
-              </span>
-            }
+            message="A code is active but was set before codes became viewable"
+            description="Set a new one below to see it here (the old code stops working)."
           />
+        )}
+
+        {codeEnabled && (
+          <Space style={{ marginTop: 12 }} wrap>
+            <Input
+              size="small"
+              placeholder="Custom code (4+ characters)"
+              value={customCodeDraft}
+              onChange={(e) => setCustomCodeDraft(e.target.value)}
+              onPressEnter={() => customCodeDraft.trim().length >= 4 && void setCode(customCodeDraft)}
+              style={{ width: 220 }}
+              maxLength={64}
+            />
+            <Button
+              size="small"
+              loading={loading === 'code'}
+              disabled={customCodeDraft.trim().length < 4 || (loading !== null && loading !== 'code')}
+              onClick={() => void setCode(customCodeDraft)}
+            >
+              Set custom code
+            </Button>
+            <Button
+              size="small"
+              loading={loading === 'code'}
+              disabled={loading !== null && loading !== 'code'}
+              onClick={() => void setCode()}
+            >
+              Generate random
+            </Button>
+          </Space>
         )}
       </div>
     </Space>

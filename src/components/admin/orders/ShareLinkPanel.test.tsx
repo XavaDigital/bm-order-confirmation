@@ -140,17 +140,46 @@ describe('ShareLinkPanel', () => {
     expect(await screen.findByText(/access code set/i)).toBeInTheDocument();
   });
 
-  it('shows the "code active but not shown" state with a rotate button when a code exists', () => {
+  // Codes are staff-readable on demand (David, 2026-08-03) — an active code
+  // loads and displays instead of the old "not shown, regenerate" state.
+  it('loads and displays the stored code when a code is active', async () => {
+    installMockFetch([
+      {
+        match: '/api/admin/orders/order-1/access-code',
+        method: 'GET',
+        response: { code: 'seahawks22', enabled: true, legacy: false },
+      },
+    ]);
     renderPanel({ hasActiveToken: true, hasAccessCode: true });
 
-    expect(screen.getByText(/access code active — code not shown/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /generate new code/i })).toBeInTheDocument();
+    expect(await screen.findByText('seahawks22')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /set custom code/i })).toBeInTheDocument();
     expect(screen.getByRole('switch')).toBeChecked();
+  });
+
+  it('shows the legacy notice when the active code predates readability', async () => {
+    installMockFetch([
+      {
+        match: '/api/admin/orders/order-1/access-code',
+        method: 'GET',
+        response: { code: null, enabled: true, legacy: true },
+      },
+    ]);
+    renderPanel({ hasActiveToken: true, hasAccessCode: true });
+
+    expect(
+      await screen.findByText(/set before codes became viewable/i),
+    ).toBeInTheDocument();
   });
 
   it('disabling the access code DELETEs and clears the code state', async () => {
     const user = userEvent.setup();
     const { fetchMock } = installMockFetch([
+      {
+        match: '/api/admin/orders/order-1/access-code',
+        method: 'GET',
+        response: { code: '123456', enabled: true, legacy: false },
+      },
       { match: '/api/admin/orders/order-1/access-code', method: 'DELETE', response: { ok: true } },
     ]);
     renderPanel({ hasActiveToken: true, hasAccessCode: true });

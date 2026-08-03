@@ -10,8 +10,6 @@ import { StatusPage } from './StatusPage';
 
 const { Title, Text, Paragraph } = Typography;
 
-const CODE_LENGTH = 6;
-
 /**
  * Shown instead of the order when the link has a per-order access code and
  * the visitor hasn't verified it yet. On success the server sets an HttpOnly
@@ -74,21 +72,27 @@ export function AccessCodeGate({ token }: { token: string }) {
             marginBottom: 32,
           }}
         >
-          This order is protected. Enter the {CODE_LENGTH}-digit code your {SALES_REP_LABEL} gave
-          you to view it.
+          This order is protected. Enter the access code your {SALES_REP_LABEL} gave you to view
+          it.
         </Text>
 
+        {/* A plain field, not OTP boxes — codes may be words as well as digits
+            (David, 2026-08-03), so the input cannot assume a length. */}
         <Spin spinning={verifying}>
-          <Input.OTP
-            length={CODE_LENGTH}
+          <Input.Search
             size="large"
             autoFocus
+            placeholder="Access code"
+            aria-label="Access code"
             value={code}
             disabled={verifying}
-            onChange={(value) => {
-              setCode(value);
-              if (value.length === CODE_LENGTH) verify(value);
+            maxLength={64}
+            onChange={(e) => setCode(e.target.value)}
+            enterButton="View order"
+            onSearch={(value) => {
+              if (value.trim()) verify(value.trim());
             }}
+            style={{ maxWidth: 360, margin: '0 auto' }}
           />
         </Spin>
 

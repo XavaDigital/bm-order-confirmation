@@ -1258,6 +1258,8 @@ export async function revokeAccessToken(
 export async function setOrderAccessCode(
   orderId: string,
   meta?: { actorEmail?: string },
+  /** A staff-chosen code (David, 2026-08-03) — omitted means generate one. */
+  customCode?: string,
 ): Promise<{ code: string }> {
   const access = await db.query.orderAccess.findFirst({
     where: and(eq(orderAccess.orderId, orderId), isNull(orderAccess.revokedAt)),
@@ -1267,7 +1269,7 @@ export async function setOrderAccessCode(
     throw new ConflictError('Generate a customer link before enabling an access code');
   }
 
-  const code = generateAccessCode();
+  const code = customCode?.trim() || generateAccessCode();
   const accessCodeHash = await hashAccessCode(code);
 
   await db.transaction(async (tx) => {
@@ -1276,14 +1278,43 @@ export async function setOrderAccessCode(
       .set({ accessCodeHash })
       .where(eq(orderAccess.id, access.id));
 
+    // Staff-readable copy (David's ruling: the code is not secret to admins —
+    // it must be viewable on demand, not regenerate-to-see).
+    await tx.update(orders).set({ accessCode: code }).where(eq(orders.id, orderId));
+
     await emitOrderEvent(tx, {
       aggregateId: orderId,
       eventType: 'access_code.enabled',
-      payload: { actorEmail: meta?.actorEmail ?? null },
+      payload: { actorEmail: meta?.actorEmail ?? null, custom: Boolean(customCode) },
     });
   });
 
   return { code };
+}
+
+/**
+ * The current code for staff display. `legacy: true` means a code is ACTIVE
+ * (hash on the link) but predates the readable column — only a rotation can
+ * surface it.
+ */
+export async function getOrderAccessCode(
+  orderId: string,
+): Promise<{ code: string | null; enabled: boolean; legacy: boolean }> {
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, orderId),
+    columns: { accessCode: true },
+  });
+  if (!order) throw new NotFoundError('Order');
+  const access = await db.query.orderAccess.findFirst({
+    where: and(eq(orderAccess.orderId, orderId), isNull(orderAccess.revokedAt)),
+    orderBy: [desc(orderAccess.createdAt)],
+  });
+  const enabled = Boolean(access?.accessCodeHash);
+  return {
+    code: enabled ? (order.accessCode ?? null) : null,
+    enabled,
+    legacy: enabled && !order.accessCode,
+  };
 }
 
 /** Remove the per-order access code — the link alone opens the order again. */
@@ -1306,6 +1337,9 @@ export async function clearOrderAccessCode(
 
     // Idempotent: no event when there was no code to clear.
     if (updated.length === 0) return;
+
+    // The staff-readable copy goes with it.
+    await tx.update(orders).set({ accessCode: null }).where(eq(orders.id, orderId));
 
     await emitOrderEvent(tx, {
       aggregateId: orderId,

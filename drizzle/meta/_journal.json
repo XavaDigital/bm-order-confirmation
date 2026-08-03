@@ -225,6 +225,13 @@
       "when": 1785731722750,
       "tag": "0031_safe_pandemic",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1785735890988,
+      "tag": "0032_cool_vampiro",
+      "breakpoints": true
     }
   ]
 }

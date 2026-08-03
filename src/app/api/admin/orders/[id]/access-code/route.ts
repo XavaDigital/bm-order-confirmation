@@ -1,16 +1,47 @@
 import { NextResponse } from 'next/server';
-import { setOrderAccessCode, clearOrderAccessCode } from '@/server/orders/service';
+import { z } from 'zod';
+import {
+  setOrderAccessCode,
+  clearOrderAccessCode,
+  getOrderAccessCode,
+} from '@/server/orders/service';
 import { defineRoute } from '@/lib/route-handler';
 
 /**
- * Enable (or rotate) the per-order access code on the active customer link.
- * The raw code is returned ONCE — staff relay it out-of-band (phone/text).
+ * The per-order access code on the active customer link.
+ *
+ * Staff-READABLE by design (David, 2026-08-03): the stored code can be viewed
+ * any time rather than regenerate-to-see, and it may be a staff-chosen string
+ * as well as a generated 6-digit number. Verification still compares against
+ * the bcrypt hash on the access row.
  */
-export const POST = defineRoute<{ id: string }>({
+export const GET = defineRoute<{ id: string }>({
+  auth: 'staff',
+  tag: 'orders/[id]/access-code GET',
+  handler: async ({ params }) => NextResponse.json(await getOrderAccessCode(params.id)),
+});
+
+const setSchema = z.object({
+  /**
+   * Optional staff-chosen code — 4-64 visible chars, no leading/trailing
+   * whitespace. Omitted = generate a 6-digit code.
+   */
+  code: z
+    .string()
+    .trim()
+    .min(4, 'Use at least 4 characters')
+    .max(64)
+    .regex(/^\S(.*\S)?$/, 'No leading or trailing spaces')
+    .optional(),
+});
+
+/** Enable, rotate, or set the code. The response echoes the stored code. */
+export const POST = defineRoute<{ id: string }, typeof setSchema._type>({
   auth: 'staff',
   tag: 'orders/[id]/access-code POST',
-  handler: async ({ params, session }) => {
-    const result = await setOrderAccessCode(params.id, { actorEmail: session!.email });
+  schema: setSchema,
+  handler: async ({ params, body, session }) => {
+    const result = await setOrderAccessCode(params.id, { actorEmail: session!.email }, body.code);
     return NextResponse.json(result, { status: 201 });
   },
 });

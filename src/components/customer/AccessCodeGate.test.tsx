@@ -9,10 +9,10 @@ vi.mock('next/navigation', () => ({
 }));
 
 async function enterCode(user: ReturnType<typeof userEvent.setup>, code: string) {
-  // antd Input.OTP renders one text input per digit; focus the first and paste the full code.
-  const inputs = screen.getAllByRole('textbox');
-  await user.click(inputs[0]);
-  await user.paste(code);
+  // A single free-text field since codes can be words (David, 2026-08-03) —
+  // type and submit with the button.
+  await user.type(screen.getByPlaceholderText('Access code'), code);
+  await user.click(screen.getByRole('button', { name: /view order/i }));
 }
 
 beforeEach(() => {
@@ -27,7 +27,7 @@ describe('AccessCodeGate', () => {
     expect(screen.getByText('Access Code Required')).toBeInTheDocument();
   });
 
-  it('a correct 6-digit code verifies against the API and refreshes the router', async () => {
+  it('a correct code verifies against the API and refreshes the router', async () => {
     const user = userEvent.setup();
     vi.mocked(fetch).mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response);
     render(<AccessCodeGate token="raw-token" />);

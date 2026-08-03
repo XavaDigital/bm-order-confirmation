@@ -9,7 +9,8 @@ import { defineRoute } from '@/lib/route-handler';
 
 const bodySchema = z.object({
   token: z.string().min(1),
-  code: z.string().min(1).max(32),
+  // Codes may be staff-chosen strings (up to 64, matching the admin set route).
+  code: z.string().min(1).max(64),
 });
 
 export const POST = defineRoute<Record<string, never>, typeof bodySchema._type>({
