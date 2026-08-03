@@ -8,3 +8,6 @@ export default function OrdersPage() {
     </Suspense>
   );
 }
+
+// Tab title: "OrderFlow - Orders" (root layout template).
+export const metadata = { title: 'Orders' };

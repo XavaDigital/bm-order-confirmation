@@ -10,3 +10,6 @@ export default async function UsersPage() {
 
   return <UsersView currentUserId={session.userId} />;
 }
+
+// Tab title: "OrderFlow - Users" (root layout template).
+export const metadata = { title: 'Users' };

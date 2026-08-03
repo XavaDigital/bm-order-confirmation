@@ -6,7 +6,7 @@ import { RosterCustomerView, type RosterCustomerViewProps } from './view';
 export const dynamic = 'force-dynamic';
 
 // Never let search engines index shared roster URLs.
-export const metadata = { robots: { index: false, follow: false } };
+export const metadata = { title: 'Team Roster', robots: { index: false, follow: false } };
 
 type Props = { params: Promise<{ rosterToken: string }> };
 

@@ -7,6 +7,14 @@ import { OrderDetailView, type AdminOrderData } from './OrderDetailView';
 
 type Props = { params: Promise<{ id: string }> };
 
+/** Tab title: "OrderFlow - OC-10023 · Winter hoodies" (root layout template). */
+export async function generateMetadata({ params }: Props) {
+  const { id } = await params;
+  const order = await getOrderAdmin(id);
+  if (!order) return { title: 'Order' };
+  return { title: order.name ? `${order.orderNumber} · ${order.name}` : order.orderNumber };
+}
+
 /** Enrich each garment's images with 4-hour signed URLs for the admin preview. */
 async function withSignedUrls(
   garments: NonNullable<Awaited<ReturnType<typeof getOrderAdmin>>>['garments'],

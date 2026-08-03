@@ -6,7 +6,7 @@ import { RosterMemberView, type RosterMemberViewProps } from './view';
 export const dynamic = 'force-dynamic';
 
 // Never let search engines index individual roster URLs.
-export const metadata = { robots: { index: false, follow: false } };
+export const metadata = { title: 'Your Sizes', robots: { index: false, follow: false } };
 
 type Props = { params: Promise<{ memberToken: string }> };
 

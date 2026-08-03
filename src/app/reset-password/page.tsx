@@ -9,3 +9,6 @@ export default function ResetPasswordPage() {
     </Suspense>
   );
 }
+
+// Tab title: "OrderFlow - Reset Password" (root layout template).
+export const metadata = { title: 'Reset Password' };

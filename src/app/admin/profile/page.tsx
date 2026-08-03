@@ -12,3 +12,6 @@ export default async function ProfilePage() {
     />
   );
 }
+
+// Tab title: "OrderFlow - Profile" (root layout template).
+export const metadata = { title: 'Profile' };

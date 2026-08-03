@@ -5,7 +5,7 @@ import { SupplierPortalView, type SupplierPortalViewProps } from './view';
 export const dynamic = 'force-dynamic';
 
 // Never let search engines index supplier portal URLs.
-export const metadata = { robots: { index: false, follow: false } };
+export const metadata = { title: 'Supplier Portal', robots: { index: false, follow: false } };
 
 type Props = { params: Promise<{ token: string }> };
 

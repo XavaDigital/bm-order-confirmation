@@ -12,7 +12,7 @@ import { logger } from '@/lib/logger';
 export const dynamic = 'force-dynamic';
 
 // Never let search engines index customer confirmation URLs.
-export const metadata = { robots: { index: false, follow: false } };
+export const metadata = { title: 'Order Confirmation', robots: { index: false, follow: false } };
 
 type Props = { params: Promise<{ token: string }> };
 

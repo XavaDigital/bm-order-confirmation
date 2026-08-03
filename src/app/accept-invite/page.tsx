@@ -9,3 +9,6 @@ export default function AcceptInvitePage() {
     </Suspense>
   );
 }
+
+// Tab title: "OrderFlow - Accept Invite" (root layout template).
+export const metadata = { title: 'Accept Invite' };

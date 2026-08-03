@@ -5,3 +5,6 @@ import { ShipmentsView } from './ShipmentsView';
 export default function ShipmentsPage() {
   return <ShipmentsView />;
 }
+
+// Tab title: "OrderFlow - Shipments" (root layout template).
+export const metadata = { title: 'Shipments' };

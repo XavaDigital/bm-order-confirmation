@@ -7,7 +7,7 @@ import { RosterPageView } from './view';
 export const dynamic = 'force-dynamic';
 
 // Short typeable URLs still shouldn't be indexed.
-export const metadata = { robots: { index: false, follow: false } };
+export const metadata = { title: 'Team Roster', robots: { index: false, follow: false } };
 
 type Props = {
   params: Promise<{ orderNumber: string }>;

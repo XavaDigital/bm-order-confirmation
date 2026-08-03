@@ -19,3 +19,6 @@ export default async function MetricsPage() {
     />
   );
 }
+
+// Tab title: "OrderFlow - Metrics" (root layout template).
+export const metadata = { title: 'Metrics' };

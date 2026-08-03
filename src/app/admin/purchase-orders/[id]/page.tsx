@@ -8,3 +8,6 @@ export default async function PurchaseOrderDetailPage({
   const { id } = await params;
   return <PoDetailView poId={id} />;
 }
+
+// Tab title: "OrderFlow - Purchase Order" (root layout template).
+export const metadata = { title: 'Purchase Order' };

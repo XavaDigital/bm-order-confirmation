@@ -64,3 +64,6 @@ export default async function LoginPage({
     </AuthCard>
   );
 }
+
+// Tab title: "OrderFlow - Sign In" (root layout template).
+export const metadata = { title: 'Sign In' };

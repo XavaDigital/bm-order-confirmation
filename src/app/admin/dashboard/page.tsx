@@ -137,3 +137,6 @@ export default async function HomePage() {
     />
   );
 }
+
+// Tab title: "OrderFlow - Home" (root layout template).
+export const metadata = { title: 'Home' };
