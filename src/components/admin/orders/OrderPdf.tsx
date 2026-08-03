@@ -4,6 +4,7 @@ import {
   Page,
   Text,
   View,
+  Image,
   StyleSheet,
 } from '@react-pdf/renderer';
 import { APP_NAME, APP_TAGLINE, PDF_FOOTER_TEXT } from '@/lib/config';
@@ -136,6 +137,56 @@ const s = StyleSheet.create({
     backgroundColor: WHITE,
   },
   col: { flex: 1 },
+  imageRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 6,
+  },
+  imageCell: {
+    width: 110,
+  },
+  mockupImage: {
+    width: 110,
+    height: 82,
+    objectFit: 'cover',
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: MID_GREY,
+  },
+  imageCaption: {
+    fontSize: 7,
+    color: TEXT_MID,
+    marginTop: 2,
+  },
+  ackItem: {
+    marginBottom: 6,
+  },
+  ackTitle: {
+    fontSize: 9,
+    fontFamily: 'Helvetica-Bold',
+    color: TEXT_DARK,
+    marginBottom: 1,
+  },
+  ackText: {
+    fontSize: 8,
+    color: TEXT_MID,
+    lineHeight: 1.4,
+  },
+  signatureImage: {
+    width: 180,
+    height: 70,
+    objectFit: 'contain',
+    borderWidth: 1,
+    borderColor: MID_GREY,
+    borderRadius: 3,
+    backgroundColor: WHITE,
+  },
+  signatureMeta: {
+    fontSize: 7,
+    color: TEXT_MID,
+    marginTop: 3,
+  },
   footer: {
     position: 'absolute',
     bottom: 24,
@@ -180,6 +231,8 @@ interface GarmentData {
   selectedFabrics?: Record<string, string> | null;
   sizingColumns?: { label: string }[];
   sizing: SizingRow[];
+  /** Mock-up images as png/jpeg data URIs (react-pdf cannot fetch or render webp). */
+  images?: { dataUrl: string; caption: string | null }[];
 }
 
 export interface OrderPdfProps {
@@ -195,7 +248,18 @@ export interface OrderPdfProps {
   generalNotes: string | null;
   confirmedAt: string | null;
   garments: GarmentData[];
+  // Confirmation record extras (David, 2026-08-03): the PDF is the record of
+  // what was agreed, so it must carry all of it. All optional — an
+  // unconfirmed order's PDF just omits the sections.
+  shippingAddress?: Record<string, string> | null;
+  shippingAddressDeferred?: boolean;
+  customerConcerns?: string | null;
+  acknowledgments?: { key: string; title: string; text: string }[];
+  signatureDataUrl?: string | null;
+  signatureType?: 'drawn' | 'uploaded' | 'none';
 }
+
+const ADDRESS_KEYS = ['line1', 'line2', 'city', 'region', 'postcode', 'country'] as const;
 
 export function OrderPdf({
   orderNumber,
@@ -210,6 +274,12 @@ export function OrderPdf({
   generalNotes,
   confirmedAt,
   garments,
+  shippingAddress,
+  shippingAddressDeferred,
+  customerConcerns,
+  acknowledgments,
+  signatureDataUrl,
+  signatureType,
 }: OrderPdfProps) {
   const printDate = new Date().toLocaleDateString('en-NZ', {
     day: 'numeric', month: 'long', year: 'numeric',
@@ -271,6 +341,17 @@ export function OrderPdf({
               <View key={idx} style={s.garmentCard}>
                 <Text style={s.garmentHeader}>{g.name}</Text>
                 <View style={s.garmentBody}>
+                  {(g.images ?? []).length > 0 && (
+                    <View style={s.imageRow}>
+                      {(g.images ?? []).map((img, ii) => (
+                        <View key={ii} style={s.imageCell} wrap={false}>
+                          {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image has no alt prop */}
+                          <Image src={img.dataUrl} style={s.mockupImage} />
+                          {img.caption && <Text style={s.imageCaption}>{img.caption}</Text>}
+                        </View>
+                      ))}
+                    </View>
+                  )}
                   {g.selectedFabrics &&
                     Object.entries(g.selectedFabrics)
                       .filter(([, v]) => v)
@@ -318,6 +399,64 @@ export function OrderPdf({
                 </View>
               </View>
             ))}
+          </View>
+        )}
+
+        {/* Delivery address — part of the agreed record. */}
+        {(shippingAddress || shippingAddressDeferred) && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Delivery Address</Text>
+            {shippingAddressDeferred ? (
+              <Text style={s.value}>
+                To be confirmed — the customer did not know the delivery address at
+                confirmation time.
+              </Text>
+            ) : (
+              ADDRESS_KEYS.filter((k) => shippingAddress?.[k]).map((k) => (
+                <Text key={k} style={s.value}>
+                  {shippingAddress![k]}
+                </Text>
+              ))
+            )}
+          </View>
+        )}
+
+        {/* Customer comments given at confirmation. */}
+        {customerConcerns && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Customer Comments</Text>
+            <Text style={s.value}>{customerConcerns}</Text>
+          </View>
+        )}
+
+        {/* The acknowledgments as they read when agreed (snapshotted). */}
+        {(acknowledgments ?? []).length > 0 && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Acknowledgments — agreed by the customer</Text>
+            {(acknowledgments ?? []).map((a) => (
+              <View key={a.key} style={s.ackItem} wrap={false}>
+                <Text style={s.ackTitle}>✓  {a.title}</Text>
+                <Text style={s.ackText}>{a.text}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Signature */}
+        {signatureDataUrl && (
+          <View style={s.section} wrap={false}>
+            <Text style={s.sectionTitle}>Signature</Text>
+            {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image has no alt prop */}
+            <Image src={signatureDataUrl} style={s.signatureImage} />
+            <Text style={s.signatureMeta}>
+              {signatureType === 'uploaded' ? 'Uploaded signature' : 'Signed on screen'}
+              {confirmedAt
+                ? ` — ${new Date(confirmedAt).toLocaleString('en-NZ', {
+                    day: 'numeric', month: 'long', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit',
+                  })}`
+                : ''}
+            </Text>
           </View>
         )}
 

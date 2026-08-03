@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { getConfirmedOrderForPdf } from '@/server/orders/customer-service';
 import { toGarmentDto } from '@/server/orders/mappers';
+import { buildConfirmationPdfExtras } from '@/server/orders/pdf-data';
 import { OrderPdf } from '@/components/admin/orders/OrderPdf';
 import { getClientIp, rateLimitedResponse, RATE_LIMITS } from '@/lib/rate-limit';
 import { ACCESS_CODE_COOKIE } from '@/lib/access-code';
@@ -41,6 +42,11 @@ export const GET = defineRoute<{ token: string }>({
       throw err;
     }
 
+    const extras = await buildConfirmationPdfExtras(
+      order.id,
+      order.garments.map((g) => g.id),
+    );
+
     const pdfProps = {
       orderNumber: order.orderNumber,
       customerName: order.customerName,
@@ -53,7 +59,16 @@ export const GET = defineRoute<{ token: string }>({
       deadlineDate: order.deadlineDate ?? null,
       generalNotes: order.generalNotes ?? null,
       confirmedAt: order.confirmedAt ? order.confirmedAt.toISOString() : null,
-      garments: order.garments.map((g) => toGarmentDto(g)),
+      garments: order.garments.map((g) => ({
+        ...toGarmentDto(g),
+        images: extras.imagesByGarment.get(g.id) ?? [],
+      })),
+      shippingAddress: extras.shippingAddress,
+      shippingAddressDeferred: extras.shippingAddressDeferred,
+      customerConcerns: extras.customerConcerns,
+      acknowledgments: extras.acknowledgments,
+      signatureDataUrl: extras.signatureDataUrl,
+      signatureType: extras.signatureType,
     };
 
     const buffer = await renderToBuffer(<OrderPdf {...pdfProps} /> as Parameters<typeof renderToBuffer>[0]);

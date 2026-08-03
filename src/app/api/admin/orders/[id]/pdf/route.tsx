@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { getOrderAdmin } from '@/server/orders/service';
 import { toGarmentDto } from '@/server/orders/mappers';
+import { buildConfirmationPdfExtras } from '@/server/orders/pdf-data';
 import { OrderPdf } from '@/components/admin/orders/OrderPdf';
 import { notFound } from '@/lib/api-responses';
 import { defineRoute } from '@/lib/route-handler';
@@ -12,6 +13,13 @@ export const GET = defineRoute<{ id: string }>({
   handler: async ({ params }) => {
     const order = await getOrderAdmin(params.id);
     if (!order) return notFound();
+
+    // The confirmation extras resolve to empty for an unconfirmed order —
+    // mock-up images still render (they exist pre-confirmation).
+    const extras = await buildConfirmationPdfExtras(
+      order.id,
+      order.garments.map((g) => g.id),
+    );
 
     const pdfProps = {
       orderNumber: order.orderNumber,
@@ -25,7 +33,16 @@ export const GET = defineRoute<{ id: string }>({
       deadlineDate: order.deadlineDate ?? null,
       generalNotes: order.generalNotes ?? null,
       confirmedAt: order.confirmedAt ? order.confirmedAt.toISOString() : null,
-      garments: order.garments.map((g) => toGarmentDto(g)),
+      garments: order.garments.map((g) => ({
+        ...toGarmentDto(g),
+        images: extras.imagesByGarment.get(g.id) ?? [],
+      })),
+      shippingAddress: extras.shippingAddress,
+      shippingAddressDeferred: extras.shippingAddressDeferred,
+      customerConcerns: extras.customerConcerns,
+      acknowledgments: extras.acknowledgments,
+      signatureDataUrl: extras.signatureDataUrl,
+      signatureType: extras.signatureType,
     };
 
     const buffer = await renderToBuffer(<OrderPdf {...pdfProps} /> as Parameters<typeof renderToBuffer>[0]);
