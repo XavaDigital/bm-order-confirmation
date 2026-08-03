@@ -17,6 +17,8 @@
     "db:seed": "tsx --env-file=.env.local src/db/seed.ts",
     "db:seed-demo": "tsx --env-file=.env.local src/db/seed-demo.ts",
     "db:seed-demo-extra": "tsx --env-file=.env.local src/db/seed-demo-extra.ts",
+    "predeploy": "npm run db:migrate",
+    "deploy": "gcloud run deploy bm-orders --source . --project beastmode-pm --region asia-southeast1",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:unit": "vitest run --exclude \"**/*.integration.test.ts\"",

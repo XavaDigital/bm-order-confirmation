@@ -17,6 +17,7 @@ npm run db:push      # push schema directly (dev only, skips migration files)
 npm run db:studio    # Drizzle Studio UI
 npm run db:seed      # create/update the first admin user (reads SEED_ADMIN_* from .env.local)
 npm run db:seed-demo # seed demo orders
+npm run deploy       # db:migrate (via predeploy), then gcloud run deploy bm-orders (beastmode-pm, asia-southeast1)
 
 # Tests (Vitest)
 npm run test          # full suite (unit + integration)
