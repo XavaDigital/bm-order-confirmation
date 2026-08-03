@@ -57,6 +57,7 @@ import { RosterPanel } from '@/components/admin/orders/RosterPanel';
 import { ProductionPanel } from '@/components/admin/orders/ProductionPanel';
 import { OrderAssetsPanel } from '@/components/admin/orders/OrderAssetsPanel';
 import { DesignProjectLinkControl } from '@/components/admin/orders/DesignProjectLinkControl';
+import { SectionTitle } from '@/components/admin/SectionTitle';
 import { NotesThread } from '@/components/admin/orders/NotesThread';
 import { StageChecklist } from '@/components/admin/workflow/StageChecklist';
 import { useProductionSummary } from '@/lib/use-production-summary';
@@ -185,8 +186,10 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
   // (it otherwise only reads them once, on its own initial mount).
   const [shareLinkVersion, setShareLinkVersion] = useState(0);
 
+  // The order name lives above the form (very top of the details page —
+  // David, 2026-08-04), so it is plain state rather than an antd form field.
+  const [orderName, setOrderName] = useState(order.name ?? '');
   const initialValues: Partial<OrderFormValues> = {
-    name: order.name ?? undefined,
     customerName: order.customerName,
     customerEmail: order.customerEmail,
     customerContact: order.customerContact ?? undefined,
@@ -213,7 +216,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
       const payload = toApiPayload(values as unknown as Record<string, unknown>);
       const body = {
         // '' (a cleared input) means "remove the name" — the schema wants null.
-        name: String(payload.name ?? '').trim() || null,
+        name: orderName.trim() || null,
         customerName: payload.customerName,
         customerEmail: payload.customerEmail,
         customerContact: payload.customerContact ?? null,
@@ -429,16 +432,29 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
               }
             />
           )}
-          {/* Renders nothing unless the Sales Hub integration is configured */}
-          <CustomerHubSelect
-            value={hubCustomer}
-            onSelect={(customer) => {
-              setHubCustomer(customer);
-              // A contact only means something inside its customer — changing
-              // or clearing the customer invalidates the contact pick.
-              if (customer?.id !== hubCustomer?.id) setHubContact(null);
-            }}
-          />
+          <div>
+            <SectionTitle>Order</SectionTitle>
+            <Input
+              placeholder="Order name — e.g. Winter hoodies 2026"
+              value={orderName}
+              onChange={(e) => setOrderName(e.target.value)}
+              maxLength={200}
+            />
+          </div>
+
+          <div>
+            <SectionTitle>Customer</SectionTitle>
+            {/* Renders nothing unless the Sales Hub integration is configured */}
+            <CustomerHubSelect
+              value={hubCustomer}
+              onSelect={(customer) => {
+                setHubCustomer(customer);
+                // A contact only means something inside its customer — changing
+                // or clearing the customer invalidates the contact pick.
+                if (customer?.id !== hubCustomer?.id) setHubContact(null);
+              }}
+            />
+          </div>
           <ContactHubSelect
             customerId={hubCustomer?.id ?? null}
             value={hubContact}

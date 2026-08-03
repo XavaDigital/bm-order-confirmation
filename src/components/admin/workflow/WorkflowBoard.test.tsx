@@ -21,6 +21,11 @@ vi.mock('@/lib/api-fetch', () => ({
   },
 }));
 
+const routerPushMock = vi.fn();
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: routerPushMock, refresh: vi.fn() }),
+}));
+
 vi.mock('next/link', () => ({
   default: ({ href, children }: { href: string; children: React.ReactNode }) => (
     <a href={href}>{children}</a>
@@ -99,6 +104,16 @@ describe('WorkflowBoard — rendering', () => {
 
     const link = await screen.findByRole('link', { name: 'OC-1001' });
     expect(link).toHaveAttribute('href', '/admin/orders/o1');
+  });
+
+  it('clicking anywhere on a card opens the order (David, 2026-08-04)', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    // The card TITLE (not the reference link) — any point on the card works.
+    await user.click(await screen.findByText('Jane Coach'));
+
+    expect(routerPushMock).toHaveBeenCalledWith('/admin/orders/o1');
   });
 
   it('says so when a column is empty', async () => {

@@ -2,13 +2,12 @@
 
 import { Form, Input, InputNumber, Select, DatePicker, Typography, Space } from 'antd';
 import type { FormInstance } from 'antd';
+import { SectionTitle } from '@/components/admin/SectionTitle';
 import dayjs from 'dayjs';
 
 const { TextArea } = Input;
 
 export interface OrderFormValues {
-  /** Staff-facing order label — distinct from the order number. */
-  name?: string;
   customerName: string;
   customerEmail: string;
   customerContact?: string;
@@ -70,19 +69,9 @@ export function OrderForm({ initialValues, form, disabled, hubLinked = false }: 
       disabled={disabled}
       size="middle"
     >
-      {/* First field on the form (David, 2026-08-02) — the label staff know
-          the job by, ahead of the contact/branding block. */}
-      <Form.Item
-        name="name"
-        label="Order Name"
-        extra="A label for this order — shows beside the order number here, in the email app’s sidebar, and on the CRM customer."
-      >
-        <Input placeholder="e.g. Winter hoodies 2026" maxLength={200} />
-      </Form.Item>
-
-      <Typography.Title level={5} style={{ marginBottom: 4, marginTop: 0 }}>
-        Order page contact &amp; branding
-      </Typography.Title>
+      {/* The order NAME renders above this form in the page layout (David,
+          2026-08-04: very top of the details page) — the parents own it. */}
+      <SectionTitle>Order page contact &amp; branding</SectionTitle>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 13 }}>
         Shown on the customer-facing order page and used to email the link.
         {hubLinked
@@ -119,9 +108,7 @@ export function OrderForm({ initialValues, form, disabled, hubLinked = false }: 
         </Form.Item>
       </div>
 
-      <Typography.Title level={5} style={{ marginBottom: 16, marginTop: 8 }}>
-        Order Details
-      </Typography.Title>
+      <SectionTitle>Order Details</SectionTitle>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
         <Form.Item label="Order Value">

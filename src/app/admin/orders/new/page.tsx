@@ -20,6 +20,7 @@ import { OrderForm, toApiPayload, type OrderFormValues } from '@/components/admi
 import { CustomerHubSelect, type HubCustomerPick } from '@/components/admin/orders/CustomerHubSelect';
 import { ContactHubSelect, type HubContactPick } from '@/components/admin/orders/ContactHubSelect';
 import { getJson, postJson } from '@/lib/api-fetch';
+import { SectionTitle } from '@/components/admin/SectionTitle';
 
 const { Title } = Typography;
 
@@ -47,6 +48,8 @@ export default function NewOrderPage() {
   const [hubCustomer, setHubCustomer] = useState<HubCustomerPick | null>(null);
   const [hubContact, setHubContact] = useState<HubContactPick | null>(null);
   const [hubConfigured, setHubConfigured] = useState(false);
+  // Above the form (very top of the page — David, 2026-08-04), so plain state.
+  const [orderName, setOrderName] = useState('');
 
   useEffect(() => {
     getJson<{ configured: boolean }>('/api/admin/hub/status')
@@ -120,7 +123,7 @@ export default function NewOrderPage() {
 
       const body = {
         source: 'internal_admin',
-        ...(String(payload.name ?? '').trim() && { name: String(payload.name).trim() }),
+        ...(orderName.trim() && { name: orderName.trim() }),
         // Hub-linked with the branding fields left blank: omit the block and
         // the server resolves contact/branding from the CRM contact.
         ...(payload.customerName && payload.customerEmail
@@ -198,13 +201,20 @@ export default function NewOrderPage() {
       </div>
 
       <Card>
+        <SectionTitle>Order</SectionTitle>
+        <Input
+          placeholder="Order name — e.g. Winter hoodies 2026"
+          value={orderName}
+          onChange={(e) => setOrderName(e.target.value)}
+          maxLength={200}
+          style={{ marginBottom: 20 }}
+        />
+
+        <SectionTitle>
+          Customer{hubConfigured && <Typography.Text type="danger"> *</Typography.Text>}
+        </SectionTitle>
         {/* Renders nothing unless the Sales Hub integration is configured */}
         <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {hubConfigured && (
-            <Typography.Text strong>
-              Customer <Typography.Text type="danger">*</Typography.Text>
-            </Typography.Text>
-          )}
           <CustomerHubSelect
             value={hubCustomer}
             onSelect={(customer) => {
@@ -235,9 +245,7 @@ export default function NewOrderPage() {
 
         <Divider />
 
-        <Title level={5} style={{ marginTop: 0 }}>
-          Garments
-        </Title>
+        <SectionTitle>Garments</SectionTitle>
         <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
           Add garment names now. You can upload mock-ups and sizing after saving.
         </Typography.Paragraph>

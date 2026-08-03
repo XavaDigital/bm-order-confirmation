@@ -43,6 +43,7 @@ import {
 } from 'antd';
 import { ClockCircleOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ApiError, getJson, postJson } from '@/lib/api-fetch';
 
 export type BoardKey = 'order' | 'purchase_order';
@@ -148,10 +149,13 @@ function DraggableCard({
   card,
   boardKey,
   disabled,
+  onOpen,
 }: {
   card: BoardCard;
   boardKey: BoardKey;
   disabled: boolean;
+  /** Open the order — a plain click anywhere on the card (David, 2026-08-04). */
+  onOpen: (card: BoardCard) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: card.id,
@@ -163,7 +167,8 @@ function DraggableCard({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      style={{ opacity: isDragging ? 0.4 : 1, cursor: disabled ? 'default' : 'grab' }}
+      onClick={() => onOpen(card)}
+      style={{ opacity: isDragging ? 0.4 : 1, cursor: disabled ? 'pointer' : 'grab' }}
     >
       <CardBody card={card} boardKey={boardKey} />
     </div>
@@ -236,10 +241,12 @@ function Column({
   column,
   boardKey,
   disabled,
+  onOpen,
 }: {
   column: BoardColumn;
   boardKey: BoardKey;
   disabled: boolean;
+  onOpen: (card: BoardCard) => void;
 }) {
   const { token } = theme.useToken();
   const { setNodeRef, isOver } = useDroppable({ id: column.slug });
@@ -285,7 +292,13 @@ function Column({
         </Typography.Text>
       ) : (
         column.cards.map((card) => (
-          <DraggableCard key={card.id} card={card} boardKey={boardKey} disabled={disabled} />
+          <DraggableCard
+            key={card.id}
+            card={card}
+            boardKey={boardKey}
+            disabled={disabled}
+            onOpen={onOpen}
+          />
         ))
       )}
     </div>
@@ -294,6 +307,7 @@ function Column({
 
 export function WorkflowBoard({ boardKey }: Props) {
   const { message } = App.useApp();
+  const router = useRouter();
   const [board, setBoard] = useState<Board | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<BoardCard | null>(null);
@@ -356,8 +370,25 @@ export function WorkflowBoard({ boardKey }: Props) {
     setDragging(cardsById.get(String(event.active.id)) ?? null);
   }
 
+  // A completed drag fires a trailing click on the source card — swallow it,
+  // or every drop would also navigate to the order (David, 2026-08-04:
+  // clicking anywhere on a card opens the order; dragging must not).
+  const justDragged = useRef(false);
+  function markDragged() {
+    justDragged.current = true;
+    setTimeout(() => {
+      justDragged.current = false;
+    }, 0);
+  }
+
+  function openCard(card: BoardCard) {
+    if (justDragged.current) return;
+    router.push(cardHref(boardKey, card));
+  }
+
   async function onDragEnd(event: DragEndEvent) {
     setDragging(null);
+    markDragged();
     const cardId = String(event.active.id);
     const toStageSlug = event.over ? String(event.over.id) : null;
     if (!toStageSlug || !board) return;
@@ -418,7 +449,15 @@ export function WorkflowBoard({ boardKey }: Props) {
       ) : board.columns.length === 0 ? (
         <Empty description="No stages configured for this board" />
       ) : (
-        <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+        <DndContext
+          sensors={sensors}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragCancel={() => {
+            setDragging(null);
+            markDragged();
+          }}
+        >
           <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8 }}>
             {board.columns.map((column) => (
               <Column
@@ -426,6 +465,7 @@ export function WorkflowBoard({ boardKey }: Props) {
                 column={column}
                 boardKey={board.boardKey}
                 disabled={false}
+                onOpen={openCard}
               />
             ))}
           </div>
