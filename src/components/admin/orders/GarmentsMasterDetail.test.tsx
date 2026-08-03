@@ -41,8 +41,6 @@ function renderView(initialGarments: ReturnType<typeof garment>[] = []) {
       <GarmentsMasterDetail
         orderId="order-1"
         initialGarments={initialGarments}
-        currentUserId="staff-1"
-        isAdmin={false}
       />
     </AntdApp>,
   );

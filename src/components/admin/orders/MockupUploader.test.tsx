@@ -71,19 +71,34 @@ describe('MockupUploader', () => {
     expect(await screen.findByText('Image uploaded')).toBeInTheDocument();
   });
 
-  it('includes the caption field entered before uploading', async () => {
+  // Captions are added AFTER upload, per image (David, 2026-08-03) — the
+  // pre-upload caption input is gone and the upload carries no caption field.
+  it('uploads without a caption and edits it in place afterwards', async () => {
     const user = userEvent.setup();
     const { fetchMock } = installMockFetch([
-      { match: IMAGES_URL, method: 'POST', response: image() },
+      { match: IMAGES_URL, method: 'POST', response: image({ id: 'img-9', caption: null }) },
+      {
+        match: `${IMAGES_URL}/img-9`,
+        method: 'PATCH',
+        response: { id: 'img-9', caption: 'Back view' },
+      },
     ]);
     const { container } = renderUploader([]);
 
-    await user.type(screen.getByPlaceholderText('Caption (optional)'), 'Back view');
+    expect(screen.queryByPlaceholderText('Caption (optional)')).not.toBeInTheDocument();
     await user.upload(fileInput(container), new File(['bytes'], 'mockup.png', { type: 'image/png' }));
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const [, init] = fetchMock.mock.calls[0];
-    expect((init!.body as FormData).get('caption')).toBe('Back view');
+    expect((fetchMock.mock.calls[0][1]!.body as FormData).get('caption')).toBeNull();
+
+    await user.click(await screen.findByRole('button', { name: /add caption/i }));
+    await user.type(screen.getByPlaceholderText('Caption'), 'Back view');
+    await user.keyboard('{Enter}');
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const body = JSON.parse(fetchMock.mock.calls[1][1]!.body as string);
+    expect(body.caption).toBe('Back view');
+    expect(await screen.findByText('Back view')).toBeInTheDocument();
   });
 
   it('selecting two files in one batch uploads both and reports the combined success count', async () => {

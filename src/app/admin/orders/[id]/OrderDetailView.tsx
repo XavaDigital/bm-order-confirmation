@@ -170,7 +170,6 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
   const [colorSampleRequestedAt, setColorSampleRequestedAt] = useState(order.colorSampleRequestedAt);
   const [resolvingColorSample, setResolvingColorSample] = useState(false);
   const [currentStatus, setCurrentStatus] = useState(order.status);
-  const [internalNotes, setInternalNotes] = useState(order.internalNotes ?? '');
   const [hubCustomer, setHubCustomer] = useState<HubCustomerPick | null>(
     order.hubCustomerId ? { id: order.hubCustomerId, name: order.hubCustomerName ?? '' } : null,
   );
@@ -225,7 +224,8 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
         expectedShipDate: payload.expectedShipDate ?? null,
         deadlineDate: payload.deadlineDate ?? null,
         generalNotes: payload.generalNotes ?? null,
-        internalNotes: internalNotes || null,
+        // internalNotes is deliberately NOT sent: the field is retired in the
+        // UI and an omitted key leaves any legacy content untouched.
         shippingMode: payload.shippingMode,
         hubCustomerId: hubCustomer?.id ?? null,
         hubCustomerName: hubCustomer?.name ?? null,
@@ -334,6 +334,35 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
     if (key === 'production') production.reload();
   }
 
+  // ONE thread for the whole order (scope=all, garment-taggable) — rendered in
+  // the right rail on wide screens, or as a tab when narrow. Never both at once.
+  const notesThread = (
+    <>
+      {order.internalNotes && (
+        <Alert
+          type="info"
+          style={{ marginBottom: 12 }}
+          message="Imported notes"
+          description={
+            <Typography.Paragraph
+              style={{ whiteSpace: 'pre-wrap', fontSize: 12, marginBottom: 0 }}
+            >
+              {order.internalNotes}
+            </Typography.Paragraph>
+          }
+        />
+      )}
+      <NotesThread
+        scope="all"
+        orderId={order.id}
+        garments={order.garments.map((g) => ({ id: g.id, name: g.name }))}
+        currentUserId={currentUserId}
+        isAdmin={isAdmin}
+        onCountChange={setNoteCount}
+      />
+    </>
+  );
+
   const sections = [
     {
       key: 'details',
@@ -427,22 +456,9 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
             }}
           />
           <OrderForm form={form} initialValues={initialValues} hubLinked={hubCustomer !== null} />
-          <Card
-            size="small"
-            style={{ borderColor: SEMANTIC.warning, background: 'rgba(250, 173, 20, 0.06)' }}
-          >
-            <Typography.Text strong>
-              <LockOutlined style={{ color: SEMANTIC.warning, marginRight: 6 }} />
-              Internal notes — staff only, never shown to the customer
-            </Typography.Text>
-            <Input.TextArea
-              rows={3}
-              value={internalNotes}
-              onChange={(e) => setInternalNotes(e.target.value)}
-              placeholder="e.g. customer called, wants to hold shipment; discount approved by manager"
-              style={{ resize: 'vertical', marginTop: 8 }}
-            />
-          </Card>
+          {/* The internal-notes textarea moved to the attributed notes thread
+              (right rail / Notes tab) — one place to write, with who and when.
+              Legacy text saved here before the change shows above the thread. */}
           <Space>
             <Button
               type="primary"
@@ -497,8 +513,6 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
           <GarmentsMasterDetail
             orderId={order.id}
             initialGarments={order.garments}
-            currentUserId={currentUserId}
-            isAdmin={isAdmin}
             onGarmentsChanged={production.reload}
           />
         </Space>
@@ -555,19 +569,17 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
         />
       ),
     },
-    {
-      key: 'notes',
-      label: noteCount === null ? 'Notes' : `Notes (${noteCount})`,
-      icon: <MessageOutlined />,
-      children: (
-        <NotesThread
-          orderId={order.id}
-          currentUserId={currentUserId}
-          isAdmin={isAdmin}
-          onCountChange={setNoteCount}
-        />
-      ),
-    },
+    // On wide screens the notes live in the persistent right rail instead
+    // (David, 2026-08-03: notes visible on every page of the order) — the tab
+    // only exists where there is no room for a third column.
+    ...(isNarrow
+      ? [{
+          key: 'notes',
+          label: noteCount === null ? 'Notes' : `Notes (${noteCount})`,
+          icon: <MessageOutlined />,
+          children: notesThread,
+        }]
+      : []),
     {
       key: 'production',
       label: production.attention.needsAttention ? (
@@ -788,6 +800,26 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
               }}
             />
             <div style={{ flex: 1, minWidth: 0, padding: 24 }}>{panelBodies}</div>
+            {/* Right rail — the order's notes, visible whatever section is open
+                (David, 2026-08-03: the third column of the order view). */}
+            <div
+              style={{
+                width: 320,
+                flexShrink: 0,
+                borderLeft: '1px solid var(--ant-color-border-secondary, rgba(128,128,128,0.2))',
+                padding: 16,
+                position: 'sticky',
+                top: 88,
+                alignSelf: 'flex-start',
+                maxHeight: 'calc(100vh - 104px)',
+                overflowY: 'auto',
+              }}
+            >
+              <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
+                Order notes{noteCount !== null ? ` (${noteCount})` : ''}
+              </Typography.Text>
+              {notesThread}
+            </div>
           </div>
         )}
       </Card>

@@ -290,22 +290,25 @@ describe('OrderDetailView', () => {
     expect(await screen.findByText('Failed to save order details')).toBeInTheDocument();
   });
 
-  it('includes typed internal notes in the save payload', async () => {
+  // The internal-notes textarea is retired (David, 2026-08-03) — notes go
+  // through the attributed thread. The save payload must OMIT internalNotes so
+  // legacy content is never clobbered, and legacy text renders read-only.
+  it('omits internalNotes from the save payload and shows legacy text as Imported notes', async () => {
     const user = userEvent.setup();
     const { fetchMock } = installMockFetch([
       { match: '/api/admin/orders/order-1', method: 'PATCH', response: { ok: true } },
     ]);
-    renderView(baseOrder());
+    renderView(baseOrder({ internalNotes: 'Old freeform note' }));
 
-    await user.type(
-      screen.getByPlaceholderText(/customer called/i),
-      'Called about sizing',
-    );
+    expect(screen.queryByPlaceholderText(/customer called/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Imported notes')).toBeInTheDocument();
+    expect(screen.getByText('Old freeform note')).toBeInTheDocument();
+
     await user.click(screen.getByRole('button', { name: /save details/i }));
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const body = JSON.parse(fetchMock.mock.calls[0][1]!.body as string);
-    expect(body.internalNotes).toBe('Called about sizing');
+    expect('internalNotes' in body).toBe(false);
   });
 
   it('shows Delete order only for draft orders, and deleting redirects to the orders list', async () => {

@@ -16,6 +16,7 @@ import {
   Checkbox,
   Empty,
   Popconfirm,
+  Select,
   Skeleton,
   Space,
   Tag,
@@ -51,6 +52,17 @@ interface Props {
   orderId: string;
   /** Set to scope the thread to one garment; omit for the order-wide thread. */
   garmentId?: string;
+  /**
+   * 'all' shows every note on the order INCLUDING garment-tagged ones (the
+   * one-thread view, David 2026-08-03); garment-tagged notes render a chip.
+   * Ignored when `garmentId` is set.
+   */
+  scope?: 'order' | 'all';
+  /**
+   * When provided, the composer offers an optional "about a garment" tag —
+   * the one place notes are added, with garment context when it matters.
+   */
+  garments?: { id: string; name: string }[];
   /** The signed-in user, so their own notes get edit/delete controls. */
   currentUserId: string;
   isAdmin: boolean;
@@ -120,6 +132,8 @@ function formatWhen(iso: string): string {
 export function NotesThread({
   orderId,
   garmentId,
+  scope = 'order',
+  garments,
   currentUserId,
   isAdmin,
   emptyText = 'No notes yet. Anything you add here is staff-only.',
@@ -129,6 +143,7 @@ export function NotesThread({
   const [notes, setNotes] = useState<OrderNote[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [taggedGarmentId, setTaggedGarmentId] = useState<string | null>(null);
   const [shareWithSupplier, setShareWithSupplier] = useState(false);
   const [sending, setSending] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -140,8 +155,10 @@ export function NotesThread({
     () =>
       garmentId
         ? `/api/admin/orders/${orderId}/notes?garmentId=${encodeURIComponent(garmentId)}`
-        : `/api/admin/orders/${orderId}/notes`,
-    [orderId, garmentId],
+        : scope === 'all'
+          ? `/api/admin/orders/${orderId}/notes?scope=all`
+          : `/api/admin/orders/${orderId}/notes`,
+    [orderId, garmentId, scope],
   );
 
   const load = useCallback(async () => {
@@ -173,12 +190,13 @@ export function NotesThread({
         `/api/admin/orders/${orderId}/notes`,
         {
           body,
-          garmentId: garmentId ?? null,
+          garmentId: garmentId ?? taggedGarmentId ?? null,
           ...(shareWithSupplier ? { visibility: 'shared' as const } : {}),
         },
         'Failed to add the note',
       );
       setDraft('');
+      setTaggedGarmentId(null);
       setShareWithSupplier(false);
       await load();
       bottomRef.current?.scrollIntoView({ block: 'nearest' });
@@ -358,6 +376,19 @@ export function NotesThread({
           >
             Add note
           </Button>
+          {!garmentId && garments && garments.length > 0 && (
+            <Select
+              allowClear
+              size="small"
+              placeholder="About a garment (optional)"
+              value={taggedGarmentId ?? undefined}
+              onChange={(v) => setTaggedGarmentId(v ?? null)}
+              disabled={sending}
+              style={{ minWidth: 180 }}
+              options={garments.map((g) => ({ value: g.id, label: g.name }))}
+              aria-label="Tag a garment"
+            />
+          )}
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             Staff only — never shown to the customer.
           </Typography.Text>

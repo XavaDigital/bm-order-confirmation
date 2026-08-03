@@ -26,7 +26,6 @@ import type { GarmentTypeOption, GarmentTypeFabricField, SizeChartSize } from '@
 import { SizingTable } from './SizingTable';
 import { MockupUploader, type MockupImage } from './MockupUploader';
 import { SizeChartLinker } from './SizeChartLinker';
-import { NotesThread } from './NotesThread';
 import { postJson, patchJson, deleteJson, getJson } from '@/lib/api-fetch';
 import { unionChartSizes } from '@/lib/sizes';
 
@@ -85,9 +84,6 @@ function typeOptionDefaults(type: GarmentType): Record<string, string> {
 interface Props {
   orderId: string;
   initialGarments: Garment[];
-  /** Signed-in staff user, for the per-garment note thread. */
-  currentUserId: string;
-  isAdmin: boolean;
   /**
    * Called after any change that can alter purchase-order coverage (garment
    * added/edited/removed, sizing saved) so the order view can refresh its
@@ -105,8 +101,6 @@ interface Props {
 export function GarmentsMasterDetail({
   orderId,
   initialGarments,
-  currentUserId,
-  isAdmin,
   onGarmentsChanged,
 }: Props) {
   const { message } = App.useApp();
@@ -643,24 +637,9 @@ export function GarmentsMasterDetail({
               )}
             </div>
 
-            <Divider style={{ margin: '4px 0' }} />
-
-            <div>
-              <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
-                Notes on this garment
-              </Typography.Text>
-              {/* Keyed on the garment so switching garments remounts the thread
-                  rather than showing the previous one's notes while it reloads. */}
-              <NotesThread
-                key={garment.id}
-                orderId={orderId}
-                garmentId={garment.id}
-                currentUserId={currentUserId}
-                isAdmin={isAdmin}
-                emptyText="No notes on this garment yet."
-              />
-            </div>
-
+            {/* The per-garment note thread is gone (David, 2026-08-03: one
+                place for notes) — tag a garment from the order notes rail
+                instead. */}
             <Divider style={{ margin: '4px 0' }} />
 
             <Popconfirm
