@@ -69,15 +69,15 @@ function wrapEmailLayout(params: { title: string; headerLabel: string; bodyHtml:
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
 </head>
-<body style="margin:0;padding:0;background:#0d1117;font-family:Arial,Helvetica,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0d1117;padding:40px 0;">
+<body style="margin:0;padding:0;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:40px 0;">
     <tr>
       <td align="center">
-        <table width="560" cellpadding="0" cellspacing="0" style="background:#161b22;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
+        <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;border:1px solid #e5e7eb;">
           <tr>
             <td style="background:#141414;border-bottom:3px solid #4f46e5;padding:24px 32px;">
               <span style="font-size:22px;font-weight:900;color:#ffffff;letter-spacing:2px;text-transform:uppercase;">${APP_NAME.toUpperCase()}</span>
-              <span style="font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:3px;text-transform:uppercase;margin-left:12px;">${headerLabel}</span>
+              <span style="font-size:11px;color:#9aa0ab;letter-spacing:3px;text-transform:uppercase;margin-left:12px;">${headerLabel}</span>
             </td>
           </tr>
           <tr>
@@ -106,21 +106,21 @@ function emailButton(url: string, label: string): string {
 }
 
 function emailCopyLinkLine(url: string): string {
-  return `<p style="color:rgba(255,255,255,0.4);font-size:12px;word-break:break-all;margin:0 0 24px;">
+  return `<p style="color:#6b7280;font-size:12px;word-break:break-all;margin:0 0 24px;">
                 Or copy this link: <a href="${url}" style="color:#4f46e5;">${url}</a>
               </p>`;
 }
 
 /** Standard intro paragraph (the copy between the greeting and the button). */
 function introP(innerHtml: string, marginBottomPx = 24): string {
-  return `<p style="color:rgba(255,255,255,0.65);font-size:15px;line-height:1.6;margin:0 0 ${marginBottomPx}px;">${innerHtml}</p>`;
+  return `<p style="color:#4b5563;font-size:15px;line-height:1.6;margin:0 0 ${marginBottomPx}px;">${innerHtml}</p>`;
 }
 
 /** Highlighted quote/callout block (customer comment, hold-production, …). */
 function calloutBlock(borderColor: string, innerHtml: string): string {
   return `<table cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 24px;">
                 <tr>
-                  <td style="background:#212121;border-left:3px solid ${borderColor};border-radius:4px;padding:16px 20px;">${innerHtml}</td>
+                  <td style="background:#f6f8fa;border-left:3px solid ${borderColor};border-radius:4px;padding:16px 20px;">${innerHtml}</td>
                 </tr>
               </table>`;
 }
@@ -152,12 +152,12 @@ async function sendLinkEmail(params: LinkEmailParams): Promise<void> {
     html: wrapEmailLayout({
       title: params.title,
       headerLabel: params.headerLabel,
-      bodyHtml: `<p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
+      bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
               ${params.introHtml}
               ${emailButton(params.url, params.buttonLabel)}
               ${emailCopyLinkLine(params.url)}
-              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;">
-              <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.5;margin:0;">${params.footnoteHtml}</p>`,
+              <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
+              <p style="color:#8b949e;font-size:12px;line-height:1.5;margin:0;">${params.footnoteHtml}</p>`,
     }),
     text: [`Hi ${params.toName},`, '', ...params.textIntro, params.url, '', ...params.textFooter].join('\n'),
   });
@@ -189,7 +189,7 @@ export async function sendMagicLink(params: SendMagicLinkParams): Promise<void> 
       title: 'Order Confirmation',
       headerLabel: APP_TAGLINE,
       introHtml: introP(`
-                Your ${APP_NAME} order <strong style="color:#ffffff;">${orderNumber}</strong> is ready for your review and confirmation.
+                Your ${APP_NAME} order <strong style="color:#1f2328;">${orderNumber}</strong> is ready for your review and confirmation.
                 Click the button below to view your order details, review sizing and mock-ups, and confirm.
               `),
       buttonLabel: 'Review &amp; Confirm Order',
@@ -212,8 +212,8 @@ export async function sendMagicLink(params: SendMagicLinkParams): Promise<void> 
   const commentBlock = priorComment
     ? calloutBlock(
         '#faad14',
-        `<p style="color:rgba(255,255,255,0.5);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Your request</p>
-                    <p style="color:rgba(255,255,255,0.85);font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${priorComment}</p>`,
+        `<p style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Your request</p>
+                    <p style="color:#1f2328;font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${priorComment}</p>`,
       )
     : '';
 
@@ -225,7 +225,7 @@ export async function sendMagicLink(params: SendMagicLinkParams): Promise<void> 
     headerLabel: `Order Updated${revLabel}`,
     introHtml:
       introP(`
-                We've updated your ${APP_NAME} order <strong style="color:#ffffff;">${orderNumber}</strong> based on your change request.
+                We've updated your ${APP_NAME} order <strong style="color:#1f2328;">${orderNumber}</strong> based on your change request.
                 Please review the updated details and confirm when you're happy.
               `) + commentBlock,
     buttonLabel: 'Review &amp; Confirm Order',
@@ -266,7 +266,7 @@ export async function sendInviteEmail(params: SendInviteEmailParams): Promise<vo
     headerLabel: 'Team Portal',
     introHtml:
       introP(
-        `<strong style="color:#ffffff;">${params.inviterName}</strong> has invited you to join the ${APP_PORTAL_NAME} as <strong style="color:#ffffff;">${roleLabel}</strong>.`,
+        `<strong style="color:#1f2328;">${params.inviterName}</strong> has invited you to join the ${APP_PORTAL_NAME} as <strong style="color:#1f2328;">${roleLabel}</strong>.`,
         16,
       ) +
       introP(`
@@ -353,13 +353,13 @@ export async function sendStaffChangeRequestEmail(params: SendStaffChangeRequest
     html: wrapEmailLayout({
       title: 'Changes Requested',
       headerLabel: 'Changes Requested',
-      bodyHtml: `<p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
-              ${introP(`<strong style="color:#ffffff;">${params.customerName}</strong> has requested changes on order <strong style="color:#ffffff;">${params.orderNumber}</strong>.`, 16)}
-              ${calloutBlock('#4f46e5', `<p style="color:rgba(255,255,255,0.5);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Customer message</p>
-                    <p style="color:rgba(255,255,255,0.85);font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${params.comment}</p>`)}
+      bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
+              ${introP(`<strong style="color:#1f2328;">${params.customerName}</strong> has requested changes on order <strong style="color:#1f2328;">${params.orderNumber}</strong>.`, 16)}
+              ${calloutBlock('#4f46e5', `<p style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Customer message</p>
+                    <p style="color:#1f2328;font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${params.comment}</p>`)}
               ${emailButton(params.adminOrderUrl, 'View Order')}
-              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;">
-              <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.5;margin:0;">
+              <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
+              <p style="color:#8b949e;font-size:12px;line-height:1.5;margin:0;">
                 Log in to the ${APP_PORTAL_NAME} to review and respond to this request.
               </p>`,
     }),
@@ -400,10 +400,10 @@ export async function sendStaffColorSampleRequestEmail(
     html: wrapEmailLayout({
       title: 'Colour Sample Requested',
       headerLabel: 'Colour Sample Requested',
-      bodyHtml: `<p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
-              ${introP(`<strong style="color:#ffffff;">${params.customerName}</strong> has requested a colour book / physical sample for order <strong style="color:#ffffff;">${params.orderNumber}</strong> before production begins.`, 16)}
+      bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
+              ${introP(`<strong style="color:#1f2328;">${params.customerName}</strong> has requested a colour book / physical sample for order <strong style="color:#1f2328;">${params.orderNumber}</strong> before production begins.`, 16)}
               ${calloutBlock('#d46b08', `<p style="color:#faad14;font-size:13px;font-weight:bold;margin:0;">⚠️ Hold production</p>
-                    <p style="color:rgba(255,255,255,0.65);font-size:14px;line-height:1.6;margin:8px 0 0;">Contact the customer to arrange colour matching before releasing this order to production.</p>`)}
+                    <p style="color:#4b5563;font-size:14px;line-height:1.6;margin:8px 0 0;">Contact the customer to arrange colour matching before releasing this order to production.</p>`)}
               ${emailButton(params.adminOrderUrl, 'View Order')}`,
     }),
   });
@@ -502,8 +502,8 @@ function buildReceiptHtml(params: SendCustomerReceiptParams): string {
 
   const meta = buildReceiptMeta(params);
   const metaBlock = meta.length
-    ? `<p style="color:rgba(255,255,255,0.65);font-size:14px;line-height:1.8;margin:0 0 20px;">
-                ${meta.map((m) => `<strong style="color:#ffffff;">${m.label}:</strong> ${m.value}`).join('<br>')}
+    ? `<p style="color:#4b5563;font-size:14px;line-height:1.8;margin:0 0 20px;">
+                ${meta.map((m) => `<strong style="color:#1f2328;">${m.label}:</strong> ${m.value}`).join('<br>')}
               </p>`
     : '';
 
@@ -512,8 +512,8 @@ function buildReceiptHtml(params: SendCustomerReceiptParams): string {
               ${garments
                 .map(
                   (g) => `<tr>
-                <td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px;border-bottom:1px solid rgba(255,255,255,0.08);">${g.name}</td>
-                <td style="padding:6px 0;color:rgba(255,255,255,0.5);font-size:14px;text-align:right;border-bottom:1px solid rgba(255,255,255,0.08);">${g.quantity > 0 ? `&times;${g.quantity}` : ''}</td>
+                <td style="padding:6px 0;color:#333b45;font-size:14px;border-bottom:1px solid #e5e7eb;">${g.name}</td>
+                <td style="padding:6px 0;color:#6b7280;font-size:14px;text-align:right;border-bottom:1px solid #e5e7eb;">${g.quantity > 0 ? `&times;${g.quantity}` : ''}</td>
               </tr>`,
                 )
                 .join('')}
@@ -523,14 +523,14 @@ function buildReceiptHtml(params: SendCustomerReceiptParams): string {
   return wrapEmailLayout({
     title: 'Order Confirmed',
     headerLabel: 'Order Confirmed',
-    bodyHtml: `<p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${toName},</p>
+    bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${toName},</p>
               ${introP(`
-                This confirms your ${APP_NAME} order <strong style="color:#ffffff;">${orderNumber}</strong> was confirmed on ${dateStr}. Here's a summary of what's on order:
+                This confirms your ${APP_NAME} order <strong style="color:#1f2328;">${orderNumber}</strong> was confirmed on ${dateStr}. Here's a summary of what's on order:
               `)}
               ${metaBlock}
               ${garmentsBlock}
-              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;">
-              <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.5;margin:0;">
+              <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
+              <p style="color:#8b949e;font-size:12px;line-height:1.5;margin:0;">
                 If anything above looks wrong, just reply to this email and we'll sort it out.
               </p>`,
   });
@@ -614,8 +614,8 @@ export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Pr
     amended && params.reason
       ? calloutBlock(
           '#faad14',
-          `<p style="color:rgba(255,255,255,0.5);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Reason for amendment</p>
-                    <p style="color:rgba(255,255,255,0.85);font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${params.reason}</p>`,
+          `<p style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Reason for amendment</p>
+                    <p style="color:#1f2328;font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${params.reason}</p>`,
         )
       : '';
 
@@ -626,16 +626,16 @@ export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Pr
     html: wrapEmailLayout({
       title: amended ? 'Amended Purchase Order' : 'Purchase Order',
       headerLabel: amended ? `Purchase Order — Revision ${revisionNumber}` : 'Purchase Order',
-      bodyHtml: `<p style="color:rgba(255,255,255,0.8);font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
+      bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
               ${introP(`
-                Please find attached ${amended ? `revision ${revisionNumber} of` : ''} purchase order <strong style="color:#ffffff;">${poNumber}</strong>
-                (our order <strong style="color:#ffffff;">${orderNumber}</strong>).
+                Please find attached ${amended ? `revision ${revisionNumber} of` : ''} purchase order <strong style="color:#1f2328;">${poNumber}</strong>
+                (our order <strong style="color:#1f2328;">${orderNumber}</strong>).
                 ${supersedeLine}
               `)}
               ${reasonBlock}
               ${portalBlock}
-              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;">
-              <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.5;margin:0;">
+              <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
+              <p style="color:#8b949e;font-size:12px;line-height:1.5;margin:0;">
                 Please confirm receipt by replying to this email. If anything in the attached
                 document is unclear, contact us before starting production.
                 ${params.portalUrl ? ' You can also update the production status and leave a comment from the Supplier Portal link above.' : ''}
@@ -710,7 +710,7 @@ export async function sendRosterLinkEmail(params: SendRosterLinkParams): Promise
     headerLabel: 'Team Roster',
     introHtml: introP(`
                 Share the link below with your team${subtitle} so each person can pick their name and
-                enter their own size for order <strong style="color:#ffffff;">${params.orderNumber}</strong>.
+                enter their own size for order <strong style="color:#1f2328;">${params.orderNumber}</strong>.
               `),
     buttonLabel: 'Open Team Roster',
     url: params.url,
@@ -747,7 +747,7 @@ export async function sendRosterMemberLinkEmail(params: SendRosterMemberLinkPara
     title: 'Enter Your Size',
     headerLabel: 'Team Roster',
     introHtml: introP(`
-                Use the link below to enter your size for order <strong style="color:#ffffff;">${params.orderNumber}</strong>${subtitle}. This link is just for you.
+                Use the link below to enter your size for order <strong style="color:#1f2328;">${params.orderNumber}</strong>${subtitle}. This link is just for you.
               `),
     buttonLabel: 'Enter My Size',
     url: params.url,
@@ -778,7 +778,7 @@ export async function sendRosterReminderEmail(params: SendRosterReminderParams):
     title: 'Size Reminder',
     headerLabel: 'Reminder',
     introHtml: introP(`
-                You haven't entered your size yet for order <strong style="color:#ffffff;">${params.orderNumber}</strong>${subtitle}.
+                You haven't entered your size yet for order <strong style="color:#1f2328;">${params.orderNumber}</strong>${subtitle}.
                 Click below to pick your name and submit your size — it only takes a minute.
               `),
     buttonLabel: 'Enter My Size',
