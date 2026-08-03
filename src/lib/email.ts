@@ -56,6 +56,20 @@ async function sendEmail(params: SendEmailParams): Promise<void> {
   });
 }
 
+/**
+ * Minimal HTML escape for USER-CONTROLLED strings interpolated into email
+ * HTML (names, customer comments) — R2 §1.1 / July assessment. System values
+ * (order numbers, URLs we build) don't need it; anything a customer typed does.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // ---------------------------------------------------------------------------
 // Shared HTML shell — branded header, card, footer.
 // ---------------------------------------------------------------------------
@@ -152,7 +166,7 @@ async function sendLinkEmail(params: LinkEmailParams): Promise<void> {
     html: wrapEmailLayout({
       title: params.title,
       headerLabel: params.headerLabel,
-      bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
+      bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${escapeHtml(params.toName)},</p>
               ${params.introHtml}
               ${emailButton(params.url, params.buttonLabel)}
               ${emailCopyLinkLine(params.url)}
@@ -213,7 +227,7 @@ export async function sendMagicLink(params: SendMagicLinkParams): Promise<void> 
     ? calloutBlock(
         '#faad14',
         `<p style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Your request</p>
-                    <p style="color:#1f2328;font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${priorComment}</p>`,
+                    <p style="color:#1f2328;font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${escapeHtml(priorComment)}</p>`,
       )
     : '';
 
@@ -353,10 +367,10 @@ export async function sendStaffChangeRequestEmail(params: SendStaffChangeRequest
     html: wrapEmailLayout({
       title: 'Changes Requested',
       headerLabel: 'Changes Requested',
-      bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
+      bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${escapeHtml(params.toName)},</p>
               ${introP(`<strong style="color:#1f2328;">${params.customerName}</strong> has requested changes on order <strong style="color:#1f2328;">${params.orderNumber}</strong>.`, 16)}
               ${calloutBlock('#4f46e5', `<p style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Customer message</p>
-                    <p style="color:#1f2328;font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${params.comment}</p>`)}
+                    <p style="color:#1f2328;font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${escapeHtml(params.comment)}</p>`)}
               ${emailButton(params.adminOrderUrl, 'View Order')}
               <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
               <p style="color:#8b949e;font-size:12px;line-height:1.5;margin:0;">
@@ -400,7 +414,7 @@ export async function sendStaffColorSampleRequestEmail(
     html: wrapEmailLayout({
       title: 'Colour Sample Requested',
       headerLabel: 'Colour Sample Requested',
-      bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
+      bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${escapeHtml(params.toName)},</p>
               ${introP(`<strong style="color:#1f2328;">${params.customerName}</strong> has requested a colour book / physical sample for order <strong style="color:#1f2328;">${params.orderNumber}</strong> before production begins.`, 16)}
               ${calloutBlock('#d46b08', `<p style="color:#faad14;font-size:13px;font-weight:bold;margin:0;">⚠️ Hold production</p>
                     <p style="color:#4b5563;font-size:14px;line-height:1.6;margin:8px 0 0;">Contact the customer to arrange colour matching before releasing this order to production.</p>`)}
@@ -459,7 +473,7 @@ export async function sendStaffConfirmationEmail(params: SendStaffConfirmationPa
       '',
       `View the order: ${params.adminOrderUrl}`,
     ].join('\n'),
-    html: `<p>Hi ${params.toName},</p>
+    html: `<p>Hi ${escapeHtml(params.toName)},</p>
 <p><strong>${params.customerName}</strong> has confirmed order <strong>${params.orderNumber}</strong> on ${dateStr}.</p>
 ${sampleHtmlBlock}
 <p><a href="${params.adminOrderUrl}">View order in admin</a></p>`,
@@ -523,7 +537,7 @@ function buildReceiptHtml(params: SendCustomerReceiptParams): string {
   return wrapEmailLayout({
     title: 'Order Confirmed',
     headerLabel: 'Order Confirmed',
-    bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${toName},</p>
+    bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${escapeHtml(toName)},</p>
               ${introP(`
                 This confirms your ${APP_NAME} order <strong style="color:#1f2328;">${orderNumber}</strong> was confirmed on ${dateStr}. Here's a summary of what's on order:
               `)}
@@ -626,7 +640,7 @@ export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Pr
     html: wrapEmailLayout({
       title: amended ? 'Amended Purchase Order' : 'Purchase Order',
       headerLabel: amended ? `Purchase Order — Revision ${revisionNumber}` : 'Purchase Order',
-      bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${params.toName},</p>
+      bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${escapeHtml(params.toName)},</p>
               ${introP(`
                 Please find attached ${amended ? `revision ${revisionNumber} of` : ''} purchase order <strong style="color:#1f2328;">${poNumber}</strong>
                 (our order <strong style="color:#1f2328;">${orderNumber}</strong>).

@@ -11,7 +11,7 @@ export const updateOrderSchema = z.object({
   clubName: z.string().nullable().optional(),
   orderValueAmount: z.number().positive().nullable().optional(),
   orderValueCurrency: z.string().length(3).optional(),
-  invoiceUrl: z.string().url().nullable().optional(),
+  invoiceUrl: z.string().url().regex(/^https?:\/\//i, 'Only http(s) links').nullable().optional(),
   expectedShipDate: z.string().nullable().optional(),
   deadlineDate: z.string().nullable().optional(),
   generalNotes: z.string().nullable().optional(),

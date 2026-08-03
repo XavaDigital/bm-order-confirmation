@@ -101,7 +101,9 @@ export const createOrderSchema = z.object({
     })
     .optional(),
 
-  invoiceUrl: z.string().url().optional(),
+  // http(s) only — .url() alone accepts javascript: (July assessment / R2 §2.3),
+  // and this renders as a link in the admin UI.
+  invoiceUrl: z.string().url().regex(/^https?:\/\//i, 'Only http(s) links').optional(),
   expectedShipDate: z.string().optional(), // ISO date (YYYY-MM-DD)
   deadlineDate: z.string().optional(),
   generalNotes: z.string().optional(),

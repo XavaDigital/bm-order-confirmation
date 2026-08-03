@@ -59,12 +59,23 @@ describe('getClientIp', () => {
     expect(getClientIp(headers)).toBe('9.9.9.9');
   });
 
-  it('prefers x-vercel-forwarded-for (edge-set, never client-suppliable) over x-forwarded-for', () => {
+  it('trusts x-vercel-forwarded-for ONLY on Vercel (elsewhere it is client-suppliable)', () => {
     const headers = headersFrom({
       'x-vercel-forwarded-for': '9.8.7.6',
-      'x-forwarded-for': 'attacker-spoofed-ip',
+      'x-forwarded-for': 'proxy-appended-real-ip',
     });
-    expect(getClientIp(headers)).toBe('9.8.7.6');
+
+    // Off Vercel (Cloud Run today): the header is attacker-suppliable and
+    // must be ignored — the proxy-appended rightmost x-forwarded-for wins.
+    expect(getClientIp(headers)).toBe('proxy-appended-real-ip');
+
+    // On Vercel the edge sets it exclusively, so it is preferred.
+    process.env.VERCEL = '1';
+    try {
+      expect(getClientIp(headers)).toBe('9.8.7.6');
+    } finally {
+      delete process.env.VERCEL;
+    }
   });
 
   it('falls back to x-real-ip when x-forwarded-for is absent', () => {

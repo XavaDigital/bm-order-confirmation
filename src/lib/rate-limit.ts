@@ -165,8 +165,14 @@ export async function rateLimitedResponse(
  * client) can be.
  */
 export function getClientIp(headers: { get(key: string): string | null }): string {
-  const vercelForwardedFor = headers.get('x-vercel-forwarded-for');
-  if (vercelForwardedFor) return vercelForwardedFor.split(',')[0]?.trim() ?? 'unknown';
+  // Vercel's edge sets this header exclusively — but ONLY on Vercel. On any
+  // other host (Cloud Run today) nothing strips a client-supplied copy, so
+  // trusting it unconditionally let an attacker choose their own rate-limit
+  // bucket (July assessment §6.2 — same class as the x-forwarded-for fix).
+  if (process.env.VERCEL) {
+    const vercelForwardedFor = headers.get('x-vercel-forwarded-for');
+    if (vercelForwardedFor) return vercelForwardedFor.split(',')[0]?.trim() ?? 'unknown';
+  }
 
   const forwardedFor = headers.get('x-forwarded-for');
   if (forwardedFor) {

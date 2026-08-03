@@ -12,8 +12,9 @@ export const GET = defineRoute({
     const search = searchParams.get('search') ?? undefined;
     const sortBy = searchParams.get('sortBy') ?? undefined;
     const sortDir = searchParams.get('sortDir') ?? undefined;
-    const limit = Number(searchParams.get('limit') ?? 100);
-    const offset = Number(searchParams.get('offset') ?? 0);
+    // Clamped (July assessment §8): an unbounded limit fetched the whole table.
+    const limit = Math.min(Math.max(1, Number(searchParams.get('limit')) || 100), 200);
+    const offset = Math.max(0, Number(searchParams.get('offset')) || 0);
 
     const result = await listOrders({ status, search, limit, offset, sortBy, sortDir });
     return NextResponse.json(result);

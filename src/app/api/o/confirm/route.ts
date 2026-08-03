@@ -20,7 +20,15 @@ const bodySchema = z.object({
   shippingAddress: z.record(z.unknown()).nullable().optional(),
   /** Explicit customer choice to confirm the delivery address later. */
   shippingAddressDeferred: z.boolean().optional().default(false),
-  signatureBase64: z.string().nullable().optional(),
+  // Bounded + shape-checked (July assessment §6.3): a token holder must not
+  // be able to POST an arbitrarily large body or store non-image bytes. ~3MB
+  // of base64 ≈ a generous hand-drawn signature.
+  signatureBase64: z
+    .string()
+    .max(3_000_000)
+    .regex(/^data:image\/(png|jpeg);base64,/, 'signature must be a png/jpeg data URL')
+    .nullable()
+    .optional(),
   signatureType: z.enum(['drawn', 'uploaded', 'none']).default('none'),
 });
 

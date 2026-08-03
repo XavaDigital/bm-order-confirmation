@@ -293,7 +293,6 @@ export function CustomerOrderView({ token, order, acknowledgements }: CustomerOr
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? 'Failed to submit request');
     setChangesModalOpen(false);
-    setChangesRequested({ orderNumber: order.orderNumber });
     setChangesRequested({ orderNumber: data.orderNumber });
   }
 
