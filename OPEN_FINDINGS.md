@@ -83,8 +83,10 @@ registry, per-request identity re-check (R2 §1.7).
 
 ## Operational
 
-- Migrations 0030–0034 pending prod as of 2026-08-04 00:00 NZT — one
-  `npm run deploy` applies them in order.
+- Migrations 0030–0035 pending prod as of 2026-08-04 02:00 NZT — one
+  `npm run deploy` applies them in order. (0035 adds
+  `order_access.token_plain`; confirmation links generated before it is
+  live cannot display their URL until regenerated.)
 - gcloud daily-reauth: verdict due after ~16h from the 2026-08-03 14:00
   login; if it recurs, the fix is the Cloud Build deploy-on-push pipeline
   (see memory).
