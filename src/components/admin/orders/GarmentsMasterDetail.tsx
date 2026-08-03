@@ -120,7 +120,12 @@ export function GarmentsMasterDetail({
     if (fromUrl && initialGarments.some((g) => g.id === fromUrl)) return fromUrl;
     return initialGarments[0]?.id ?? null;
   });
-  const [addingName, setAddingName] = useState('');
+  /**
+   * Non-null while the blank new-garment form is open in the detail pane
+   * (David, 2026-08-03): "Add" opens a blank form to fill and save, replacing
+   * the old squashed name-input-then-edit-anyway flow.
+   */
+  const [draft, setDraft] = useState<{ name: string; garmentTypeId: string | null; notes: string } | null>(null);
   const [addingLoading, setAddingLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -226,16 +231,22 @@ export function GarmentsMasterDetail({
     }
   }
 
-  async function addGarment() {
-    if (!addingName.trim()) {
+  async function saveDraft() {
+    if (!draft || !draft.name.trim()) {
       message.warning('Enter a garment name');
       return;
     }
     setAddingLoading(true);
     try {
-      const garment = await postJson<Pick<Garment, 'id' | 'name' | 'notes' | 'sortOrder'> & { fabrics?: string[]; garmentTypeId?: string | null; selectedOptions?: Record<string, string> | null }>(
+      const garment = await postJson<Pick<Garment, 'id' | 'name' | 'notes' | 'sortOrder'> & { fabrics?: string[]; garmentTypeId?: string | null; selectedOptions?: Record<string, string> | null; sizingColumns?: GarmentTypeOption[] }>(
         `/api/admin/orders/${orderId}/garments`,
-        { name: addingName.trim() },
+        {
+          name: draft.name.trim(),
+          // The server applies the type's presets (charts auto-link, option
+          // defaults) on create — resolveGarmentTypePreset.
+          ...(draft.garmentTypeId && { garmentTypeId: draft.garmentTypeId }),
+          ...(draft.notes.trim() && { notes: draft.notes.trim() }),
+        },
         'Failed to add garment',
       );
       setGarments((prev) => [
@@ -248,10 +259,11 @@ export function GarmentsMasterDetail({
           sizeChartIds: [],
           garmentTypeId: garment.garmentTypeId ?? null,
           selectedOptions: garment.selectedOptions ?? null,
+          sizingColumns: garment.sizingColumns ?? [],
         },
       ]);
       setSelectedId(garment.id);
-      setAddingName('');
+      setDraft(null);
       message.success('Garment added');
       onGarmentsChanged?.();
     } catch {
@@ -262,23 +274,18 @@ export function GarmentsMasterDetail({
   }
 
   const addControl = (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <Input
-        placeholder="New garment name"
-        value={addingName}
-        onChange={(e) => setAddingName(e.target.value)}
-        onPressEnter={addGarment}
-        size="small"
-      />
-      <Button
-        size="small"
-        icon={<PlusOutlined />}
-        loading={addingLoading}
-        onClick={addGarment}
-      >
-        Add garment
-      </Button>
-    </div>
+    <Button
+      block
+      type="dashed"
+      icon={<PlusOutlined />}
+      onClick={() => {
+        setDraft({ name: '', garmentTypeId: null, notes: '' });
+        setSelectedId(null);
+      }}
+      disabled={draft !== null}
+    >
+      Add garment
+    </Button>
   );
 
   const listItems = garments.map((garment) => {
@@ -304,7 +311,74 @@ export function GarmentsMasterDetail({
     };
   });
 
-  const detailPane = selected ? (
+  const draftPane = draft && (
+    <Space direction="vertical" style={{ width: '100%' }} size={16}>
+      <Typography.Text strong>New garment</Typography.Text>
+      <Form layout="vertical" size="small">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+          <Form.Item label="Garment Name" required>
+            <Input
+              autoFocus
+              placeholder="e.g. Home Jersey"
+              value={draft.name}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+              onPressEnter={() => void saveDraft()}
+            />
+          </Form.Item>
+          <Form.Item
+            label="Type"
+            extra="Applying a type auto-links its size charts and option defaults on save."
+          >
+            <Select
+              allowClear
+              placeholder="No type"
+              value={draft.garmentTypeId ?? undefined}
+              onChange={(v) => setDraft({ ...draft, garmentTypeId: v ?? null })}
+              options={types
+                .filter((t) => t.isActive)
+                .map((t) => ({
+                  value: t.id,
+                  label: t.category ? `${t.name} (${t.category})` : t.name,
+                }))}
+            />
+          </Form.Item>
+        </div>
+        <Form.Item label="Notes">
+          <Input.TextArea
+            rows={2}
+            value={draft.notes}
+            onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+          />
+        </Form.Item>
+      </Form>
+      <Space>
+        <Button
+          type="primary"
+          icon={<SaveOutlined />}
+          loading={addingLoading}
+          onClick={() => void saveDraft()}
+        >
+          Save garment
+        </Button>
+        <Button
+          disabled={addingLoading}
+          onClick={() => {
+            setDraft(null);
+            setSelectedId(garments[0]?.id ?? null);
+          }}
+        >
+          Cancel
+        </Button>
+      </Space>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        Mock-ups, sizing and size charts are added after saving.
+      </Typography.Text>
+    </Space>
+  );
+
+  const detailPane = draft ? (
+    draftPane
+  ) : selected ? (
     <Space direction="vertical" style={{ width: '100%' }} size={16}>
       {(() => {
         const garment = selected;
@@ -622,7 +696,10 @@ export function GarmentsMasterDetail({
           <Select
             style={{ width: '100%' }}
             value={selectedId}
-            onChange={setSelectedId}
+            onChange={(id) => {
+              setDraft(null);
+              setSelectedId(id);
+            }}
             options={garments.map((g) => ({ value: g.id, label: getEdit(g, 'name') }))}
           />
         )}
@@ -647,7 +724,11 @@ export function GarmentsMasterDetail({
           mode="inline"
           selectedKeys={selectedId ? [selectedId] : []}
           items={listItems}
-          onClick={({ key }) => setSelectedId(key)}
+          onClick={({ key }) => {
+            // Picking a garment abandons an unsaved blank form.
+            setDraft(null);
+            setSelectedId(key);
+          }}
           style={{ borderInlineEnd: 0 }}
         />
         <div style={{ padding: '0 8px 8px' }}>{addControl}</div>

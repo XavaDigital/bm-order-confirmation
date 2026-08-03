@@ -93,17 +93,20 @@ describe('GarmentsMasterDetail', () => {
     expect(screen.getByDisplayValue('Away Jersey')).toBeInTheDocument();
   });
 
-  it('adding a garment with a blank name shows a warning and does not call fetch', async () => {
+  // The add flow (David, 2026-08-03): "Add garment" opens a BLANK FORM in the
+  // detail pane; the garment is created on "Save garment".
+  it('saving the blank form with no name shows a warning and does not call fetch', async () => {
     const user = userEvent.setup();
     renderView([]);
 
     await user.click(screen.getByRole('button', { name: /add garment/i }));
+    await user.click(screen.getByRole('button', { name: /save garment/i }));
 
     expect(await screen.findByText(/enter a garment name/i)).toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('adding a garment POSTs the name, appends it, and selects it', async () => {
+  it('filling the blank form and saving POSTs, appends and selects the garment', async () => {
     const user = userEvent.setup();
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
@@ -111,8 +114,9 @@ describe('GarmentsMasterDetail', () => {
     } as Response);
     renderView([]);
 
-    await user.type(screen.getByPlaceholderText(/new garment name/i), 'Away Jersey');
     await user.click(screen.getByRole('button', { name: /add garment/i }));
+    await user.type(screen.getByPlaceholderText(/home jersey/i), 'Away Jersey');
+    await user.click(screen.getByRole('button', { name: /save garment/i }));
 
     expect(fetch).toHaveBeenCalledWith('/api/admin/orders/order-1/garments', {
       method: 'POST',
@@ -120,8 +124,9 @@ describe('GarmentsMasterDetail', () => {
       body: JSON.stringify({ name: 'Away Jersey' }),
     });
     expect(await screen.findByText(/garment added/i)).toBeInTheDocument();
+    // The draft closes and the created garment's editor is selected.
     expect(screen.getByDisplayValue('Away Jersey')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/new garment name/i)).toHaveValue('');
+    expect(screen.queryByRole('button', { name: /save garment/i })).not.toBeInTheDocument();
   });
 
   it('shows an error message when adding a garment fails', async () => {
@@ -129,10 +134,24 @@ describe('GarmentsMasterDetail', () => {
     vi.mocked(fetch).mockResolvedValueOnce({ ok: false, json: async () => ({}) } as Response);
     renderView([]);
 
-    await user.type(screen.getByPlaceholderText(/new garment name/i), 'Away Jersey');
     await user.click(screen.getByRole('button', { name: /add garment/i }));
+    await user.type(screen.getByPlaceholderText(/home jersey/i), 'Away Jersey');
+    await user.click(screen.getByRole('button', { name: /save garment/i }));
 
     expect(await screen.findByText(/failed to add garment/i)).toBeInTheDocument();
+  });
+
+  it('cancelling the blank form returns to the previously selected garment', async () => {
+    const user = userEvent.setup();
+    renderView([garment({ name: 'Home Jersey' })]);
+
+    await user.click(screen.getByRole('button', { name: /add garment/i }));
+    expect(screen.getByRole('button', { name: /save garment/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+    expect(screen.queryByRole('button', { name: /save garment/i })).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue('Home Jersey')).toBeInTheDocument();
   });
 
   it('editing the garment name shows an unsaved marker and Save/Discard controls', async () => {
