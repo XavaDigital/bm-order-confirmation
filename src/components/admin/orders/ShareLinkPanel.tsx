@@ -5,6 +5,7 @@ import { Button, Space, Typography, Alert, Popconfirm, App, Divider, Tooltip, Sw
 import {
   LinkOutlined,
   CopyOutlined,
+  ExportOutlined,
   ReloadOutlined,
   StopOutlined,
   MailOutlined,
@@ -264,6 +265,17 @@ export function ShareLinkPanel({
             >
               Copy
             </Button>
+            <Tooltip title="Opens the customer's page — note the order may show as 'viewed' once opened">
+              <Button
+                size="small"
+                icon={<ExportOutlined />}
+                href={activeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open
+              </Button>
+            </Tooltip>
           </div>
           <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
             Or use &lsquo;Email to customer&rsquo; below to send it directly without copying.

@@ -5,10 +5,11 @@ import { Upload, Image, Button, Space, App, Popconfirm, Typography, Input } from
 import {
   UploadOutlined,
   DeleteOutlined,
+  EditOutlined,
   PictureOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
-import { deleteJson, postForm } from '@/lib/api-fetch';
+import { deleteJson, patchJson, postForm } from '@/lib/api-fetch';
 import { SEMANTIC } from '@/lib/semantic-colors';
 
 export interface MockupImage {
@@ -25,24 +26,30 @@ interface Props {
   initialImages: MockupImage[];
 }
 
+/**
+ * Captions are added/edited AFTER upload, per image (David, 2026-08-03) —
+ * the old type-a-caption-then-upload flow applied one caption to a whole
+ * batch and couldn't be corrected without re-uploading.
+ */
 export function MockupUploader({ orderId, garmentId, initialImages }: Props) {
   const { message } = App.useApp();
   const [images, setImages] = useState<MockupImage[]>(initialImages);
   const [uploadingCount, setUploadingCount] = useState(0);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [editingCaption, setEditingCaption] = useState<Record<string, string>>({});
+  /** Image id being caption-edited → the in-progress text. */
+  const [captionEdit, setCaptionEdit] = useState<{ id: string; text: string } | null>(null);
+  const [captionSaving, setCaptionSaving] = useState(false);
 
   // Collect all files from a single file-picker selection before uploading
   const pendingBatch = useRef<File[]>([]);
   const batchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  async function handleBatchUpload(files: File[], caption: string) {
+  async function handleBatchUpload(files: File[]) {
     setUploadingCount((c) => c + files.length);
     const results = await Promise.allSettled(
       files.map(async (file) => {
         const form = new FormData();
         form.append('file', file);
-        if (caption) form.append('caption', caption);
         return postForm<MockupImage & { url: string }>(
           `/api/admin/orders/${orderId}/garments/${garmentId}/images`,
           form,
@@ -56,7 +63,6 @@ export function MockupUploader({ orderId, garmentId, initialImages }: Props) {
 
     if (succeeded.length > 0) {
       setImages((prev) => [...prev, ...succeeded.map((r) => r.value)]);
-      setEditingCaption((prev) => { const next = { ...prev }; delete next['pending']; return next; });
       message.success(succeeded.length === 1 ? 'Image uploaded' : `${succeeded.length} images uploaded`);
     }
     if (failedCount > 0) {
@@ -91,6 +97,24 @@ export function MockupUploader({ orderId, garmentId, initialImages }: Props) {
     }
   }
 
+  async function saveCaption() {
+    if (!captionEdit) return;
+    setCaptionSaving(true);
+    try {
+      const { caption } = await patchJson<{ id: string; caption: string | null }>(
+        `/api/admin/orders/${orderId}/garments/${garmentId}/images/${captionEdit.id}`,
+        { caption: captionEdit.text.trim() || null },
+        'Failed to save the caption',
+      );
+      setImages((prev) => prev.map((i) => (i.id === captionEdit.id ? { ...i, caption } : i)));
+      setCaptionEdit(null);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to save the caption');
+    } finally {
+      setCaptionSaving(false);
+    }
+  }
+
   // beforeUpload fires synchronously for each file in the selection.
   // Collect into a batch, then upload all at once after the current tick.
   const beforeUpload = (file: UploadFile) => {
@@ -100,7 +124,7 @@ export function MockupUploader({ orderId, garmentId, initialImages }: Props) {
         const files = [...pendingBatch.current];
         pendingBatch.current = [];
         batchTimer.current = null;
-        handleBatchUpload(files, editingCaption['pending'] ?? '');
+        handleBatchUpload(files);
       }, 0);
     }
     return false;
@@ -129,14 +153,48 @@ export function MockupUploader({ orderId, garmentId, initialImages }: Props) {
                   preview={{ src: img.url }}
                   fallback="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='90'%3E%3Crect width='120' height='90' fill='%23333'/%3E%3C/svg%3E"
                 />
-                {img.caption && (
-                  <Typography.Text
-                    type="secondary"
-                    style={{ fontSize: 11, display: 'block', marginTop: 2 }}
-                    ellipsis
+                {captionEdit?.id === img.id ? (
+                  <Input
+                    size="small"
+                    autoFocus
+                    value={captionEdit.text}
+                    maxLength={300}
+                    disabled={captionSaving}
+                    onChange={(e) => setCaptionEdit({ id: img.id, text: e.target.value })}
+                    onPressEnter={() => void saveCaption()}
+                    onBlur={() => void saveCaption()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setCaptionEdit(null);
+                    }}
+                    placeholder="Caption"
+                    style={{ marginTop: 2 }}
+                  />
+                ) : (
+                  <Button
+                    type="text"
+                    size="small"
+                    onClick={() => setCaptionEdit({ id: img.id, text: img.caption ?? '' })}
+                    aria-label={img.caption ? `Edit caption: ${img.caption}` : 'Add caption'}
+                    style={{
+                      marginTop: 2,
+                      width: '100%',
+                      height: 'auto',
+                      padding: '0 2px',
+                      fontSize: 11,
+                      color: 'var(--ant-color-text-secondary)',
+                      whiteSpace: 'normal',
+                    }}
                   >
-                    {img.caption}
-                  </Typography.Text>
+                    {img.caption ? (
+                      <Typography.Text type="secondary" style={{ fontSize: 11 }} ellipsis>
+                        {img.caption} <EditOutlined />
+                      </Typography.Text>
+                    ) : (
+                      <Typography.Text type="secondary" style={{ fontSize: 11 }} italic>
+                        <EditOutlined /> Add caption
+                      </Typography.Text>
+                    )}
+                  </Button>
                 )}
                 <Popconfirm
                   title="Remove this image?"
@@ -180,31 +238,20 @@ export function MockupUploader({ orderId, garmentId, initialImages }: Props) {
         </div>
       )}
 
-      <Space>
-        <Input
+      <Upload
+        showUploadList={false}
+        beforeUpload={beforeUpload}
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        multiple
+      >
+        <Button
           size="small"
-          placeholder="Caption (optional)"
-          value={editingCaption['pending'] ?? ''}
-          onChange={(e) =>
-            setEditingCaption((prev) => ({ ...prev, pending: e.target.value }))
-          }
-          style={{ width: 180 }}
-        />
-        <Upload
-          showUploadList={false}
-          beforeUpload={beforeUpload}
-          accept="image/jpeg,image/png,image/webp,image/gif"
-          multiple
+          icon={<UploadOutlined />}
+          loading={uploadingCount > 0}
         >
-          <Button
-            size="small"
-            icon={<UploadOutlined />}
-            loading={uploadingCount > 0}
-          >
-            {uploadingCount > 1 ? `Uploading ${uploadingCount}…` : 'Upload images'}
-          </Button>
-        </Upload>
-      </Space>
+          {uploadingCount > 1 ? `Uploading ${uploadingCount}…` : 'Upload images'}
+        </Button>
+      </Upload>
     </Space>
   );
 }

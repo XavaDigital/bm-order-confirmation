@@ -29,6 +29,7 @@ export type DomainEventType =
   | 'sizing.updated'
   | 'mockup.added'
   | 'mockup.removed'
+  | 'mockup.caption_updated'
   | 'chart_links.updated'
   | 'roster.member_updated'
   | 'asset.added'

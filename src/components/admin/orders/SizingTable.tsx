@@ -351,11 +351,21 @@ export function SizingTable({
         pagination={false}
         locale={{ emptyText: <Typography.Text type="secondary">No sizing rows yet</Typography.Text> }}
         style={{ border: '1px solid var(--ant-color-border)', borderRadius: 4 }}
+        // A row-wide add control where the next row would appear (David,
+        // 2026-08-03) — reads as "an empty row you click to fill".
+        footer={() => (
+          <Button
+            type="dashed"
+            block
+            icon={<PlusOutlined />}
+            onClick={addRow}
+            style={{ height: 36 }}
+          >
+            Add row
+          </Button>
+        )}
       />
       <Space wrap>
-        <Button size="small" icon={<PlusOutlined />} onClick={addRow}>
-          Add row
-        </Button>
         {onColumnsChange && (
           <Button
             size="small"

@@ -66,6 +66,12 @@ function baseOrder(overrides: Partial<AdminOrderData> = {}): AdminOrderData {
   return {
     id: 'order-1',
     orderNumber: 'OC-1',
+    name: null,
+    hubCustomerId: null,
+    hubCustomerName: null,
+    hubContactId: null,
+    hubContactName: null,
+    designProjectRef: null,
     customerName: 'Jane Coach',
     customerEmail: 'jane@example.com',
     customerContact: null,

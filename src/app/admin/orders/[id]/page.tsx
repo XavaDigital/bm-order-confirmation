@@ -35,6 +35,7 @@ export default async function OrderDetailPage({ params }: Props) {
   const data: AdminOrderData = {
     id: order.id,
     orderNumber: order.orderNumber,
+    name: order.name ?? null,
     customerName: order.customerName,
     customerEmail: order.customerEmail,
     customerContact: order.customerContact ?? null,
@@ -58,6 +59,9 @@ export default async function OrderDetailPage({ params }: Props) {
     changesRequestedCount,
     hubCustomerId: order.hubCustomerId ?? null,
     hubCustomerName: order.hubCustomerName ?? null,
+    hubContactId: order.hubContactId ?? null,
+    hubContactName: order.hubContactName ?? null,
+    designProjectRef: order.designProjectRef ?? null,
     sourceOrder: order.sourceOrder
       ? { id: order.sourceOrder.id, orderNumber: order.sourceOrder.orderNumber }
       : null,

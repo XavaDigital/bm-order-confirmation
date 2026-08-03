@@ -1150,6 +1150,37 @@ export async function deleteMockupImage(
   return { storageKey: existing.storageKey, thumbnailStorageKey: existing.thumbnailStorageKey };
 }
 
+/**
+ * Set or clear a mock-up image's caption (David, 2026-08-03: captions are
+ * edited AFTER upload, not typed in advance). Takes the order and garment ids
+ * as well as the image id and 404s on any mismatch — a child id from another
+ * order must not be reachable through this order's URL (guards convention).
+ */
+export async function updateMockupImageCaption(
+  orderId: string,
+  garmentId: string,
+  imageId: string,
+  caption: string | null,
+  meta?: { actorEmail?: string },
+) {
+  const existing = await db.query.mockupImages.findFirst({ where: eq(mockupImages.id, imageId) });
+  if (!existing || existing.garmentId !== garmentId) throw new NotFoundError('Image');
+  const garment = await loadGarmentOrThrow(garmentId);
+  if (garment.orderId !== orderId) throw new NotFoundError('Image');
+
+  const trimmed = caption?.trim() || null;
+  await db.update(mockupImages).set({ caption: trimmed }).where(eq(mockupImages.id, imageId));
+
+  await recordAuditEvent({
+    aggregateId: orderId,
+    eventType: 'mockup.caption_updated',
+    payload: { imageId, caption: trimmed },
+    actorEmail: meta?.actorEmail ?? null,
+  });
+
+  return { id: imageId, caption: trimmed };
+}
+
 // ---------------------------------------------------------------------------
 // Admin writes — access token
 // ---------------------------------------------------------------------------

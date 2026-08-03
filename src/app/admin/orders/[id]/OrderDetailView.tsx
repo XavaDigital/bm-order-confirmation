@@ -107,12 +107,18 @@ export interface AdminOrderData {
   colorSampleRequestedAt: string | null;
   changesRequestedComment: string | null;
   changesRequestedCount: number;
-  name?: string | null;
-  hubCustomerId?: string | null;
-  hubCustomerName?: string | null;
-  hubContactId?: string | null;
-  hubContactName?: string | null;
-  designProjectRef?: string | null;
+  /**
+   * Required-nullable rather than optional, deliberately: these are mapped by
+   * hand in page.tsx, and optional typing let the mapper silently omit them —
+   * shipped fields (name, contact, design link) rendered as absent in prod
+   * (found live 2026-08-03). Required means a forgotten mapping fails tsc.
+   */
+  name: string | null;
+  hubCustomerId: string | null;
+  hubCustomerName: string | null;
+  hubContactId: string | null;
+  hubContactName: string | null;
+  designProjectRef: string | null;
   /** Set when this order is a reprint — the source order it reprints. */
   sourceOrder?: { id: string; orderNumber: string } | null;
   reprintReason?: string | null;
@@ -407,7 +413,18 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
           <ContactHubSelect
             customerId={hubCustomer?.id ?? null}
             value={hubContact}
-            onSelect={setHubContact}
+            onSelect={(contact) => {
+              setHubContact(contact);
+              // The order-page contact fields are the person's details —
+              // picking a contact expresses "this is the person", so prefill
+              // them (same behaviour as the new-order form).
+              if (contact) {
+                form.setFieldsValue({
+                  customerName: contact.name,
+                  ...(contact.email && { customerEmail: contact.email }),
+                });
+              }
+            }}
           />
           <OrderForm form={form} initialValues={initialValues} hubLinked={hubCustomer !== null} />
           <Card

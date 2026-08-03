@@ -31,8 +31,26 @@ export interface HubContact {
   id: string;
   name: string;
   email?: string | null;
+  phone?: string | null;
   /** Set when a future contact merge tombstones the requested id. */
   resolvedFrom?: string;
+}
+
+/**
+ * The hub's contact shape names the person `fullName` (contactSummary in
+ * bm-sales routes.ts) — NOT `name`/`displayName` like customers. Mapping the
+ * customer keys here rendered every live contact nameless (same disease as
+ * the {items} envelope, found 2026-08-03); the customer keys stay as
+ * fallbacks for shape tolerance only.
+ */
+function toContact(row: Record<string, unknown>): HubContact {
+  return {
+    id: String(row.id),
+    name: String(row.fullName ?? row.name ?? row.displayName ?? ''),
+    email: (row.email as string | null | undefined) ?? null,
+    phone: (row.phone as string | null | undefined) || null,
+    ...(typeof row.resolvedFrom === 'string' && { resolvedFrom: row.resolvedFrom }),
+  };
 }
 
 export type CreateHubCustomerResult =
@@ -165,11 +183,7 @@ export async function listHubCustomerContacts(customerId: string): Promise<HubCo
   try {
     const body = (await res.json()) as { items?: Record<string, unknown>[] } | Record<string, unknown>[];
     const rows = Array.isArray(body) ? body : (body.items ?? []);
-    return rows.map((row) => ({
-      id: String(row.id),
-      name: String(row.name ?? row.displayName ?? ''),
-      email: (row.email as string | null | undefined) ?? null,
-    }));
+    return rows.map(toContact);
   } catch {
     return [];
   }
@@ -225,15 +239,49 @@ export async function getHubContact(contactId: string): Promise<HubContact | nul
   const res = await call(`/contacts/${encodeURIComponent(contactId)}`);
   if (!res || !res.ok) return null;
   try {
-    const row = (await res.json()) as Record<string, unknown>;
-    return {
-      id: String(row.id),
-      name: String(row.name ?? row.displayName ?? ''),
-      email: (row.email as string | null | undefined) ?? null,
-      ...(typeof row.resolvedFrom === 'string' && { resolvedFrom: row.resolvedFrom }),
-    };
+    return toContact((await res.json()) as Record<string, unknown>);
   } catch {
     return null;
+  }
+}
+
+export type CreateHubContactResult =
+  | { outcome: 'created'; contact: HubContact }
+  | { outcome: 'refused'; status: number; message: string }
+  | { outcome: 'error' };
+
+/**
+ * Create a CRM contact on the hub (`POST /contacts`). The hub refuses
+ * own-mailbox domains (422) and already-claimed addresses (409) — both are
+ * surfaced with their message so the UI can explain instead of failing flat.
+ *
+ * `customerId` rides along even though the hub's validator ignores it today:
+ * attaching the new contact to the customer needs a hub-side change (asked in
+ * the fleet thread, 2026-08-03) — when it lands, this same call starts
+ * attaching with no change here. Until then the contact exists un-membered
+ * and is still valid as an order's contact (GET /contacts/:id answers
+ * regardless of membership — fleet trap 3).
+ */
+export async function createHubContact(
+  input: { firstName: string; lastName?: string; email?: string; customerId?: string },
+  actingUser?: string,
+): Promise<CreateHubContactResult> {
+  const res = await call('/contacts', { method: 'POST', body: input, actingUser });
+  if (!res) return { outcome: 'error' };
+  try {
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { message?: string };
+      return {
+        outcome: 'refused',
+        status: res.status,
+        message: body.message ?? `The hub refused the contact (${res.status})`,
+      };
+    }
+    const body = (await res.json()) as { contact?: Record<string, unknown> };
+    if (!body.contact) return { outcome: 'error' };
+    return { outcome: 'created', contact: toContact(body.contact) };
+  } catch {
+    return { outcome: 'error' };
   }
 }
 
