@@ -23,6 +23,7 @@ import {
   AppstoreOutlined,
 } from '@ant-design/icons';
 import type { GarmentTypeOption, GarmentTypeFabricField, SizeChartSize } from '@/db/schema';
+import { SectionTitle } from '@/components/admin/SectionTitle';
 import { SizingTable } from './SizingTable';
 import { MockupUploader, type MockupImage } from './MockupUploader';
 import { SizeChartLinker } from './SizeChartLinker';
@@ -462,9 +463,7 @@ export function GarmentsMasterDetail({
               </div>
               {fabricFields.length > 0 && (
                 <>
-                  <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
-                    Fabrics
-                  </Typography.Text>
+                  <SectionTitle style={{ marginBottom: 8 }}>Fabrics</SectionTitle>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
                     {fabricFields.map((field) => {
                       const chosen = currentSelectedFabrics[field.label];
@@ -519,9 +518,7 @@ export function GarmentsMasterDetail({
               </div>
               {currentType && currentType.orderOptions.length > 0 && (
                 <>
-                  <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
-                    Options
-                  </Typography.Text>
+                  <SectionTitle style={{ marginBottom: 8 }}>Options</SectionTitle>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
                     {currentType.orderOptions.map((opt) => (
                       <Form.Item key={opt.label} label={opt.label}>
@@ -581,12 +578,8 @@ export function GarmentsMasterDetail({
               </Space>
             )}
 
-            <Divider style={{ margin: '4px 0' }} />
-
             <div>
-              <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
-                Mock-up Images
-              </Typography.Text>
+              <SectionTitle style={{ marginBottom: 8 }}>Mock-up Images</SectionTitle>
               <MockupUploader
                 key={garment.id}
                 orderId={orderId}
@@ -595,12 +588,8 @@ export function GarmentsMasterDetail({
               />
             </div>
 
-            <Divider style={{ margin: '4px 0' }} />
-
             <div>
-              <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
-                Sizing
-              </Typography.Text>
+              <SectionTitle style={{ marginBottom: 8 }}>Sizing</SectionTitle>
               <SizingTable
                 key={garment.id}
                 orderId={orderId}
@@ -613,12 +602,8 @@ export function GarmentsMasterDetail({
               />
             </div>
 
-            <Divider style={{ margin: '4px 0' }} />
-
             <div>
-              <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
-                Reference Size Charts
-              </Typography.Text>
+              <SectionTitle style={{ marginBottom: 8 }}>Reference Size Charts</SectionTitle>
               <SizeChartLinker
                 key={garment.id}
                 orderId={orderId}

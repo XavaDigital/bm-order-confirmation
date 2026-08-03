@@ -27,11 +27,12 @@ import {
   Legend,
 } from 'recharts';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { SectionTitle as AdminSectionTitle } from '@/components/admin/SectionTitle';
 import { orderStatusMeta, poStatusMeta } from '@/lib/status';
 import { SEMANTIC } from '@/lib/semantic-colors';
 import { BRAND } from '@/lib/theme';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
 interface Props {
   counts: {
@@ -78,9 +79,7 @@ function EmptyChart({ text }: { text: string }) {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <Title level={5} style={{ margin: '24px 0 12px' }}>
-      {children}
-    </Title>
+    <AdminSectionTitle style={{ margin: '24px 0 12px' }}>{children}</AdminSectionTitle>
   );
 }
 

@@ -135,6 +135,11 @@ export function AppShell({ user, children }: AppShellProps) {
 
   return (
     <ConfigProvider theme={theme}>
+      {/* Section separation (David, 2026-08-04): every titled card header in
+          the admin surface carries the brand underline — the card-shaped
+          counterpart of SectionTitle. One rule so restyling BRAND restyles
+          every page. */}
+      <style>{`.ant-card-head { border-bottom: 2px solid ${isDark ? BRAND.primaryDark : BRAND.primary}; }`}</style>
       <App>
         <Layout style={{ minHeight: '100vh' }}>
           {/* Fixed full-width top bar (SalesFlow shell convention) */}

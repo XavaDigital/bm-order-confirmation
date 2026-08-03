@@ -17,6 +17,7 @@ import {
 import type { ColumnType } from 'antd/es/table';
 import { ApiError, deleteJson, patchJson, postJson } from '@/lib/api-fetch';
 import { useAdminResource } from '@/lib/use-admin-resource';
+import { SectionTitle } from '@/components/admin/SectionTitle';
 import { RosterImportModal } from './RosterImportModal';
 import { RosterPageSettings } from './RosterPageSettings';
 
@@ -373,7 +374,7 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <Space size={8}>
-            <Typography.Text strong>Team members</Typography.Text>
+            <SectionTitle style={{ margin: 0 }}>Team members</SectionTitle>
             {/* Lived on the removed token-link panel; the progress stat stays. */}
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               {data.stats.submitted} of {data.stats.total} submitted

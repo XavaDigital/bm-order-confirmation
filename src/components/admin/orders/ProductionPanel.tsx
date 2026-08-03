@@ -11,6 +11,7 @@ import { Alert, Button, Card, Empty, Progress, Space, Spin, Tag, Typography } fr
 import { PlusOutlined, WarningOutlined } from '@ant-design/icons';
 import Link from 'next/link';
 import { PoStatusBadge } from '@/components/admin/purchase-orders/PoStatusBadge';
+import { SectionTitle } from '@/components/admin/SectionTitle';
 import type { PoVarianceCounts, ProductionSummary } from '@/types/production';
 import { CreatePoModal, type PoModalGarment } from './CreatePoModal';
 
@@ -92,9 +93,7 @@ export function ProductionPanel({
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <Typography.Title level={5} style={{ margin: 0, flex: 1 }}>
-          Production
-        </Typography.Title>
+        <SectionTitle style={{ margin: 0, flex: 1 }}>Production</SectionTitle>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
           Create purchase order
         </Button>

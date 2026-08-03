@@ -36,6 +36,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnType } from 'antd/es/table';
 import { deleteJson, patchJson, postForm, postJson } from '@/lib/api-fetch';
+import { SectionTitle } from '@/components/admin/SectionTitle';
 import { useAdminResource } from '@/lib/use-admin-resource';
 import type { OrderAssetKind } from '@/db/schema';
 import { DesignAssetPickerModal } from './DesignAssetPickerModal';
@@ -345,9 +346,7 @@ export function OrderAssetsPanel({ orderId, garments, designProjectRef }: Props)
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <Typography.Title level={5} style={{ margin: 0, flex: 1 }}>
-          Design &amp; font files
-        </Typography.Title>
+        <SectionTitle style={{ margin: 0, flex: 1 }}>Design &amp; font files</SectionTitle>
         {designProjectRef && (
           <Button icon={<DownloadOutlined />} onClick={() => setPickerOpen(true)}>
             Pull from DesignFlow

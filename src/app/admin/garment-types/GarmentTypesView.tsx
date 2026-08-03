@@ -19,12 +19,12 @@ import {
   Space,
   Tag,
   Typography,
-  Divider,
   Switch,
   App,
 } from 'antd';
 import { PlusOutlined, EditOutlined } from '@ant-design/icons';
 import type { GarmentTypeOption, GarmentTypeFabricField } from '@/db/schema';
+import { SectionTitle } from '@/components/admin/SectionTitle';
 import { OrderOptionsManager } from '@/components/admin/garment-types/OrderOptionsManager';
 import { FabricFieldsManager } from '@/components/admin/garment-types/FabricFieldsManager';
 import { postJson, patchJson } from '@/lib/api-fetch';
@@ -273,14 +273,10 @@ export function GarmentTypesView({ role }: Props) {
             />
           </Form.Item>
 
-          <Divider orientation="left" plain>
-            Fabric fields
-          </Divider>
+          <SectionTitle style={{ marginTop: 8 }}>Fabric fields</SectionTitle>
           <FabricFieldsManager value={fabricFields} onChange={setFabricFields} disabled={!canMutate} />
 
-          <Divider orientation="left" plain>
-            Order options
-          </Divider>
+          <SectionTitle style={{ marginTop: 16 }}>Order options</SectionTitle>
           <OrderOptionsManager value={orderOptions} onChange={setOrderOptions} disabled={!canMutate} />
         </Form>
       </Modal>
