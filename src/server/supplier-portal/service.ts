@@ -21,6 +21,7 @@ import { addOrderNote, listOrderNotes, type OrderNoteDto } from '@/server/orders
 import { canTransition, type PoStatus } from '@/server/purchase-orders/contract';
 import { updatePurchaseOrderStatusTx } from '@/server/purchase-orders/service';
 import { syncOrderProductionStatus } from '@/server/purchase-orders/hub-sync';
+import { signPoAssets } from '@/lib/signed-urls';
 import { SUPPLIER_ALLOWED_STATUSES, type SupplierAllowedStatus } from './contract';
 
 export interface SupplierPortalViewDto {
@@ -80,6 +81,12 @@ export async function resolveSupplierPortalView(rawToken: string): Promise<Suppl
 
   const comments = await listOrderNotes(po.orderId, 'order', { visibility: 'shared' });
 
+  // Signed here, per request — the stored snapshot only ever keeps the
+  // storageKey, so nothing durable holds a URL that can expire.
+  const snapshot: PoSnapshot = latest.snapshot.assets?.length
+    ? { ...latest.snapshot, assets: await signPoAssets(latest.snapshot.assets) }
+    : latest.snapshot;
+
   return {
     poNumber: po.poNumber,
     status: po.status,
@@ -98,7 +105,7 @@ export async function resolveSupplierPortalView(rawToken: string): Promise<Suppl
       phone: po.supplier.phone,
     },
     revisionNumber: latest.revisionNumber,
-    snapshot: latest.snapshot,
+    snapshot,
     comments,
   };
 }

@@ -638,6 +638,13 @@ export const garments = confirmation.table(
     // per garment (added on the fly) and optionally saved onto the garment type
     // as a reusable default; values live in garment_sizing.customValues.
     sizingColumns: jsonb('sizing_columns').$type<GarmentTypeOption[]>().notNull().default([]),
+    // "Got Your Back" style: this garment carries a name list (print content,
+    // GARMENT_NAME_LIST_ENTRIES below) IN ADDITION TO its normal sizing rows
+    // — the two are deliberately independent (see garmentNameListEntries doc
+    // comment). nameListRows is the print layout's row count; columns are
+    // derived at render time (ceil(count / rows)), not stored.
+    nameListEnabled: boolean('name_list_enabled').notNull().default(false),
+    nameListRows: integer('name_list_rows'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .defaultNow()
@@ -645,6 +652,29 @@ export const garments = confirmation.table(
       .$onUpdate(() => new Date()),
   },
   (t) => [index('garments_order_idx').on(t.orderId), index('garments_type_idx').on(t.garmentTypeId)],
+);
+
+// --- "Got Your Back" name list (print content, NOT a manufacture unit) -----
+// Deliberately separate from garment_sizing: sizing rows are summed into
+// purchase-order quantities (src/server/purchase-orders/xlsx.ts), but a name
+// printed on a shared design has no relationship to how many physical
+// garments get made — so this table carries no size/quantity column and can
+// never be pulled into that math. An independent, staff/customer-editable
+// copy rather than a live roster join or per-member submission (see
+// GOT_YOUR_BACK_PLAN.md) — "import from roster" is a one-shot bulk-copy.
+export const garmentNameListEntries = confirmation.table(
+  'garment_name_list_entries',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    garmentId: uuid('garment_id')
+      .notNull()
+      .references(() => garments.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    playerNumber: text('player_number'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('garment_name_list_entries_garment_idx').on(t.garmentId)],
 );
 
 // --- per-garment sizing rows ----------------------------------------------
@@ -1642,10 +1672,15 @@ export const garmentsRelations = relations(garments, ({ one, many }) => ({
   sizing: many(garmentSizing),
   images: many(mockupImages),
   sizeChartLinks: many(garmentSizeChartLinks),
+  nameListEntries: many(garmentNameListEntries),
   garmentType: one(garmentTypes, {
     fields: [garments.garmentTypeId],
     references: [garmentTypes.id],
   }),
+}));
+
+export const garmentNameListEntriesRelations = relations(garmentNameListEntries, ({ one }) => ({
+  garment: one(garments, { fields: [garmentNameListEntries.garmentId], references: [garments.id] }),
 }));
 
 export const garmentTypesRelations = relations(garmentTypes, ({ many }) => ({

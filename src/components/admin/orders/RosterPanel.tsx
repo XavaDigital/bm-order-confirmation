@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Table, Input, Button, Space, Tag, Popconfirm, App, Typography, Spin, Alert } from 'antd';
+import { useMemo, useState } from 'react';
+import { Table, Input, Button, Space, Tag, Popconfirm, App, Typography, Spin, Alert, Tooltip } from 'antd';
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -17,6 +17,7 @@ import {
 import type { ColumnType } from 'antd/es/table';
 import { ApiError, deleteJson, patchJson, postJson } from '@/lib/api-fetch';
 import { useAdminResource } from '@/lib/use-admin-resource';
+import { findDuplicateNumbers } from '@/lib/collisions';
 import { SectionTitle } from '@/components/admin/SectionTitle';
 import { RosterImportModal } from './RosterImportModal';
 import { RosterPageSettings } from './RosterPageSettings';
@@ -232,6 +233,19 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
     }
   }
 
+  // Squad numbers are meant to be unique across the roster — but a warning,
+  // not a block, since re-issued/shared numbers happen. Reflects the in-progress
+  // edit draft too, so typing a clash shows feedback before it's saved.
+  const dupNumbers = useMemo(
+    () =>
+      findDuplicateNumbers(
+        (data?.members ?? []).map((m) =>
+          editingId === m.id ? editDraft.playerNumber : m.playerNumber,
+        ),
+      ),
+    [data, editingId, editDraft.playerNumber],
+  );
+
   if (loading) return <Spin style={{ display: 'block', marginTop: 32 }} />;
   if (error || !data) return <Alert type="error" message={error ?? 'Failed to load team roster'} />;
 
@@ -256,14 +270,25 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
       dataIndex: 'playerNumber',
       width: 70,
       render(_: unknown, record: RosterMember) {
-        return editingId === record.id ? (
-          <Input
-            size="small"
-            value={editDraft.playerNumber}
-            onChange={(e) => setEditDraft((d) => ({ ...d, playerNumber: e.target.value }))}
-          />
+        const current = editingId === record.id ? editDraft.playerNumber : (record.playerNumber ?? '');
+        const isDup = dupNumbers.has(current.trim());
+        if (editingId === record.id) {
+          return (
+            <Input
+              size="small"
+              status={isDup ? 'warning' : undefined}
+              value={editDraft.playerNumber}
+              onChange={(e) => setEditDraft((d) => ({ ...d, playerNumber: e.target.value }))}
+            />
+          );
+        }
+        const label = record.playerNumber ?? '—';
+        return isDup ? (
+          <Tooltip title="Another team member already uses this number">
+            <Tag color="warning" style={{ marginInlineEnd: 0 }}>{label}</Tag>
+          </Tooltip>
         ) : (
-          (record.playerNumber ?? '—')
+          label
         );
       },
     },
@@ -395,6 +420,14 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
             </Button>
           </Space>
         </div>
+        {dupNumbers.size > 0 && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={`Number${dupNumbers.size > 1 ? 's' : ''} ${[...dupNumbers].join(', ')} ${dupNumbers.size > 1 ? 'are' : 'is'} used by more than one team member`}
+          />
+        )}
         <Table
           dataSource={data.members}
           columns={columns}
@@ -424,6 +457,12 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
             size="small"
             placeholder="# (optional)"
             style={{ width: 90 }}
+            status={
+              addDraft.playerNumber.trim() &&
+              data.members.some((m) => m.playerNumber?.trim() === addDraft.playerNumber.trim())
+                ? 'warning'
+                : undefined
+            }
             value={addDraft.playerNumber}
             onChange={(e) => setAddDraft((d) => ({ ...d, playerNumber: e.target.value }))}
             onPressEnter={addMember}

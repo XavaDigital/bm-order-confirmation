@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Table, Input, Select, Button, Space, App, Popconfirm, Typography, Tooltip } from 'antd';
+import { useMemo, useState } from 'react';
+import { Table, Input, Select, Button, Space, App, Popconfirm, Typography, Tooltip, Alert } from 'antd';
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -12,6 +12,7 @@ import {
 import type { ColumnType } from 'antd/es/table';
 import { postJson } from '@/lib/api-fetch';
 import { buildSizeSelectOptions } from '@/lib/sizes';
+import { findDuplicateNumbers } from '@/lib/collisions';
 import type { GarmentTypeOption, SizeChartSize } from '@/db/schema';
 import { SizingColumnModal } from './SizingColumnModal';
 
@@ -84,6 +85,13 @@ export function SizingTable({
   const [editingColumn, setEditingColumn] = useState<GarmentTypeOption | null>(null);
   const constrained = allowedSizes !== undefined && allowedSizes.length > 0;
   const sizeOptions = constrained ? buildSizeSelectOptions(allowedSizes) : [];
+  // Same jersey number on two rows of the SAME garment is almost always a
+  // mistake (two people can't wear one numbered kit) — but not always (a
+  // player ordering two of their own), so this is a warning, not a block.
+  const dupNumbers = useMemo(
+    () => findDuplicateNumbers(rows.map((r) => r.playerNumber)),
+    [rows],
+  );
 
   function updateCell(key: string, field: keyof SizingRow, value: string) {
     setRows((prev) =>
@@ -217,10 +225,17 @@ export function SizingTable({
       dataIndex: 'playerNumber',
       width: 70,
       render(_: unknown, record: SizingRow) {
-        return (
+        const isDup = dupNumbers.has(record.playerNumber.trim());
+        const input = (
           <Input size="small" value={record.playerNumber} placeholder="7"
+            status={isDup ? 'warning' : undefined}
             onChange={(e) => updateCell(record.key, 'playerNumber', e.target.value)}
             variant="borderless" style={{ minWidth: 60 }} />
+        );
+        return isDup ? (
+          <Tooltip title="Another row on this garment already uses this number">{input}</Tooltip>
+        ) : (
+          input
         );
       },
     },
@@ -343,6 +358,13 @@ export function SizingTable({
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size={8}>
+      {dupNumbers.size > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message={`Number${dupNumbers.size > 1 ? 's' : ''} ${[...dupNumbers].join(', ')} ${dupNumbers.size > 1 ? 'are' : 'is'} used on more than one row of this garment`}
+        />
+      )}
       <Table
         dataSource={rows}
         columns={columns}

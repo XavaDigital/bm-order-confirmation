@@ -13,6 +13,7 @@ import {
   orders,
   garments,
   garmentSizing,
+  garmentNameListEntries,
   mockupImages,
   garmentSizeChartLinks,
   garmentTypes,
@@ -20,6 +21,7 @@ import {
   orderAssets,
   orderNotes,
   domainEvents,
+  rosterMembers,
 } from '@/db/schema';
 import type { Transaction } from '@/db';
 import type { GarmentTypeOption } from '@/db/schema';
@@ -35,6 +37,7 @@ import { canTransitionOrder, explainOrderTransition } from './status-machine';
 import type { OrderStatus } from '@/lib/status';
 import type { CreateOrderInput } from './contract';
 import type { UpdateOrderInput, AddGarmentInput, UpdateGarmentInput, UpsertSizingInput } from './admin-contract';
+import type { UpsertNameListInput } from './name-list-contract';
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -660,6 +663,7 @@ export async function getOrderAdmin(id: string) {
           sizing: { orderBy: (s, { asc }) => [asc(s.sortOrder)] },
           images: { orderBy: (i, { asc }) => [asc(i.sortOrder)] },
           sizeChartLinks: true,
+          nameListEntries: { orderBy: (e, { asc }) => [asc(e.sortOrder)] },
         },
       },
       assets: {
@@ -1096,6 +1100,145 @@ export async function upsertSizingRows(
     where: eq(garmentSizing.garmentId, garmentId),
     orderBy: [asc(garmentSizing.sortOrder)],
   });
+}
+
+// ---------------------------------------------------------------------------
+// "Got Your Back" name list — deliberately separate from garment_sizing (see
+// garmentNameListEntries in schema.ts): entries here carry no size/quantity
+// and are never summed into purchase-order math. Callable by both the admin
+// garment editor and the customer/manager roster page.
+// ---------------------------------------------------------------------------
+
+// A garment count, same rationale as MAX_ROSTER_MEMBERS (src/server/roster/service.ts)
+// — an unbounded list would blow out the print artwork and the editor UI.
+export const MAX_NAME_LIST_ENTRIES = 300;
+
+export class NameListFullError extends Error {
+  constructor(message = `Name list is full (maximum ${MAX_NAME_LIST_ENTRIES} names)`) {
+    super(message);
+    this.name = 'NameListFullError';
+  }
+}
+
+export async function upsertNameListEntries(
+  garmentId: string,
+  entries: UpsertNameListInput,
+  meta?: { actorEmail?: string },
+) {
+  const garment = await loadGarmentOrThrow(garmentId);
+  if (entries.length > MAX_NAME_LIST_ENTRIES) throw new NameListFullError();
+
+  await db.transaction(async (tx) => {
+    // Same reconciling upsert as upsertSizingRows — NOT delete-all + reinsert,
+    // so row ids stay stable across saves.
+    const existing = await tx
+      .select({ id: garmentNameListEntries.id })
+      .from(garmentNameListEntries)
+      .where(eq(garmentNameListEntries.garmentId, garmentId));
+    const existingIds = new Set(existing.map((r) => r.id));
+
+    const keptIds = new Set<string>();
+    const inserts: (typeof garmentNameListEntries.$inferInsert)[] = [];
+
+    for (const [i, entry] of entries.entries()) {
+      const values = {
+        name: entry.name,
+        playerNumber: entry.playerNumber || null,
+        sortOrder: entry.sortOrder ?? i,
+      };
+      if (entry.id && existingIds.has(entry.id)) {
+        keptIds.add(entry.id);
+        await tx
+          .update(garmentNameListEntries)
+          .set(values)
+          .where(and(eq(garmentNameListEntries.id, entry.id), eq(garmentNameListEntries.garmentId, garmentId)));
+      } else {
+        inserts.push({ garmentId, ...values });
+      }
+    }
+
+    const staleIds = existing.filter((r) => !keptIds.has(r.id)).map((r) => r.id);
+    if (staleIds.length > 0) {
+      await tx.delete(garmentNameListEntries).where(inArray(garmentNameListEntries.id, staleIds));
+    }
+    if (inserts.length > 0) {
+      await tx.insert(garmentNameListEntries).values(inserts);
+    }
+
+    await recordAuditEvent(
+      {
+        aggregateId: garment.orderId,
+        eventType: 'name_list.updated',
+        payload: { garmentId, entryCount: entries.length },
+        actorEmail: meta?.actorEmail ?? null,
+      },
+      tx,
+    );
+  });
+
+  return db.query.garmentNameListEntries.findMany({
+    where: eq(garmentNameListEntries.garmentId, garmentId),
+    orderBy: [asc(garmentNameListEntries.sortOrder)],
+  });
+}
+
+/**
+ * One-shot bulk-copy from the order's Team Roster into this garment's name
+ * list — NOT a live sync (GOT_YOUR_BACK_PLAN.md). Additive: names already on
+ * the list (case-insensitive, trimmed) are skipped rather than duplicated, so
+ * this is safe to call again after new roster signups without disturbing
+ * manual edits.
+ */
+export async function importNameListFromRoster(garmentId: string, meta?: { actorEmail?: string }) {
+  const garment = await loadGarmentOrThrow(garmentId);
+
+  const [members, existing] = await Promise.all([
+    db.query.rosterMembers.findMany({
+      where: eq(rosterMembers.orderId, garment.orderId),
+      orderBy: [asc(rosterMembers.sortOrder), asc(rosterMembers.createdAt)],
+      columns: { name: true, playerNumber: true },
+    }),
+    db.query.garmentNameListEntries.findMany({
+      where: eq(garmentNameListEntries.garmentId, garmentId),
+      columns: { name: true },
+    }),
+  ]);
+
+  const seen = new Set(existing.map((e) => e.name.trim().toLowerCase()));
+  const toAdd = members.filter((m) => !seen.has(m.name.trim().toLowerCase()));
+
+  const currentEntries = () =>
+    db.query.garmentNameListEntries.findMany({
+      where: eq(garmentNameListEntries.garmentId, garmentId),
+      orderBy: [asc(garmentNameListEntries.sortOrder)],
+    });
+
+  if (toAdd.length === 0) return { imported: 0, entries: await currentEntries() };
+  if (existing.length + toAdd.length > MAX_NAME_LIST_ENTRIES) throw new NameListFullError();
+
+  const [{ maxSort }] = await db
+    .select({ maxSort: sql<number>`coalesce(max(${garmentNameListEntries.sortOrder}), -1)` })
+    .from(garmentNameListEntries)
+    .where(eq(garmentNameListEntries.garmentId, garmentId));
+
+  let sortOrder = Number(maxSort) + 1;
+  await db.insert(garmentNameListEntries).values(
+    toAdd.map((m) => ({
+      garmentId,
+      name: m.name,
+      playerNumber: m.playerNumber,
+      sortOrder: sortOrder++,
+    })),
+  );
+
+  await recordAuditEvent({
+    aggregateId: garment.orderId,
+    eventType: 'name_list.imported_from_roster',
+    payload: { garmentId, imported: toAdd.length },
+    actorEmail: meta?.actorEmail ?? null,
+  });
+
+  return { imported: toAdd.length, entries: await currentEntries() };
 }
 
 // ---------------------------------------------------------------------------

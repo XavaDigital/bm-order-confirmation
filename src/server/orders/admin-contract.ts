@@ -47,6 +47,10 @@ export const updateGarmentSchema = addGarmentSchema
     selectedOptions: selectedValuesSchema.nullable().optional(),
     selectedFabrics: selectedValuesSchema.nullable().optional(),
     sizingColumns: z.array(garmentTypeOptionSchema).max(20).optional(),
+    // "Got Your Back" style — see name-list-contract.ts. Independent of the
+    // sizing table above; enabling this does not clear existing sizing rows.
+    nameListEnabled: z.boolean().optional(),
+    nameListRows: z.number().int().min(1).max(100).nullable().optional(),
   })
   .partial();
 

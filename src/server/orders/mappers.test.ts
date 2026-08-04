@@ -43,6 +43,9 @@ describe('toGarmentDto', () => {
           customValues: null,
         },
       ],
+      nameListEnabled: false,
+      nameListRows: null,
+      nameListEntries: [],
     });
   });
 
@@ -57,7 +60,25 @@ describe('toGarmentDto', () => {
       selectedFabrics: null,
       sizingColumns: [],
       sizing: [],
+      nameListEnabled: false,
+      nameListRows: null,
+      nameListEntries: [],
     });
+  });
+
+  it('projects nameListEntries and defaults nameListRows to null', () => {
+    const dto = toGarmentDto({
+      name: 'Tribute Tee',
+      fabrics: [],
+      notes: null,
+      sizing: [],
+      nameListEnabled: true,
+      nameListRows: 5,
+      nameListEntries: [{ id: 'nl-1', name: 'Jamie', playerNumber: null }],
+    });
+    expect(dto.nameListEnabled).toBe(true);
+    expect(dto.nameListRows).toBe(5);
+    expect(dto.nameListEntries).toEqual([{ id: 'nl-1', name: 'Jamie', playerNumber: null }]);
   });
 
   it('adds viaTeamRoster per sizing row only when rosterFlags is set', () => {

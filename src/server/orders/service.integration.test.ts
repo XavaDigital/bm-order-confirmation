@@ -31,6 +31,10 @@ import {
   updateGarment,
   deleteGarment,
   upsertSizingRows,
+  upsertNameListEntries,
+  importNameListFromRoster,
+  NameListFullError,
+  MAX_NAME_LIST_ENTRIES,
   addMockupImage,
   updateGarmentSizeChartLinks,
   deleteMockupImage,
@@ -631,6 +635,131 @@ describe('upsertSizingRows', () => {
     });
     expect(shortsRow.garmentId).toBe(shortsId);
     expect(shortsRow.size).toBe('S');
+  });
+});
+
+describe('upsertNameListEntries', () => {
+  it('replaces the entry set when no ids are provided', async () => {
+    const created = await createOrder(minimalInput({ garments: [{ name: 'Tribute Tee' }] }));
+    const order = await getOrderAdmin(created.orderId);
+    const garmentId = order!.garments[0].id;
+
+    await upsertNameListEntries(garmentId, [{ name: 'Alex' }, { name: 'Sam' }]);
+    const rows = await db.query.garmentNameListEntries.findMany({
+      where: eq(schema.garmentNameListEntries.garmentId, garmentId),
+    });
+    expect(rows.map((r) => r.name).sort()).toEqual(['Alex', 'Sam']);
+  });
+
+  it('keeps entry UUIDs stable across a double-save (update in place)', async () => {
+    const created = await createOrder(minimalInput({ garments: [{ name: 'Tribute Tee' }] }));
+    const order = await getOrderAdmin(created.orderId);
+    const garmentId = order!.garments[0].id;
+
+    const first = await upsertNameListEntries(garmentId, [{ name: 'Alex' }, { name: 'Sam' }]);
+    const second = await upsertNameListEntries(
+      garmentId,
+      first.map((r) => ({ id: r.id, name: r.name === 'Alex' ? 'Alexandra' : r.name })),
+    );
+
+    expect(second.map((r) => r.id).sort()).toEqual(first.map((r) => r.id).sort());
+    expect(second.find((r) => r.id === first.find((f) => f.name === 'Alex')!.id)!.name).toBe(
+      'Alexandra',
+    );
+  });
+
+  it('updates matched rows, inserts id-less rows, deletes rows absent from the payload', async () => {
+    const created = await createOrder(minimalInput({ garments: [{ name: 'Tribute Tee' }] }));
+    const order = await getOrderAdmin(created.orderId);
+    const garmentId = order!.garments[0].id;
+    const initial = await upsertNameListEntries(garmentId, [{ name: 'Alex' }, { name: 'Sam' }]);
+    const kept = initial.find((r) => r.name === 'Alex')!;
+    const dropped = initial.find((r) => r.name === 'Sam')!;
+
+    const result = await upsertNameListEntries(garmentId, [
+      { id: kept.id, name: 'Alex', playerNumber: '9' },
+      { name: 'Jordan' }, // new, no id
+    ]);
+
+    expect(result).toHaveLength(2);
+    const ids = result.map((r) => r.id);
+    expect(ids).toContain(kept.id);
+    expect(ids).not.toContain(dropped.id);
+    expect(result.find((r) => r.id === kept.id)!.playerNumber).toBe('9');
+    expect(result.find((r) => r.name === 'Jordan')).toBeDefined();
+  });
+
+  it('rejects a payload over MAX_NAME_LIST_ENTRIES', async () => {
+    const created = await createOrder(minimalInput({ garments: [{ name: 'Tribute Tee' }] }));
+    const order = await getOrderAdmin(created.orderId);
+    const garmentId = order!.garments[0].id;
+    const tooMany = Array.from({ length: MAX_NAME_LIST_ENTRIES + 1 }, (_, i) => ({ name: `Name ${i}` }));
+
+    await expect(upsertNameListEntries(garmentId, tooMany)).rejects.toThrow(NameListFullError);
+  });
+
+  it('never writes into garment_sizing — names are not manufacture units', async () => {
+    const created = await createOrder(minimalInput({ garments: [{ name: 'Tribute Tee' }] }));
+    const order = await getOrderAdmin(created.orderId);
+    const garmentId = order!.garments[0].id;
+
+    await upsertNameListEntries(
+      garmentId,
+      Array.from({ length: 20 }, (_, i) => ({ name: `Supporter ${i}` })),
+    );
+
+    const sizingRows = await db
+      .select()
+      .from(schema.garmentSizing)
+      .where(eq(schema.garmentSizing.garmentId, garmentId));
+    expect(sizingRows).toHaveLength(0);
+  });
+});
+
+describe('importNameListFromRoster', () => {
+  it('copies roster member names not already on the list, additively', async () => {
+    const created = await createOrder(minimalInput({ garments: [{ name: 'Tribute Tee' }] }));
+    const order = await getOrderAdmin(created.orderId);
+    const garmentId = order!.garments[0].id;
+    await db.insert(schema.rosterMembers).values([
+      { orderId: created.orderId, name: 'Alex', playerNumber: '7' },
+      { orderId: created.orderId, name: 'Sam' },
+    ]);
+    await upsertNameListEntries(garmentId, [{ name: 'Alex' }]); // already on the list
+
+    const result = await importNameListFromRoster(garmentId);
+
+    expect(result.imported).toBe(1);
+    expect(result.entries.map((e) => e.name).sort()).toEqual(['Alex', 'Sam']);
+  });
+
+  it('is a no-op (imported: 0) when every roster name is already present, case-insensitively', async () => {
+    const created = await createOrder(minimalInput({ garments: [{ name: 'Tribute Tee' }] }));
+    const order = await getOrderAdmin(created.orderId);
+    const garmentId = order!.garments[0].id;
+    await db.insert(schema.rosterMembers).values({ orderId: created.orderId, name: 'Alex' });
+    await upsertNameListEntries(garmentId, [{ name: 'alex' }]);
+
+    const result = await importNameListFromRoster(garmentId);
+
+    expect(result.imported).toBe(0);
+    expect(result.entries).toHaveLength(1);
+  });
+
+  it('rejects when the import would exceed MAX_NAME_LIST_ENTRIES', async () => {
+    const created = await createOrder(minimalInput({ garments: [{ name: 'Tribute Tee' }] }));
+    const order = await getOrderAdmin(created.orderId);
+    const garmentId = order!.garments[0].id;
+    await upsertNameListEntries(
+      garmentId,
+      Array.from({ length: MAX_NAME_LIST_ENTRIES - 1 }, (_, i) => ({ name: `Name ${i}` })),
+    );
+    await db.insert(schema.rosterMembers).values([
+      { orderId: created.orderId, name: 'Extra One' },
+      { orderId: created.orderId, name: 'Extra Two' },
+    ]);
+
+    await expect(importNameListFromRoster(garmentId)).rejects.toThrow(NameListFullError);
   });
 });
 

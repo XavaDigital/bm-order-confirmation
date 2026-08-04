@@ -27,6 +27,11 @@ export type DomainEventType =
   | 'garment.updated'
   | 'garment.removed'
   | 'sizing.updated'
+  // "Got Your Back" name list (GOT_YOUR_BACK_PLAN.md), audit-only — same
+  // cluster as sizing.updated: staff/manager action history, not a state
+  // change a downstream outbox consumer needs to react to.
+  | 'name_list.updated'
+  | 'name_list.imported_from_roster'
   | 'mockup.added'
   | 'mockup.removed'
   | 'mockup.caption_updated'
