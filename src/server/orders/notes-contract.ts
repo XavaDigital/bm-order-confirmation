@@ -27,6 +27,12 @@ export const createOrderNoteSchema = z.object({
   garmentId: z.string().uuid().nullish(),
   /** Opt this note into the supplier portal thread. Defaults to 'internal'. */
   visibility: z.enum(['internal', 'shared']).optional(),
+  /**
+   * 'note' = an order note — a finalisation point ("sleeves 1cm shorter"),
+   * David's 2026-08-04 distinction. Defaults to 'comment', the discussion
+   * thread.
+   */
+  kind: z.enum(['comment', 'note']).optional(),
 });
 
 export const updateOrderNoteSchema = z.object({

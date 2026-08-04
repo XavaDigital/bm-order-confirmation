@@ -21,7 +21,7 @@
  */
 import { and, asc, count, desc, eq, inArray, isNull, lt, lte, or } from 'drizzle-orm';
 import { db, type Transaction } from '@/db';
-import { domainEvents, orderNotes, workflowStages } from '@/db/schema';
+import { domainEvents, workflowStages } from '@/db/schema';
 import { fireGoogleAdsConversion } from '@/server/conversions/google-ads';
 import {
   notifyStaffOfConfirmation,
@@ -230,38 +230,17 @@ async function handleHubTimelinePush(event: DomainEvent, tx: Transaction): Promi
   });
 }
 
-/**
- * Staff note → hub timeline (David's 2026-08-04 ruling: notes added to an
- * order, from the admin or the email-app relay, are visible from the MailFlow
- * order view). Reads the note through the batch tx; skips supplier and system
- * authors — supplier notes never leave this app, and system rows are imports.
- * Same no-throw stance as the lifecycle push; hub idempotency on the event id.
- */
-async function handleHubNoteTimelinePush(event: DomainEvent, tx: Transaction): Promise<void> {
-  const p = event.payload as { noteId?: string; authorKind?: string; authorLabel?: string | null };
-  if (!p.noteId || p.authorKind === 'supplier' || p.authorKind === 'system') return;
-
-  const [note] = await tx
-    .select({ body: orderNotes.body, authorLabel: orderNotes.authorLabel })
-    .from(orderNotes)
-    .where(eq(orderNotes.id, p.noteId));
-  if (!note) return; // deleted before the outbox ran — nothing to show
-
-  const { pushOrderNoteToTimeline } = await import('@/server/hub/timeline');
-  await pushOrderNoteToTimeline(event.aggregateId, {
-    body: note.body,
-    authorLabel: note.authorLabel ?? p.authorLabel ?? null,
-    externalRef: event.id,
-    occurredAt: event.createdAt,
-    executor: tx,
-  });
-}
+// NOTE deliberately absent: order notes do NOT ride the hub timeline
+// (salesflow's re-pin, fleet thread 2026-08-03/04 — "timeline is NOT the
+// transport"). MailFlow reads them via the brokered capability GET instead.
+// The comments/discussion surface for the email app is deferred by the same
+// pin — do not wire a timeline push for either without a new thread ruling.
 
 const EVENT_HANDLERS: Record<string, EventHandler[]> = {
   'order.confirmed': [handleGoogleAdsConversion, handleConfirmationEmail, handleCustomerReceiptEmail, handleHubOrderIndexSync, handleHubTimelinePush],
   'order.changes_requested': [handleChangesRequestedEmail, handleHubOrderIndexSync, handleHubTimelinePush],
   'order.color_sample_requested': [handleColorSampleRequestedEmail],
-  'order.note_added': [handleNoteAddedNotification, handleHubNoteTimelinePush],
+  'order.note_added': [handleNoteAddedNotification],
   'workflow.stage_entered': [handleStageEnteredNotification],
   'po.sent': [handlePoSentNotification, handleHubOrderIndexSync],
   'po.supplier_updated': [handlePoSupplierUpdatedNotification, handleHubOrderIndexSync],

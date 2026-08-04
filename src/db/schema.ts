@@ -322,6 +322,11 @@ export const orderNotes = confirmation.table(
     garmentId: uuid('garment_id').references(() => garments.id, { onDelete: 'cascade' }),
     body: text('body').notNull(),
     bodyHtml: text('body_html'),
+    // Two species share this table (David, 2026-08-04): 'comment' — the
+    // internal discussion thread — and 'note' — order notes proper: short
+    // finalisation points ("sleeves 1cm shorter", "numbers inside the hem")
+    // the email app needs to add AND read. Same storage, different surfaces.
+    kind: text('kind').notNull().$type<'comment' | 'note'>().default('comment'),
     authorKind: text('author_kind').notNull().$type<'staff' | 'email_flow' | 'system' | 'supplier'>(),
     authorLabel: text('author_label'), // acting-user id / staff email
     // The real actor, for notes written by a signed-in staff member. Nullable

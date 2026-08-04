@@ -18,6 +18,7 @@ import {
   garmentTypes,
   orderAccess,
   orderAssets,
+  orderNotes,
   domainEvents,
 } from '@/db/schema';
 import type { Transaction } from '@/db';
@@ -313,6 +314,8 @@ export class HubUnavailableError extends Error {
 export async function createOrder(
   input: CreateOrderInput,
   createdBy?: string,
+  /** Attribution for the relay's `notes` order-note row (not a staff uuid). */
+  opts?: { noteAuthorLabel?: string },
 ): Promise<CreateOrderResult> {
   const rawToken = generateToken();
   let createdOrderId = '';
@@ -327,9 +330,10 @@ export async function createOrder(
       }
     : await resolveCustomerFromHub(input);
 
-  // The relay's first note, folded into internal notes so nothing the
-  // salesperson typed is lost. `name` is a real column now (David,
-  // 2026-08-02) — no longer folded in here.
+  // The relay's first note becomes an ORDER NOTE row (David, 2026-08-04:
+  // composer notes are finalisation points the email app must be able to
+  // read back — no longer folded into the retired internalNotes field).
+  // `name` is a real column since 2026-08-02.
   const relayNotes = input.notes?.trim() || null;
 
   const orderNumber = await withOrderNumberRetry(async (orderNumber) => {
@@ -360,12 +364,37 @@ export async function createOrder(
         hubContactId: input.hubContactId ?? null,
         hubContactName: input.hubContactId ? customer.hubContactName : null,
         designProjectRef: input.designProjectRef ?? null,
-        ...(relayNotes && { internalNotes: relayNotes }),
       })
       .returning({ id: orders.id });
 
     const orderId = order.id;
     createdOrderId = orderId;
+
+    if (relayNotes) {
+      const [noteRow] = await tx
+        .insert(orderNotes)
+        .values({
+          orderId,
+          body: relayNotes,
+          kind: 'note',
+          authorKind: input.source === 'platform' ? 'email_flow' : 'staff',
+          authorLabel: opts?.noteAuthorLabel ?? null,
+        })
+        .returning({ id: orderNotes.id, kind: orderNotes.kind });
+      // Same event addOrderNote emits — notification dispatch hangs off it.
+      await emitOrderEvent(tx, {
+        aggregateId: orderId,
+        eventType: 'order.note_added',
+        payload: {
+          noteId: noteRow.id,
+          garmentId: null,
+          kind: noteRow.kind,
+          authorKind: input.source === 'platform' ? 'email_flow' : 'staff',
+          authorLabel: opts?.noteAuthorLabel ?? null,
+          actorEmail: null,
+        },
+      });
+    }
 
     for (const [i, g] of input.garments.entries()) {
       // A garment-type preset auto-attaches the type's size charts and

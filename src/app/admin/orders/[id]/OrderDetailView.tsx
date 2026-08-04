@@ -55,6 +55,7 @@ import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
 import { AuditLogTab } from '@/components/admin/orders/AuditLogTab';
 import { RosterPanel } from '@/components/admin/orders/RosterPanel';
 import { OrderContactPanel, type OrderContactValues } from '@/components/admin/orders/OrderContactPanel';
+import { OrderNotesPanel } from '@/components/admin/orders/OrderNotesPanel';
 import { ProductionPanel } from '@/components/admin/orders/ProductionPanel';
 import { OrderAssetsPanel } from '@/components/admin/orders/OrderAssetsPanel';
 import { DesignProjectLinkControl } from '@/components/admin/orders/DesignProjectLinkControl';
@@ -619,7 +620,16 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
           key: 'notes',
           label: noteCount === null ? 'Notes' : `Notes (${noteCount})`,
           icon: <MessageOutlined />,
-          children: notesThread,
+          children: (
+            <>
+              <SectionTitle style={{ marginBottom: 12 }}>Order notes</SectionTitle>
+              <OrderNotesPanel orderId={order.id} currentUserId={currentUserId} isAdmin={isAdmin} />
+              <SectionTitle style={{ margin: '20px 0 12px' }}>
+                Comments{noteCount !== null ? ` (${noteCount})` : ''}
+              </SectionTitle>
+              {notesThread}
+            </>
+          ),
         }]
       : []),
     {
@@ -857,8 +867,12 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
                 overflowY: 'auto',
               }}
             >
-              <SectionTitle style={{ marginBottom: 12 }}>
-                Order notes{noteCount !== null ? ` (${noteCount})` : ''}
+              {/* Order notes first — the finalisation points (David,
+                  2026-08-04) — then the discussion thread below them. */}
+              <SectionTitle style={{ marginBottom: 12 }}>Order notes</SectionTitle>
+              <OrderNotesPanel orderId={order.id} currentUserId={currentUserId} isAdmin={isAdmin} />
+              <SectionTitle style={{ margin: '20px 0 12px' }}>
+                Comments{noteCount !== null ? ` (${noteCount})` : ''}
               </SectionTitle>
               {notesThread}
             </div>

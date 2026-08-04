@@ -83,10 +83,14 @@ registry, per-request identity re-check (R2 §1.7).
 
 ## Operational
 
-- Migrations 0030–0035 pending prod as of 2026-08-04 02:00 NZT — one
+- Migrations 0030–0036 pending prod as of 2026-08-04 14:00 NZT — one
   `npm run deploy` applies them in order. (0035 adds
   `order_access.token_plain`; confirmation links generated before it is
-  live cannot display their URL until regenerated.)
+  live cannot display their URL until regenerated. 0036 adds
+  `order_notes.kind` — order notes vs comments.)
+- Cloud Build deploy-on-push: GitHub App installed (2026-08-04),
+  `cloudbuild.yaml` in repo; one-time setup runbook in
+  CLOUD_BUILD_SETUP.md needs a live `gcloud auth login` session.
 - gcloud daily-reauth: verdict due after ~16h from the 2026-08-03 14:00
   login; if it recurs, the fix is the Cloud Build deploy-on-push pipeline
   (see memory).

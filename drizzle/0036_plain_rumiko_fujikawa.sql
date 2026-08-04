@@ -1,0 +1,1 @@
+ALTER TABLE "confirmation"."order_notes" ADD COLUMN "kind" text DEFAULT 'comment' NOT NULL;

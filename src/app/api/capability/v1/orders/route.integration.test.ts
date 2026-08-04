@@ -32,7 +32,7 @@ import { env } from '@/lib/env';
 import { createOrder } from '@/server/orders/service';
 import { createOrderSchema } from '@/server/orders/contract';
 import { POST } from './route';
-import { POST as POST_NOTE } from './[id]/notes/route';
+import { POST as POST_NOTE, GET as GET_NOTES } from './[id]/notes/route';
 
 const SECRET = 'per-app-inbound-secret';
 const mutableEnv = env as { INBOUND_CAPABILITY_SECRET?: string };
@@ -179,7 +179,7 @@ describe('POST /api/capability/v1/orders/[id]/notes', () => {
     expect((await POST_NOTE(request(`/x`, { body: 'hi' }, { actingUser: null }), params)).status).toBe(400);
   });
 
-  it('adds an attributed email_flow note and emits an outbox event', async () => {
+  it('adds an attributed email_flow ORDER NOTE (kind note) and emits an outbox event', async () => {
     const created = await seedOrder();
     const res = await POST_NOTE(
       request(`/x`, { body: 'Customer emailed: hold shipment until Friday' }),
@@ -190,11 +190,15 @@ describe('POST /api/capability/v1/orders/[id]/notes', () => {
     expect(res.status).toBe(201);
     expect(json.authorKind).toBe('email_flow');
     expect(json.authorLabel).toBe('core-user-1');
+    // David's 2026-08-04 distinction: relayed notes are finalisation points,
+    // not thread comments.
+    expect(json.kind).toBe('note');
 
     const notes = await db.query.orderNotes.findMany({
       where: eq(schema.orderNotes.orderId, created.orderId),
     });
     expect(notes).toHaveLength(1);
+    expect(notes[0].kind).toBe('note');
 
     const events = await db.query.domainEvents.findMany({
       where: eq(schema.domainEvents.aggregateId, created.orderId),
@@ -207,6 +211,32 @@ describe('POST /api/capability/v1/orders/[id]/notes', () => {
       params: Promise.resolve({ id: '00000000-0000-4000-8000-000000000000' }),
     });
     expect(res.status).toBe(404);
+  });
+
+  it('GET returns the live order-notes list in an {items} envelope — comments excluded', async () => {
+    const created = await seedOrder();
+    const params = { params: Promise.resolve({ id: created.orderId }) };
+    await POST_NOTE(request(`/x`, { body: 'Sleeves 1cm shorter' }), params);
+    // A discussion comment must NOT appear on this surface.
+    const { addOrderNote } = await import('@/server/orders/notes-service');
+    await addOrderNote(created.orderId, { body: 'internal chatter', authorKind: 'staff' });
+
+    const getReq = new NextRequest('http://localhost/x', {
+      method: 'GET',
+      headers: { authorization: `Bearer ${SECRET}`, 'x-acting-user': 'core-user-1' },
+    });
+    const res = await GET_NOTES(getReq, params);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.items).toHaveLength(1);
+    expect(json.items[0]).toMatchObject({
+      body: 'Sleeves 1cm shorter',
+      authorKind: 'email_flow',
+      authorLabel: 'core-user-1',
+    });
+    expect(json.items[0].id).toBeTruthy();
+    expect(json.items[0].createdAt).toBeTruthy();
   });
 });
 
@@ -263,8 +293,19 @@ describe('POST /api/capability/v1/orders — hub relay body', () => {
       hubContactId: HUB_CONTACT,
       hubContactName: 'Jane Coach',
     });
-    // The composer's note survives in the internal notes.
-    expect(row!.internalNotes).toContain('quote by Friday');
+    // The composer's note becomes an ORDER NOTE row (David, 2026-08-04) —
+    // no longer folded into the retired internalNotes field.
+    expect(row!.internalNotes).toBeNull();
+    const notes = await db.query.orderNotes.findMany({
+      where: eq(schema.orderNotes.orderId, row!.id),
+    });
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({
+      body: 'Customer wants a quote by Friday',
+      kind: 'note',
+      authorKind: 'email_flow',
+      authorLabel: 'sam@beastmode.co.nz',
+    });
   });
 
   it('503s (and creates nothing) when the hub cannot resolve the customer — the relay retries', async () => {

@@ -38,6 +38,8 @@ export interface OrderNoteDto {
   bodyHtml: string | null;
   /** Plain text — always present, and what to show if `bodyHtml` is null. */
   body: string;
+  /** 'comment' = the discussion thread; 'note' = an order note (finalisation point). */
+  kind: 'comment' | 'note';
   authorKind: 'staff' | 'email_flow' | 'system' | 'supplier';
   authorName: string | null;
   authorEmail: string | null;
@@ -74,6 +76,7 @@ function toNoteDto(row: NoteRow): OrderNoteDto {
     garmentName: row.garment?.name ?? null,
     bodyHtml: deleted ? null : (row.bodyHtml ?? null),
     body: deleted ? '' : row.body,
+    kind: row.kind,
     authorKind: row.authorKind,
     authorName: row.author?.name ?? null,
     authorEmail: row.author?.email ?? row.authorLabel ?? null,
@@ -107,11 +110,12 @@ function scopeFilter(orderId: string, scope: NoteScope) {
 export async function listOrderNotes(
   orderId: string,
   scope: NoteScope = 'order',
-  opts?: { visibility?: 'shared' },
+  opts?: { visibility?: 'shared'; kind?: 'comment' | 'note' },
 ): Promise<OrderNoteDto[]> {
-  const where = opts?.visibility
-    ? and(scopeFilter(orderId, scope), eq(orderNotes.visibility, opts.visibility))
-    : scopeFilter(orderId, scope);
+  const conditions = [scopeFilter(orderId, scope)];
+  if (opts?.visibility) conditions.push(eq(orderNotes.visibility, opts.visibility));
+  if (opts?.kind) conditions.push(eq(orderNotes.kind, opts.kind));
+  const where = and(...conditions);
   const rows = await db.query.orderNotes.findMany({
     where,
     orderBy: [asc(orderNotes.createdAt)],
@@ -172,6 +176,8 @@ export async function addOrderNote(
      * opting in per note.
      */
     visibility?: 'internal' | 'shared';
+    /** 'note' = an order note (finalisation point); defaults to a thread comment. */
+    kind?: 'comment' | 'note';
   },
   meta?: ActorMeta,
 ): Promise<OrderNoteDto> {
@@ -194,6 +200,7 @@ export async function addOrderNote(
         garmentId: data.garmentId ?? null,
         body,
         bodyHtml,
+        kind: data.kind ?? 'comment',
         authorKind: data.authorKind,
         authorLabel: data.authorLabel ?? null,
         authorStaffUserId: meta?.actorStaffUserId ?? null,
@@ -210,6 +217,7 @@ export async function addOrderNote(
       payload: {
         noteId: row.id,
         garmentId: row.garmentId,
+        kind: row.kind,
         authorKind: data.authorKind,
         authorLabel: data.authorLabel ?? null,
         actorEmail: meta?.actorEmail ?? null,

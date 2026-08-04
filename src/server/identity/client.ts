@@ -134,6 +134,18 @@ export async function getIdentityUser(
   return (await res.json()) as IdentityUser;
 }
 
+/**
+ * Turn an acting-user UUID (the capability surface's X-Acting-User) into
+ * something a human recognises. Best-effort by design: a slow or unreachable
+ * identity service must not stop the write, so any failure falls back to the id.
+ */
+export async function resolveActingUserLabel(actingUser: string): Promise<string> {
+  if (!isIdentityConfigured()) return actingUser;
+  const user = await getIdentityUser(actingUser);
+  if (user === null || user === 'gone') return actingUser;
+  return user.name ?? user.email ?? actingUser;
+}
+
 export async function getIdentityUserByEmail(
   email: string,
 ): Promise<IdentityUser | 'gone' | null> {

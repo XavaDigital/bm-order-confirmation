@@ -25,8 +25,11 @@ export const GET = defineRoute<{ id: string }>({
       : url.searchParams.get('scope') === 'all'
         ? 'all'
         : 'order';
+    // Two surfaces, one table (David, 2026-08-04): `?kind=note` reads the
+    // order-notes list; the default reads the discussion thread.
+    const kind = url.searchParams.get('kind') === 'note' ? 'note' : 'comment';
 
-    return NextResponse.json(await listOrderNotes(params.id, scope));
+    return NextResponse.json(await listOrderNotes(params.id, scope, { kind }));
   },
 });
 
@@ -42,8 +45,10 @@ export const POST = defineRoute<{ id: string }, typeof createOrderNoteSchema._ty
         garmentId: body.garmentId ?? null,
         authorKind: 'staff',
         authorLabel: session!.email,
-        isHtml: true,
+        // Order notes are typed as plain text; the thread composer sends HTML.
+        isHtml: body.kind !== 'note',
         visibility: body.visibility,
+        kind: body.kind,
       },
       { actorEmail: session!.email, actorStaffUserId: session!.userId },
     );

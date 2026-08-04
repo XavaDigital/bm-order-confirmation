@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createOrder, getOrderByExternalRef } from '@/server/orders/service';
 import { createOrderSchema } from '@/server/orders/contract';
 import { defineRoute } from '@/lib/route-handler';
+import { resolveActingUserLabel } from '@/server/identity/client';
 import { env } from '@/lib/env';
 
 /**
@@ -36,7 +37,7 @@ export const POST = defineRoute<Record<string, never>, typeof createOrderSchema.
   auth: 'capability',
   tag: 'capability/orders POST',
   schema: createOrderSchema,
-  handler: async ({ body }) => {
+  handler: async ({ body, actingUser }) => {
     // Idempotency: replays with the same externalRef return the existing order
     // (200). The original magic-link token cannot be re-derived (stored hashed).
     if (body.externalRef) {
@@ -49,7 +50,12 @@ export const POST = defineRoute<Record<string, never>, typeof createOrderSchema.
       }
     }
 
-    const result = await createOrder({ ...body, source: 'platform' });
+    // The composer's note becomes an attributed order note (David,
+    // 2026-08-04) — resolve the actor's name for its byline. createdBy stays
+    // unset: it is a staff_users uuid, and the acting user is a hub identity.
+    const result = await createOrder({ ...body, source: 'platform' }, undefined, {
+      noteAuthorLabel: body.notes ? await resolveActingUserLabel(actingUser!) : undefined,
+    });
     return NextResponse.json(
       orderResponse(result.orderId, result.orderNumber, true),
       { status: 201 },

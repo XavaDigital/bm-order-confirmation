@@ -16,7 +16,6 @@ vi.mock('@/server/orders/notifications', () => ({
 }));
 vi.mock('@/server/hub/timeline', () => ({
   pushOrderTimelineEvent: vi.fn(),
-  pushOrderNoteToTimeline: vi.fn(),
 }));
 
 import { db } from '@/db';
@@ -29,18 +28,12 @@ import {
   notifyStaffOfChangeRequest,
   notifyCustomerOfConfirmation,
 } from '@/server/orders/notifications';
-import { pushOrderNoteToTimeline } from '@/server/hub/timeline';
-import { createOrder } from '@/server/orders/service';
-import { createOrderSchema } from '@/server/orders/contract';
-import { addOrderNote } from '@/server/orders/notes-service';
-
 afterEach(async () => {
   await resetTestDb(db);
   vi.mocked(fireGoogleAdsConversion).mockReset();
   vi.mocked(notifyStaffOfConfirmation).mockReset();
   vi.mocked(notifyStaffOfChangeRequest).mockReset();
   vi.mocked(notifyCustomerOfConfirmation).mockReset();
-  vi.mocked(pushOrderNoteToTimeline).mockReset();
 });
 
 const FAKE_ORDER_ID = '11111111-1111-1111-1111-111111111111';
@@ -140,66 +133,6 @@ describe('processOutbox', () => {
 
     const row = await db.query.domainEvents.findFirst({ where: eq(schema.domainEvents.id, event.id) });
     expect(row!.status).toBe('delivered');
-  });
-
-  // Staff note → hub timeline (David's 2026-08-04 ruling: notes on an order,
-  // from either app, are visible from the MailFlow order view).
-  describe('order.note_added → hub timeline push', () => {
-    function orderInput() {
-      return createOrderSchema.parse({
-        customer: { name: 'Jane Coach', email: 'jane@example.com' },
-        garments: [{ name: 'Home Jersey' }],
-      });
-    }
-
-    it('pushes a staff note to the timeline with the outbox event id as externalRef', async () => {
-      const created = await createOrder(orderInput());
-      const note = await addOrderNote(created.orderId, {
-        body: 'Chased the artwork approval today.',
-        authorKind: 'staff',
-        authorLabel: 'David Baird',
-      });
-
-      await processOutbox();
-
-      expect(pushOrderNoteToTimeline).toHaveBeenCalledTimes(1);
-      const [orderId, opts] = vi.mocked(pushOrderNoteToTimeline).mock.calls[0];
-      expect(orderId).toBe(created.orderId);
-      expect(opts.body).toBe('Chased the artwork approval today.');
-      expect(opts.authorLabel).toBe('David Baird');
-      const event = await db.query.domainEvents.findFirst({
-        where: eq(schema.domainEvents.eventType, 'order.note_added'),
-      });
-      expect(opts.externalRef).toBe(event!.id);
-      expect(note.id).toBeTruthy();
-    });
-
-    it('never pushes supplier-authored notes', async () => {
-      const created = await createOrder(orderInput());
-      await addOrderNote(created.orderId, {
-        body: 'Fabric is on backorder.',
-        authorKind: 'supplier',
-        authorLabel: 'Supplier Co',
-      });
-
-      await processOutbox();
-
-      expect(pushOrderNoteToTimeline).not.toHaveBeenCalled();
-    });
-
-    it('is a no-op when the note was deleted before the outbox ran', async () => {
-      const created = await createOrder(orderInput());
-      const note = await addOrderNote(created.orderId, {
-        body: 'Short-lived note.',
-        authorKind: 'staff',
-      });
-      await db.delete(schema.orderNotes).where(eq(schema.orderNotes.id, note.id));
-
-      const result = await processOutbox();
-
-      expect(pushOrderNoteToTimeline).not.toHaveBeenCalled();
-      expect(result.failed).toBe(0);
-    });
   });
 
   it('marks the event failed if one handler rejects, but still runs the other handler (no short-circuit)', async () => {

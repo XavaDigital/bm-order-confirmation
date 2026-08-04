@@ -253,6 +253,13 @@
       "when": 1785765001866,
       "tag": "0035_late_the_stranger",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1785806697887,
+      "tag": "0036_plain_rumiko_fujikawa",
+      "breakpoints": true
     }
   ]
 }
