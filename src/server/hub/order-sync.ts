@@ -16,53 +16,14 @@
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import type { Transaction } from '@/db';
-import { orders, purchaseOrders } from '@/db/schema';
-import { env } from '@/lib/env';
+import { orders } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { isHubConfigured, patchHubOrder, registerHubOrder } from './client';
-import { aggregateProductionStatus } from '@/server/purchase-orders/hub-sync';
+import { buildOrderIndexRows } from './index-row';
 
-/**
- * The pinned chip vocabulary (fleet thread):
- * draft | sent | viewed | changes_requested | confirmed | in_production |
- * completed | cancelled.
- */
-export type OrderIndexChip =
-  | 'draft'
-  | 'sent'
-  | 'viewed'
-  | 'changes_requested'
-  | 'confirmed'
-  | 'in_production'
-  | 'completed'
-  | 'cancelled';
-
-/**
- * Map order status + PO statuses onto the display chip.
- *
- * The order enum verbatim until `confirmed`; once confirmed, the aggregate
- * production status takes over — least-advanced non-cancelled PO wins, so
- * `completed` is only reachable when every PO is. Aggregate stages before
- * production starts still read `confirmed` (POs being drafted is not
- * "in production" to a salesperson), and everything from pre-production to
- * received reads `in_production` — the CRM chip answers "where is it", not
- * "which internal stage".
- */
-export function orderIndexChip(orderStatus: string, poStatuses: string[]): OrderIndexChip | null {
-  if (orderStatus !== 'confirmed') {
-    const direct = ['draft', 'sent', 'viewed', 'changes_requested', 'cancelled'];
-    return direct.includes(orderStatus) ? (orderStatus as OrderIndexChip) : null;
-  }
-
-  const aggregate = aggregateProductionStatus(poStatuses);
-  if (aggregate === null) return 'confirmed'; // no active POs yet
-  if (aggregate === 'completed') return 'completed';
-  if (['pre_production', 'in_production', 'in_transit', 'received'].includes(aggregate)) {
-    return 'in_production';
-  }
-  // POs exist but are still draft/sent/confirmed — production has not started.
-  return 'confirmed';
-}
+// The chip logic lives with the serializer now (fleet standard §7) — re-export
+// so existing importers (and their tests) keep working.
+export { orderIndexChip, type OrderIndexChip } from './index-row';
 
 /**
  * Push one order's snapshot to the hub index. Never throws unless `strict` —
@@ -87,38 +48,24 @@ export async function syncOrderIndexToHub(
     // can be off (standalone) and legacy rows exist. Nothing to index under.
     if (!order.hubCustomerId) return;
 
-    const pos = await ex
-      .select({ status: purchaseOrders.status })
-      .from(purchaseOrders)
-      .where(eq(purchaseOrders.orderId, orderId));
-
-    const chip = orderIndexChip(order.status, pos.map((p) => p.status));
-    if (chip === null) {
-      logger.warn('[hub/order-sync] unmapped status — pushing nothing rather than lying', {
-        orderId,
-        status: order.status,
-      });
-      return;
-    }
-
-    const url = `${env.APP_BASE_URL}/admin/orders/${order.id}`;
-    // David's ruling: value is ungated on the CRM.
-    const orderValue = order.orderValueAmount !== null ? Number(order.orderValueAmount) : null;
-    const currency = order.orderValueCurrency ?? (orderValue !== null ? 'NZD' : null);
+    // One serializer for push AND the full-state repair GET (fleet standard
+    // §7) — the row here is byte-identical to what read-repair would fetch.
+    const [row] = await buildOrderIndexRows([order], opts.executor);
 
     if (!order.hubOrderId) {
       const hubOrderId = await registerHubOrder({
         customerId: order.hubCustomerId,
         contactId: order.hubContactId ?? null,
-        orderNumber: order.orderNumber,
+        orderNumber: row.orderNumber,
         // The hub row's display label — the order's own name when staff gave
         // it one, else the org/club, else the person.
-        name: order.name ?? order.clubName ?? order.customerName,
-        status: chip,
-        orderValue,
-        currency,
-        externalId: order.id,
-        url,
+        name: row.name,
+        status: row.status,
+        orderValue: row.orderValue,
+        currency: row.currency,
+        externalId: row.externalId,
+        url: row.url,
+        pos: row.pos,
       });
       if (!hubOrderId) {
         if (opts.strict) throw new Error('hub order registration failed');
@@ -131,11 +78,12 @@ export async function syncOrderIndexToHub(
     }
 
     const ok = await patchHubOrder(order.hubOrderId, {
-      status: chip,
-      orderValue,
-      currency,
-      url,
-      orderNumber: order.orderNumber,
+      status: row.status,
+      orderValue: row.orderValue,
+      currency: row.currency,
+      url: row.url,
+      orderNumber: row.orderNumber,
+      pos: row.pos,
       // A PATCH name is an explicit rename hub-side (salesflow, 2026-08-02),
       // so only the order's OWN name goes — never the club/customer fallback,
       // which would clobber a composer-typed name on the index row.

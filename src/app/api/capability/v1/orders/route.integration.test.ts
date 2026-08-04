@@ -31,8 +31,9 @@ import * as schema from '@/db/schema';
 import { env } from '@/lib/env';
 import { createOrder } from '@/server/orders/service';
 import { createOrderSchema } from '@/server/orders/contract';
-import { POST } from './route';
+import { POST, GET } from './route';
 import { POST as POST_NOTE, GET as GET_NOTES } from './[id]/notes/route';
+import { createPurchaseOrder, updatePurchaseOrderStatus } from '@/server/purchase-orders/service';
 
 const SECRET = 'per-app-inbound-secret';
 const mutableEnv = env as { INBOUND_CAPABILITY_SECRET?: string };
@@ -154,6 +155,90 @@ describe('POST /api/capability/v1/orders', () => {
       where: eq(schema.orders.externalRef, 'EMAILFLOW-CARD-42'),
     });
     expect(count).toHaveLength(1);
+  });
+});
+
+describe('GET /api/capability/v1/orders?customerId= (full-state index rows for read-repair)', () => {
+  const HUB_CUSTOMER = '7d9a1a10-2c3b-4d5e-8f90-aa11bb22cc33';
+
+  function getRequest(customerId: string | null, opts: { secret?: string | null } = {}) {
+    const headers: Record<string, string> = {};
+    const secret = opts.secret === undefined ? SECRET : opts.secret;
+    if (secret !== null) headers.authorization = `Bearer ${secret}`;
+    const qs = customerId === null ? '' : `?customerId=${encodeURIComponent(customerId)}`;
+    return new NextRequest(`http://localhost/api/capability/v1/orders${qs}`, { headers });
+  }
+
+  async function seedHubOrder() {
+    const created = await createOrder(
+      createOrderSchema.parse({
+        customer: { name: 'Jane Coach', email: 'jane@example.com', clubName: 'Wildcats' },
+        garments: [{ name: 'Jersey', sizing: [{ size: 'M', playerName: 'Alice' }] }],
+      }),
+    );
+    await db
+      .update(schema.orders)
+      .set({ hubCustomerId: HUB_CUSTOMER })
+      .where(eq(schema.orders.id, created.orderId));
+    return created;
+  }
+
+  it('requires auth and a customerId', async () => {
+    expect((await GET(getRequest(HUB_CUSTOMER, { secret: 'bad' }))).status).toBe(401);
+    expect((await GET(getRequest(null))).status).toBe(400);
+  });
+
+  it('returns the full-state rows with the staff-only PO summary block', async () => {
+    const created = await seedHubOrder();
+    const [supplier] = await db
+      .insert(schema.suppliers)
+      .values({ name: 'Vast Apparel', supplierCode: 'VA' })
+      .returning();
+    const garment = await db.query.garments.findFirst({
+      where: eq(schema.garments.orderId, created.orderId),
+    });
+    const po = await createPurchaseOrder({
+      orderId: created.orderId,
+      supplierId: supplier.id,
+      garmentIds: [garment!.id],
+      expectedShipDate: '2026-09-15',
+    });
+    await updatePurchaseOrderStatus(po.id, 'sent');
+
+    const res = await GET(getRequest(HUB_CUSTOMER));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.items).toHaveLength(1);
+    const row = json.items[0];
+    expect(row).toMatchObject({
+      externalId: created.orderId,
+      orderNumber: created.orderNumber,
+      name: 'Wildcats', // no order name — falls back to the club label
+      status: 'draft',
+      url: expect.stringContaining(`/admin/orders/${created.orderId}`),
+    });
+    expect(row.pos).toHaveLength(1);
+    expect(row.pos[0]).toMatchObject({
+      id: po.id,
+      poNumber: po.poNumber,
+      status: 'sent',
+      expectedShipDate: '2026-09-15',
+      supplierName: 'Vast Apparel',
+    });
+    // History: born draft, then the sent transition, oldest first.
+    expect(row.pos[0].statusHistory.map((h: { status: string }) => h.status)).toEqual([
+      'draft',
+      'sent',
+    ]);
+  });
+
+  it('returns an empty list for a customer with no orders (full-state truth, not 404)', async () => {
+    await seedHubOrder();
+    const res = await GET(getRequest('00000000-0000-4000-8000-00000000dead'));
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.items).toEqual([]);
   });
 });
 

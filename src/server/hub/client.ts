@@ -304,6 +304,8 @@ export async function registerHubOrder(input: {
   currency?: string | null;
   externalId: string;
   url: string;
+  /** PO summaries (David, 2026-08-04) — staff-only; hub zod strips until adopted. */
+  pos?: import('./index-row').PoSummary[];
 }): Promise<string | null> {
   const res = await call('/orders', {
     method: 'POST',
@@ -333,6 +335,8 @@ export async function patchHubOrder(
     orderNumber?: string;
     /** An explicit rename of the index row (hub accepts since bm-sales 00060). */
     name?: string;
+    /** PO summaries (David, 2026-08-04) — staff-only; hub zod strips until adopted. */
+    pos?: import('./index-row').PoSummary[];
   },
 ): Promise<boolean> {
   const res = await call(`/orders/${encodeURIComponent(hubOrderId)}`, {

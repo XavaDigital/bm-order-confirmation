@@ -39,6 +39,10 @@ export const POST = defineRoute<{ id: string }, typeof noteSchema._type>({
  */
 export const GET = defineRoute<{ id: string }>({
   auth: 'capability',
+  // The hub's read-repair engine calls this without a human actor
+  // (FLEET_STANDARD_ANNOTATIONS §6); the brokered relay still forwards
+  // X-Acting-User when a person is behind the read.
+  actingUserOptional: true,
   tag: 'capability/orders/[id]/notes GET',
   handler: async ({ params }) => {
     const notes = await listOrderNotes(params.id, 'all', { kind: 'note' });

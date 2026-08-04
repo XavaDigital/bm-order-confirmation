@@ -66,6 +66,13 @@ export interface RouteContext<P, B> {
 
 interface RouteConfig<P, B> {
   auth: AuthMode;
+  /**
+   * Capability routes require X-Acting-User by default (attribution for
+   * writes). System-initiated READS — the hub's read-repair engine
+   * (FLEET_STANDARD_ANNOTATIONS §6) — have no human actor; a full-state GET
+   * sets this to false. Never relax it on a mutation.
+   */
+  actingUserOptional?: boolean;
   /** Short logger tag, e.g. 'garment-types POST'. */
   tag: string;
   schema?: ZodType<B, ZodTypeDef, unknown>;
@@ -146,7 +153,7 @@ export function defineRoute<P = Record<string, never>, B = undefined>(
         }
         if (auth === 'unauthorized') return unauthorized();
         actingUser = request.headers.get('x-acting-user');
-        if (!actingUser) {
+        if (!actingUser && !config.actingUserOptional) {
           return NextResponse.json(
             { error: 'X-Acting-User header is required' },
             { status: 400 },

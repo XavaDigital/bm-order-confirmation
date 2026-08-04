@@ -3,6 +3,7 @@ import { createOrder, getOrderByExternalRef } from '@/server/orders/service';
 import { createOrderSchema } from '@/server/orders/contract';
 import { defineRoute } from '@/lib/route-handler';
 import { resolveActingUserLabel } from '@/server/identity/client';
+import { listOrderIndexRowsForCustomer } from '@/server/hub/index-row';
 import { env } from '@/lib/env';
 
 /**
@@ -32,6 +33,29 @@ function orderResponse(orderId: string, orderNumber: string, created: boolean) {
     existing: !created,
   };
 }
+
+/**
+ * Full-state orders-by-customer list (FLEET_STANDARD_ANNOTATIONS §4/§6): the
+ * read-repair source for the hub's orders index. Serves the SAME serializer
+ * as the push (§7), including the staff-only PO summary block (David,
+ * 2026-08-04). Absence of a previously-seen row means it no longer belongs
+ * to this customer (re-stamp after a merge) — diff-apply removes it;
+ * cancellation is a status, never an absence.
+ */
+export const GET = defineRoute<Record<string, never>>({
+  auth: 'capability',
+  // Read-repair is system-initiated — there is no human actor to attribute.
+  actingUserOptional: true,
+  tag: 'capability/orders GET',
+  handler: async ({ request }) => {
+    const hubCustomerId = new URL(request.url).searchParams.get('customerId');
+    if (!hubCustomerId) {
+      return NextResponse.json({ error: 'customerId is required' }, { status: 400 });
+    }
+    const items = await listOrderIndexRowsForCustomer(hubCustomerId);
+    return NextResponse.json({ items });
+  },
+});
 
 export const POST = defineRoute<Record<string, never>, typeof createOrderSchema._type>({
   auth: 'capability',
