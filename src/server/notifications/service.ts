@@ -60,7 +60,7 @@ export async function sendOrderConfirmationLink(
    */
   if (!order.customerEmail || !order.customerName) {
     throw new ConflictError(
-      'Add a contact name and email under "Order page contact & branding" before sending the order page.',
+      'Add a contact name and email under "Order page contact & branding" (in the Team order page section) before sending the order page.',
     );
   }
 

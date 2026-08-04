@@ -7,7 +7,7 @@ import { RosterPageView } from './view';
 export const dynamic = 'force-dynamic';
 
 // Short typeable URLs still shouldn't be indexed.
-export const metadata = { title: 'Team Roster', robots: { index: false, follow: false } };
+export const metadata = { title: 'Team Order', robots: { index: false, follow: false } };
 
 type Props = {
   params: Promise<{ orderNumber: string }>;
@@ -15,7 +15,8 @@ type Props = {
 };
 
 /**
- * The short-URL team roster page: /roster/<order-number> (David, 2026-08-03).
+ * The short-URL team order page: /team/<order-number> (David, 2026-08-04;
+ * formerly /roster/, no redirect — active dev, no backwards compatibility).
  * Enabled per order by staff; gated by the page password or a staff-shared
  * ?t= token link; identified by guest email.
  */

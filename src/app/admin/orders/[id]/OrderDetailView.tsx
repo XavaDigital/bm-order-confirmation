@@ -54,6 +54,7 @@ import { ShareLinkPanel } from '@/components/admin/orders/ShareLinkPanel';
 import { OrderStatusBadge } from '@/components/admin/orders/OrderStatusBadge';
 import { AuditLogTab } from '@/components/admin/orders/AuditLogTab';
 import { RosterPanel } from '@/components/admin/orders/RosterPanel';
+import { OrderContactPanel, type OrderContactValues } from '@/components/admin/orders/OrderContactPanel';
 import { ProductionPanel } from '@/components/admin/orders/ProductionPanel';
 import { OrderAssetsPanel } from '@/components/admin/orders/OrderAssetsPanel';
 import { DesignProjectLinkControl } from '@/components/admin/orders/DesignProjectLinkControl';
@@ -194,11 +195,15 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
   // The order name lives above the form (very top of the details page —
   // David, 2026-08-04), so it is plain state rather than an antd form field.
   const [orderName, setOrderName] = useState(order.name ?? '');
-  const initialValues: Partial<OrderFormValues> = {
+  // Contact & branding live in the Team order page section (David, 2026-08-04)
+  // and save independently of the Details form.
+  const [contact, setContact] = useState<OrderContactValues>({
     customerName: order.customerName,
     customerEmail: order.customerEmail,
-    customerContact: order.customerContact ?? undefined,
-    clubName: order.clubName ?? undefined,
+    customerContact: order.customerContact ?? null,
+    clubName: order.clubName ?? null,
+  });
+  const initialValues: Partial<OrderFormValues> = {
     orderValueAmount: order.orderValueAmount ? Number(order.orderValueAmount) : undefined,
     orderValueCurrency: order.orderValueCurrency ?? 'NZD',
     invoiceUrl: order.invoiceUrl ?? undefined,
@@ -222,10 +227,8 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
       const body = {
         // '' (a cleared input) means "remove the name" — the schema wants null.
         name: orderName.trim() || null,
-        customerName: payload.customerName,
-        customerEmail: payload.customerEmail,
-        customerContact: payload.customerContact ?? null,
-        clubName: payload.clubName ?? null,
+        // Contact fields are deliberately NOT sent — they live in the Team
+        // order page section (OrderContactPanel) and save there.
         orderValueAmount: payload.orderValueAmount != null ? Number(payload.orderValueAmount) : null,
         orderValueCurrency: payload.orderValueCurrency,
         invoiceUrl: payload.invoiceUrl ?? null,
@@ -274,7 +277,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
       setTokenCreatedAt(new Date().toISOString());
       setActiveLinkUrl(sent.url);
       setShareLinkVersion((v) => v + 1);
-      message.success(`Link emailed to ${order.customerEmail}`);
+      message.success(`Link emailed to ${contact.customerEmail}`);
     } catch (err) {
       if (err instanceof ApiError && err.status === 503) {
         message.error('Email delivery is not configured on this server.');
@@ -482,7 +485,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
               }
             }}
           />
-          <OrderForm form={form} initialValues={initialValues} hubLinked={hubCustomer !== null} />
+          <OrderForm form={form} initialValues={initialValues} hubLinked={hubCustomer !== null} hideContactFields />
           {/* The internal-notes textarea moved to the attributed notes thread
               (right rail / Notes tab) — one place to write, with who and when.
               Legacy text saved here before the change shows above the thread. */}
@@ -553,7 +556,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
         <ShareLinkPanel
           key={shareLinkVersion}
           orderId={order.id}
-          customerEmail={order.customerEmail}
+          customerEmail={contact.customerEmail}
           hasActiveToken={hasActiveToken}
           tokenCreatedAt={tokenCreatedAt}
           initialUrl={activeLinkUrl}
@@ -569,9 +572,19 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
     },
     {
       key: 'roster',
-      label: 'Team Roster',
+      label: 'Team order page',
       icon: <TeamOutlined />,
-      children: <RosterPanel orderId={order.id} customerEmail={order.customerEmail} />,
+      children: (
+        <Space direction="vertical" size={24} style={{ width: '100%' }}>
+          <OrderContactPanel
+            orderId={order.id}
+            initial={contact}
+            hubLinked={hubCustomer !== null}
+            onSaved={setContact}
+          />
+          <RosterPanel orderId={order.id} customerEmail={contact.customerEmail} />
+        </Space>
+      ),
     },
     {
       key: 'files',
@@ -756,7 +769,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
           <Space>
             {RESENDABLE_STATUSES.has(currentStatus) && (
               <Tooltip
-                title={`Generates a fresh link and emails it to ${order.customerEmail} — this invalidates the current link the customer may already have`}
+                title={`Generates a fresh link and emails it to ${contact.customerEmail} — this invalidates the current link the customer may already have`}
               >
                 <Button icon={<MailOutlined />} loading={resending} onClick={resendLink}>
                   Resend link

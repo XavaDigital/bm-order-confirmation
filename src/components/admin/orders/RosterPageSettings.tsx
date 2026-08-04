@@ -86,7 +86,7 @@ export function RosterPageSettings({
       showIcon
       message={
         <Space wrap size={12}>
-          <span>Team roster page</span>
+          <span>Team order page</span>
           <Switch
             checked={settings.enabled}
             loading={saving}

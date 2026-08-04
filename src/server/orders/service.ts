@@ -1366,12 +1366,14 @@ export async function clearOrderAccessCode(
  * writes the orders row.
  */
 /**
- * The short URL drops the OC- prefix (David: /roster/10023) — sequential
+ * The short URL drops the OC- prefix (David: /team/10023) — sequential
  * numbers shorten to their digits; legacy random numbers stay verbatim.
+ * /team/ replaced /roster/ (David, 2026-08-04); no redirect from the old
+ * path — still in active dev, no backwards compatibility.
  */
 function rosterPageUrl(orderNumber: string): string {
   const bare = /^OC-(\d+)$/.exec(orderNumber)?.[1] ?? orderNumber;
-  return `${env.APP_BASE_URL}/roster/${encodeURIComponent(bare)}`;
+  return `${env.APP_BASE_URL}/team/${encodeURIComponent(bare)}`;
 }
 
 export async function setRosterPage(

@@ -33,6 +33,12 @@ interface Props {
    * email at send time. Standalone orders (no hub) keep the old rules.
    */
   hubLinked?: boolean;
+  /**
+   * The edit view hosts the contact/branding fields in the Team order page
+   * section instead (David, 2026-08-04) — this hides them here. The new-order
+   * form keeps them inline.
+   */
+  hideContactFields?: boolean;
 }
 
 const CURRENCY_OPTIONS = [
@@ -47,7 +53,7 @@ const SHIPPING_OPTIONS = [
   { value: 'later', label: 'Provide later' },
 ];
 
-export function OrderForm({ initialValues, form, disabled, hubLinked = false }: Props) {
+export function OrderForm({ initialValues, form, disabled, hubLinked = false, hideContactFields = false }: Props) {
   const defaults: Partial<OrderFormValues> = {
     orderValueCurrency: 'NZD',
     shippingMode: 'prefilled',
@@ -71,42 +77,46 @@ export function OrderForm({ initialValues, form, disabled, hubLinked = false }: 
     >
       {/* The order NAME renders above this form in the page layout (David,
           2026-08-04: very top of the details page) — the parents own it. */}
-      <SectionTitle>Order page contact &amp; branding</SectionTitle>
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 13 }}>
-        Shown on the customer-facing order page and used to email the link.
-        {hubLinked
-          ? ' Optional — left blank, these fill from the linked CRM customer and contact; they must be set before the order page is sent.'
-          : ''}
-      </Typography.Paragraph>
+      {!hideContactFields && (
+        <>
+          <SectionTitle>Order page contact &amp; branding</SectionTitle>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 13 }}>
+            Shown on the customer-facing order page and used to email the link.
+            {hubLinked
+              ? ' Optional — left blank, these fill from the linked CRM customer and contact; they must be set before the order page is sent.'
+              : ''}
+          </Typography.Paragraph>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-        <Form.Item
-          name="customerName"
-          label="Contact Name"
-          rules={[{ required: !hubLinked, message: 'Required' }]}
-        >
-          <Input placeholder={hubLinked ? 'From CRM contact' : 'Jane Smith'} />
-        </Form.Item>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+            <Form.Item
+              name="customerName"
+              label="Contact Name"
+              rules={[{ required: !hubLinked, message: 'Required' }]}
+            >
+              <Input placeholder={hubLinked ? 'From CRM contact' : 'Jane Smith'} />
+            </Form.Item>
 
-        <Form.Item
-          name="customerEmail"
-          label="Email"
-          rules={[
-            { required: !hubLinked, message: 'Required' },
-            { type: 'email', message: 'Enter a valid email' },
-          ]}
-        >
-          <Input placeholder={hubLinked ? 'From CRM contact' : 'jane@teamclub.co.nz'} />
-        </Form.Item>
+            <Form.Item
+              name="customerEmail"
+              label="Email"
+              rules={[
+                { required: !hubLinked, message: 'Required' },
+                { type: 'email', message: 'Enter a valid email' },
+              ]}
+            >
+              <Input placeholder={hubLinked ? 'From CRM contact' : 'jane@teamclub.co.nz'} />
+            </Form.Item>
 
-        <Form.Item name="customerContact" label="Contact / Phone">
-          <Input placeholder="+64 21 000 000" />
-        </Form.Item>
+            <Form.Item name="customerContact" label="Contact / Phone">
+              <Input placeholder="+64 21 000 000" />
+            </Form.Item>
 
-        <Form.Item name="clubName" label="Club / Team Name">
-          <Input placeholder="Westside FC" />
-        </Form.Item>
-      </div>
+            <Form.Item name="clubName" label="Club / Team Name">
+              <Input placeholder="Westside FC" />
+            </Form.Item>
+          </div>
+        </>
+      )}
 
       <SectionTitle>Order Details</SectionTitle>
 
