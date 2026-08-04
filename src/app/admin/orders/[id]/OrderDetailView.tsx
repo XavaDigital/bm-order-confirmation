@@ -26,7 +26,6 @@ import {
   DeleteOutlined,
   SaveOutlined,
   FilePdfOutlined,
-  MailOutlined,
   LockOutlined,
   CopyOutlined,
   StopOutlined,
@@ -45,7 +44,7 @@ import Link from 'next/link';
 import { formatDateTime } from '@/lib/format';
 import { SEMANTIC } from '@/lib/semantic-colors';
 import { useRouter } from 'next/navigation';
-import { ApiError, deleteJson, patchJson, postJson } from '@/lib/api-fetch';
+import { deleteJson, patchJson, postJson } from '@/lib/api-fetch';
 import { OrderForm, toApiPayload, type OrderFormValues } from '@/components/admin/orders/OrderForm';
 import { GarmentsMasterDetail } from '@/components/admin/orders/GarmentsMasterDetail';
 import { CustomerHubSelect, type HubCustomerPick } from '@/components/admin/orders/CustomerHubSelect';
@@ -136,7 +135,6 @@ export interface AdminOrderData {
   } | null;
 }
 
-const RESENDABLE_STATUSES = new Set(['sent', 'viewed', 'changes_requested']);
 const CANCELLABLE_STATUSES = new Set(['sent', 'viewed', 'changes_requested']);
 
 interface Props {
@@ -166,7 +164,6 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
   const [form] = Form.useForm<OrderFormValues>();
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [resending, setResending] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [reprintOpen, setReprintOpen] = useState(false);
   const [isReprint, setIsReprint] = useState(true);
@@ -188,9 +185,10 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
   // The URL is staff-readable at rest (David, 2026-08-04) — like the roster
   // page URL, it never disappears after generation.
   const [activeLinkUrl, setActiveLinkUrl] = useState(order.currentAccess?.url ?? null);
-  // Bumped whenever the header's "Resend link" action changes the token, forcing
-  // ShareLinkPanel to remount and pick up the new hasActiveToken/tokenCreatedAt props
-  // (it otherwise only reads them once, on its own initial mount).
+  // Bumped when an action outside the panel changes the token (cancelling the
+  // order revokes it), forcing ShareLinkPanel to remount and pick up the new
+  // hasActiveToken/tokenCreatedAt props (it otherwise only reads them once, on
+  // its own initial mount).
   const [shareLinkVersion, setShareLinkVersion] = useState(0);
 
   // The order name lives above the form (very top of the details page —
@@ -263,30 +261,6 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
     } catch (err: unknown) {
       message.error(err instanceof Error ? err.message : 'Failed to delete order');
       setDeleting(false);
-    }
-  }
-
-  async function resendLink() {
-    setResending(true);
-    try {
-      const sent = await postJson<{ ok: boolean; url: string }>(
-        `/api/admin/orders/${order.id}/send-link`,
-        undefined,
-        'Failed to send email',
-      );
-      setHasActiveToken(true);
-      setTokenCreatedAt(new Date().toISOString());
-      setActiveLinkUrl(sent.url);
-      setShareLinkVersion((v) => v + 1);
-      message.success(`Link emailed to ${contact.customerEmail}`);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 503) {
-        message.error('Email delivery is not configured on this server.');
-        return;
-      }
-      message.error(err instanceof Error ? err.message : 'Failed to send email');
-    } finally {
-      setResending(false);
     }
   }
 
@@ -777,15 +751,6 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
         )}
         <div style={{ marginLeft: 'auto' }}>
           <Space>
-            {RESENDABLE_STATUSES.has(currentStatus) && (
-              <Tooltip
-                title={`Generates a fresh link and emails it to ${contact.customerEmail} — this invalidates the current link the customer may already have`}
-              >
-                <Button icon={<MailOutlined />} loading={resending} onClick={resendLink}>
-                  Resend link
-                </Button>
-              </Tooltip>
-            )}
             {currentStatus === 'confirmed' && (
               <Button
                 icon={<FilePdfOutlined />}

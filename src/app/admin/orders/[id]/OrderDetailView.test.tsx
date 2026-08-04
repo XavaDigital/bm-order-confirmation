@@ -331,36 +331,11 @@ describe('OrderDetailView', () => {
     expect(screen.queryByRole('button', { name: /delete order/i })).not.toBeInTheDocument();
   });
 
-  it('shows Resend link for a resendable status and emails a fresh link on click', async () => {
-    const user = userEvent.setup();
-    const { fetchMock } = installMockFetch([
-      { match: '/api/admin/orders/order-1/send-link', method: 'POST', response: {} },
-    ]);
+  // "Resend link" was removed from the header (David, 2026-08-05) — sending
+  // and re-sending the customer link lives solely on the Confirmation Link
+  // tab (ShareLinkPanel), which has its own tests.
+  it('does not show a Resend link button in the header', () => {
     renderView(baseOrder({ status: 'sent' }));
-
-    await user.click(screen.getByRole('button', { name: /resend link/i }));
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/admin/orders/order-1/send-link',
-      expect.objectContaining({ method: 'POST' }),
-    );
-    expect(await screen.findByText('Link emailed to jane@example.com')).toBeInTheDocument();
-  });
-
-  it('shows a "not configured" message when resending on a 503 without throwing', async () => {
-    const user = userEvent.setup();
-    installMockFetch([
-      { match: '/api/admin/orders/order-1/send-link', method: 'POST', status: 503, response: {} },
-    ]);
-    renderView(baseOrder({ status: 'sent' }));
-
-    await user.click(screen.getByRole('button', { name: /resend link/i }));
-
-    expect(await screen.findByText('Email delivery is not configured on this server.')).toBeInTheDocument();
-  });
-
-  it('does not show Resend link for a draft or confirmed order', () => {
-    renderView(baseOrder({ status: 'draft' }));
     expect(screen.queryByRole('button', { name: /resend link/i })).not.toBeInTheDocument();
   });
 
