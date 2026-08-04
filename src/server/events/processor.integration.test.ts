@@ -152,7 +152,7 @@ describe('processOutbox', () => {
       });
     }
 
-    it('pushes an order note (kind note) with the outbox event id as externalRef', async () => {
+    it('pushes an order note (kind note) keyed on the ROW uuid, with the event id as pushRef', async () => {
       const created = await createOrder(orderInput());
       const note = await addOrderNote(created.orderId, {
         body: 'Sleeves 1cm shorter.',
@@ -164,15 +164,67 @@ describe('processOutbox', () => {
       await processOutbox();
 
       expect(pushOrderNoteToTimeline).toHaveBeenCalledTimes(1);
-      const [orderId, opts] = vi.mocked(pushOrderNoteToTimeline).mock.calls[0];
+      const [orderId, row, opts] = vi.mocked(pushOrderNoteToTimeline).mock.calls[0];
       expect(orderId).toBe(created.orderId);
-      expect(opts.body).toBe('Sleeves 1cm shorter.');
-      expect(opts.authorLabel).toBe('David Baird');
+      // R1: identity is the note ROW uuid; the outbox event uuid is pushRef.
+      expect(row.id).toBe(note.id);
+      expect(row.body).toBe('Sleeves 1cm shorter.');
+      expect(row.authorLabel).toBe('David Baird');
+      expect(row.deletedAt).toBeNull();
       const event = await db.query.domainEvents.findFirst({
         where: eq(schema.domainEvents.eventType, 'order.note_added'),
       });
-      expect(opts.externalRef).toBe(event!.id);
-      expect(note.kind).toBe('note');
+      expect(opts.pushRef).toBe(event!.id);
+    });
+
+    it('an edit pushes the CURRENT row state under the same id (upsert convergence)', async () => {
+      const created = await createOrder(orderInput());
+      const author = await db
+        .insert(schema.staffUsers)
+        .values({ email: 'ed@example.com', passwordHash: 'x', name: 'Ed' })
+        .returning();
+      const note = await addOrderNote(
+        created.orderId,
+        { body: 'Sleeves 2cm shorter.', kind: 'note', authorKind: 'staff' },
+        { actorStaffUserId: author[0].id },
+      );
+      await processOutbox(); // drain the add
+      vi.mocked(pushOrderNoteToTimeline).mockClear();
+
+      const { updateOrderNote } = await import('@/server/orders/notes-service');
+      await updateOrderNote(created.orderId, note.id, 'Sleeves 1cm shorter.', {
+        actorStaffUserId: author[0].id,
+      });
+      await processOutbox();
+
+      expect(pushOrderNoteToTimeline).toHaveBeenCalledTimes(1);
+      const [, row] = vi.mocked(pushOrderNoteToTimeline).mock.calls[0];
+      expect(row.id).toBe(note.id);
+      expect(row.body).toBe('Sleeves 1cm shorter.');
+    });
+
+    it('a delete pushes the tombstoned row (deletedAt set) under the same id', async () => {
+      const created = await createOrder(orderInput());
+      const author = await db
+        .insert(schema.staffUsers)
+        .values({ email: 'del@example.com', passwordHash: 'x', name: 'Del' })
+        .returning();
+      const note = await addOrderNote(
+        created.orderId,
+        { body: 'Obsolete point.', kind: 'note', authorKind: 'staff' },
+        { actorStaffUserId: author[0].id },
+      );
+      await processOutbox(); // drain the add
+      vi.mocked(pushOrderNoteToTimeline).mockClear();
+
+      const { deleteOrderNote } = await import('@/server/orders/notes-service');
+      await deleteOrderNote(created.orderId, note.id, { actorStaffUserId: author[0].id });
+      await processOutbox();
+
+      expect(pushOrderNoteToTimeline).toHaveBeenCalledTimes(1);
+      const [, row] = vi.mocked(pushOrderNoteToTimeline).mock.calls[0];
+      expect(row.id).toBe(note.id);
+      expect(row.deletedAt).not.toBeNull();
     });
 
     it('never pushes comments — the discussion thread stays off the timeline', async () => {

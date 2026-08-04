@@ -347,6 +347,36 @@ export async function patchHubOrder(
 }
 
 /**
+ * FLEET_STANDARD_ANNOTATIONS §3 — the annotation envelope. The hub's ingest
+ * detects it (schemaVersion + id) and upserts by the owner's ROW uuid:
+ * edits converge on one row, deletedAt tombstones, and the ordering
+ * comparator drops stale redeliveries.
+ */
+export interface AnnotationEnvelope {
+  /** The owner's stable ROW id — never a push/outbox/event id. */
+  id: string;
+  schemaVersion: 1;
+  /** Delivery id (our outbox event uuid) — dedupes redelivered pushes. */
+  pushRef?: string;
+  subject: { type: string; id: string; app: string };
+  kind: 'note' | 'comment' | 'event';
+  body?: { text: string; format: 'plain' | 'markdown' | 'html' };
+  author: { kind: 'staff' | 'supplier' | 'customer' | 'system'; identityId?: string; label: string };
+  /** Visibility grants beyond staff; [] = staff-only. */
+  audience: string[];
+  thread?: { parentId: string };
+  occurredAt: string;
+  editedAt?: string;
+  deletedAt?: string;
+}
+
+/** Push a §3 envelope to the hub's ingest (upsert-by-id, bm-sales rev 00064-vkc). */
+export async function postHubEnvelope(envelope: AnnotationEnvelope): Promise<boolean> {
+  const res = await call('/communications', { method: 'POST', body: envelope });
+  return Boolean(res?.ok);
+}
+
+/**
  * Reverse lookup on the hub's external-reference registry: recover the HUB
  * entity id from our own (or a sibling's) id. Used to find the hub project id
  * for a DesignFlow project uuid (`system:'design_tool'`) — the action-token

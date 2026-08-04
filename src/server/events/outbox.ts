@@ -54,6 +54,10 @@ export type DomainEventType =
   // off it). Edits and deletes are audit-only — they are staff action history,
   // not something a consumer acts on.
   | 'order.note_added'
+  // Edit/delete follow-ups so the hub's upsert-by-id cache converges
+  // (FLEET_STANDARD_ANNOTATIONS R1); no notification hangs off either.
+  | 'order.note_updated'
+  | 'order.note_deleted'
   | 'note.edited'
   | 'note.deleted'
   // Audit-only: a status set through the generic admin PATCH. Distinct from the

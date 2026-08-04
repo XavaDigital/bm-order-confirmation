@@ -274,6 +274,14 @@ export async function updateOrderNote(
       },
       tx,
     );
+
+    // Outbox too: the hub's upsert-by-id cache converges on the edit
+    // (FLEET_STANDARD_ANNOTATIONS R1). No notification hangs off this.
+    await emitOrderEvent(tx, {
+      aggregateId: existing.orderId,
+      eventType: 'order.note_updated',
+      payload: { noteId, kind: existing.kind, authorKind: existing.authorKind },
+    });
   });
 
   const [updated] = await listNoteById(noteId);
@@ -314,6 +322,14 @@ export async function deleteOrderNote(
       },
       tx,
     );
+
+    // Outbox too: the tombstone reaches the hub cache (R1 — soft delete
+    // means the row survives for the push handler to read).
+    await emitOrderEvent(tx, {
+      aggregateId: existing.orderId,
+      eventType: 'order.note_deleted',
+      payload: { noteId, kind: existing.kind, authorKind: existing.authorKind },
+    });
   });
 }
 

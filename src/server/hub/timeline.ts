@@ -27,11 +27,12 @@ import { db } from '@/db';
 import type { Transaction } from '@/db';
 import { orders } from '@/db/schema';
 import { logger } from '@/lib/logger';
-import { isHubConfigured, postHubCommunication } from './client';
+import { isHubConfigured, postHubCommunication, postHubEnvelope } from './client';
 
 export type OrderTimelineKind = 'created' | 'confirmed' | 'changes_requested';
 
 const SNIPPET_MAX = 500; // the hub stores "first 500 chars" — pre-truncate
+const ENVELOPE_BODY_MAX = 64_000; // §8: body.text ≤ 64KB; the hub re-enforces
 
 /**
  * Pure mapping from lifecycle kind to the timeline item's rendering fields.
@@ -71,56 +72,70 @@ export function buildOrderTimelineItem(
  * which emits no outbox event). Takes an optional executor because outbox
  * handlers run inside the batch transaction and must not touch the global db.
  */
+/** The note-row fields the envelope push needs (a subset of the table row). */
+export interface OrderNoteEnvelopeInput {
+  id: string;
+  body: string;
+  kind: 'comment' | 'note';
+  authorKind: 'staff' | 'email_flow' | 'system' | 'supplier';
+  authorLabel: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
+}
+
 /**
- * Push one ORDER NOTE (kind 'note') onto the hub timeline — reinstated per
- * salesflow's 2026-08-04 reconciliation (David's widened ruling governs).
- * Same best-effort/no-throw stance and idempotency (channel='note',
- * externalRef = the outbox event id) as the lifecycle push. Edits and
- * deletions do not follow — the timeline keeps the item as posted; the
- * brokered capability GET is where current state lives.
+ * Push one ORDER NOTE (kind 'note') to the hub as a §3 ENVELOPE, keyed on the
+ * note ROW uuid (FLEET_STANDARD_ANNOTATIONS R1 — re-keyed from the event uuid
+ * once the hub's upsert-by-id went live, bm-sales rev 00064-vkc). Edits
+ * converge on one hub row; a deletedAt tombstones it. Same best-effort/
+ * no-throw stance as the lifecycle push; `pushRef` (the outbox event uuid)
+ * dedupes redeliveries; the hub's ordering comparator makes races harmless.
  */
 export async function pushOrderNoteToTimeline(
   orderId: string,
-  opts: {
-    body: string;
-    authorLabel: string | null;
-    externalRef: string;
-    occurredAt: Date;
-    executor?: Transaction;
-  },
+  note: OrderNoteEnvelopeInput,
+  opts: { pushRef: string; executor?: Transaction },
 ): Promise<void> {
   const ex = opts.executor ?? db;
   try {
     if (!isHubConfigured()) return;
+    if (note.kind !== 'note') return; // comments/discussion never leave the app
 
+    // Standalone/unlinked orders have nothing to file under — and the hub
+    // resolves the subject via its external-reference index, so an unlinked
+    // push would only 404.
     const [order] = await ex
-      .select({
-        hubCustomerId: orders.hubCustomerId,
-        hubContactId: orders.hubContactId,
-        hubOrderId: orders.hubOrderId,
-        orderNumber: orders.orderNumber,
-      })
+      .select({ hubCustomerId: orders.hubCustomerId })
       .from(orders)
       .where(eq(orders.id, orderId));
     if (!order?.hubCustomerId) return;
 
-    const ref = order.orderNumber ? `Order ${order.orderNumber}` : 'Order';
-    const ok = await postHubCommunication({
-      channel: 'note',
-      direction: 'outbound',
-      occurredAt: opts.occurredAt,
-      customerId: order.hubCustomerId,
-      contactId: order.hubContactId,
-      orderId: order.hubOrderId,
-      externalRef: opts.externalRef,
-      subject: opts.authorLabel ? `${ref}: order note from ${opts.authorLabel}` : `${ref}: order note`,
-      snippet: opts.body.slice(0, SNIPPET_MAX),
+    const edited = note.updatedAt.getTime() - note.createdAt.getTime() > 1000;
+    const ok = await postHubEnvelope({
+      id: note.id,
+      schemaVersion: 1,
+      pushRef: opts.pushRef,
+      subject: { type: 'order', id: orderId, app: 'bm-orders' },
+      kind: 'note',
+      body: { text: note.body.slice(0, ENVELOPE_BODY_MAX), format: 'plain' },
+      author: {
+        kind:
+          note.authorKind === 'supplier' || note.authorKind === 'system'
+            ? note.authorKind
+            : 'staff', // email_flow is a staff member acting from the email app
+        label: note.authorLabel ?? 'Staff',
+      },
+      audience: [], // staff-only — David's pin; order notes never reach customer surfaces
+      occurredAt: note.createdAt.toISOString(),
+      ...(edited && { editedAt: note.updatedAt.toISOString() }),
+      ...(note.deletedAt && { deletedAt: note.deletedAt.toISOString() }),
     });
     if (!ok) {
-      logger.warn('[hub/timeline] note push failed (best-effort, not retried)', { orderId });
+      logger.warn('[hub/timeline] note envelope push failed (best-effort, not retried)', { orderId });
     }
   } catch (err) {
-    logger.warn('[hub/timeline] note push failed (best-effort, not retried)', { orderId, err });
+    logger.warn('[hub/timeline] note envelope push failed (best-effort, not retried)', { orderId, err });
   }
 }
 

@@ -241,22 +241,31 @@ async function handleHubTimelinePush(event: DomainEvent, tx: Transaction): Promi
  * safe.
  */
 async function handleHubNoteTimelinePush(event: DomainEvent, tx: Transaction): Promise<void> {
-  const p = event.payload as { noteId?: string; authorKind?: string; authorLabel?: string | null };
+  const p = event.payload as { noteId?: string; authorKind?: string };
   if (!p.noteId || p.authorKind === 'supplier' || p.authorKind === 'system') return;
 
   const [note] = await tx
-    .select({ body: orderNotes.body, authorLabel: orderNotes.authorLabel, kind: orderNotes.kind })
+    .select({
+      id: orderNotes.id,
+      body: orderNotes.body,
+      kind: orderNotes.kind,
+      authorKind: orderNotes.authorKind,
+      authorLabel: orderNotes.authorLabel,
+      createdAt: orderNotes.createdAt,
+      updatedAt: orderNotes.updatedAt,
+      deletedAt: orderNotes.deletedAt,
+    })
     .from(orderNotes)
     .where(eq(orderNotes.id, p.noteId));
-  if (!note) return; // deleted before the outbox ran — nothing to show
+  if (!note) return; // hard-deleted before the outbox ran — nothing to converge
   if (note.kind !== 'note') return; // comments/discussion stay off the timeline
 
   const { pushOrderNoteToTimeline } = await import('@/server/hub/timeline');
-  await pushOrderNoteToTimeline(event.aggregateId, {
-    body: note.body,
-    authorLabel: note.authorLabel ?? p.authorLabel ?? null,
-    externalRef: event.id,
-    occurredAt: event.createdAt,
+  // The row's CURRENT state, keyed on the row uuid (R1) — an add, edit and
+  // delete of the same note all converge on one hub row; the hub's ordering
+  // comparator sorts out-of-order deliveries.
+  await pushOrderNoteToTimeline(event.aggregateId, note, {
+    pushRef: event.id,
     executor: tx,
   });
 }
@@ -266,6 +275,8 @@ const EVENT_HANDLERS: Record<string, EventHandler[]> = {
   'order.changes_requested': [handleChangesRequestedEmail, handleHubOrderIndexSync, handleHubTimelinePush],
   'order.color_sample_requested': [handleColorSampleRequestedEmail],
   'order.note_added': [handleNoteAddedNotification, handleHubNoteTimelinePush],
+  'order.note_updated': [handleHubNoteTimelinePush],
+  'order.note_deleted': [handleHubNoteTimelinePush],
   'workflow.stage_entered': [handleStageEnteredNotification],
   'po.sent': [handlePoSentNotification, handleHubOrderIndexSync],
   'po.supplier_updated': [handlePoSupplierUpdatedNotification, handleHubOrderIndexSync],
