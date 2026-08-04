@@ -208,9 +208,13 @@ export const orders = confirmation.table(
     accessCode: text('access_code'),
 
     // Sales Hub (bm-sales) CRM association. A plain uuid HINT, not a FK —
-    // separate databases, and the hub merges duplicate customers (a stored id
-    // can become a tombstone; re-stamp to the survivor on read). Non-unique:
-    // one customer places many orders. Name is denormalized so the admin chip
+    // separate databases, and the hub merges duplicate customers, so a stored
+    // id can become a tombstone. TODO: re-stamp to the survivor when the hub
+    // client reports `resolvedFrom` — NOT implemented; a merged customer's id
+    // stays stale here indefinitely. Survivable because the hub's read-repair
+    // unions tombstoned predecessor ids when fetching orders-by-customer
+    // (David's option-(a) ruling, fleet thread 2026-08-05). Non-unique: one
+    // customer places many orders. Name is denormalized so the admin chip
     // renders without a hub round-trip.
     hubCustomerId: uuid('hub_customer_id'),
     hubCustomerName: text('hub_customer_name'),
