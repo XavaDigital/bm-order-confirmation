@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Alert,
   Button,
@@ -41,8 +41,12 @@ export interface RosterMemberViewProps {
 export function RosterMemberView({ memberToken, roster }: RosterMemberViewProps) {
   const [member, setMember] = useState(roster.member);
   const [locked, setLocked] = useState(roster.locked);
+  // "Got Your Back" style garments (GOT_YOUR_BACK_PLAN.md) carry a name list
+  // instead of a per-member size — excluded here; the manager edits that list
+  // directly on the shared roster link, not per individual member.
+  const sizingGarments = useMemo(() => roster.garments.filter((g) => !g.nameListEnabled), [roster.garments]);
   const [sizeDraft, setSizeDraft] = useState<Record<string, string>>(() =>
-    buildSizeDraft(roster.member, roster.garments),
+    buildSizeDraft(roster.member, sizingGarments),
   );
   const [savingSizes, setSavingSizes] = useState(false);
   const [chartPreview, setChartPreview] = useState<SizeChartLink | null>(null);
@@ -53,7 +57,7 @@ export function RosterMemberView({ memberToken, roster }: RosterMemberViewProps)
       return;
     }
 
-    const sizes = roster.garments.map((garment) => ({
+    const sizes = sizingGarments.map((garment) => ({
       garmentId: garment.id,
       size: (sizeDraft[garment.id] ?? '').trim(),
     }));
@@ -134,7 +138,7 @@ export function RosterMemberView({ memberToken, roster }: RosterMemberViewProps)
           />
         )}
 
-        {roster.garments.map((garment, idx) => (
+        {sizingGarments.map((garment, idx) => (
           <RosterSizeEntry
             key={garment.id}
             garment={garment}

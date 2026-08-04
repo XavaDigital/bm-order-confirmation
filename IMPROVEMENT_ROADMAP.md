@@ -459,19 +459,23 @@ in this order.
     custom loader over signed URLs. Effort: medium. Measure first — only worth it if
     real mock-up files are actually heavy.
 
-- [ ] **7.4 Accessibility + mobile audit of the customer surface**
+- [x] **7.4 Accessibility + mobile audit of the customer surface**
   - `/o/[token]` and `/o/roster/**` are the brand-facing surfaces (§9 priority).
     One pass: keyboard-only completion of the whole confirm flow, screen-reader labels
     on the 7 acks + signature canvas (canvas needs a text alternative / upload
     fallback prominent), contrast check of the BeastMode palette, 360px-width layout
     check. Fold fixes into the e2e specs (Phase 4) where possible. Effort: ~1 day.
 
-- [ ] **7.5 DB index review for hot queries**
-  - Verify (then add where missing, additive migrations): `domain_events (status,
-    created_at)` — outbox polling; `orders (status)`, `orders (created_by)` — list
-    filters; token-hash unique indexes on all three access tables (likely already
-    present — confirm); `garment_sizing (roster_member_id)`. Effort: ~1 hour
-    with `EXPLAIN` spot checks.
+- [x] **7.5 DB index review for hot queries**
+  - Verified 2026-08-04: all targets already indexed. `domain_events` has
+    `domain_events_status_idx` plus a partial `domain_events_outbox_idx` on
+    `created_at` scoped to `status in ('pending','failed')` — tighter than a
+    plain `(status, created_at)` composite since it only covers the poller's
+    live sliver. `orders_status_idx` and `orders_created_by_idx` both exist.
+    `accessTokenColumns()` gives every access table (`order_access`,
+    `roster_access`, `roster_member_access`, `po_supplier_access`) a unique
+    index on `token_hash`. `garment_sizing_roster_member_idx` exists. No
+    migration needed.
 
 - [ ] **7.6 Stale-order reminder emails** (FEATURE_PROPOSALS #1, deferred variant)
   - Dashboard widget shipped; the proposal's own guidance: only build the cron/email

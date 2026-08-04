@@ -58,6 +58,13 @@ export function rosterErrorResponse(err: unknown): NextResponse {
         { error: 'The roster is full — contact your team manager.', code: 'roster_full' },
         { status: 409 },
       );
+    case 'admin_only':
+      return NextResponse.json(
+        { error: 'Only the club manager can edit the name list.', code: 'admin_only' },
+        { status: 403 },
+      );
+    case 'name_list_full':
+      return NextResponse.json({ error: 'Name list is full', code: 'name_list_full' }, { status: 409 });
     default:
       throw err;
   }

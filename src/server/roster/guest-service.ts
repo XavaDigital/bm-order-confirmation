@@ -31,6 +31,12 @@ import {
 import { resolveActiveToken } from '@/server/access/tokens';
 import { unionChartSizes } from '@/lib/sizes';
 import { signImageRefs, signChartRefs } from '@/lib/signed-urls';
+import {
+  upsertNameListEntries,
+  importNameListFromRoster,
+  NameListFullError,
+} from '@/server/orders/service';
+import type { UpsertNameListInput } from '@/server/orders/name-list-contract';
 import { MAX_ROSTER_MEMBERS } from './service';
 
 // Thrown-string convention mirrors customer-service.ts — routes map them.
@@ -197,6 +203,14 @@ export interface RosterStateGarment {
   sizingColumns: GarmentTypeOption[];
   images: { url: string; caption: string | null }[];
   sizeCharts: { name: string; url: string | null }[];
+  /**
+   * "Got Your Back" style (GOT_YOUR_BACK_PLAN.md) — many names on one shared
+   * design, excluded from the per-member sizing flow above. Club-admin-edited
+   * only (updateGuestGarmentNameList / importGuestGarmentNameListFromRoster).
+   */
+  nameListEnabled: boolean;
+  nameListRows: number | null;
+  nameListEntries: { id: string; name: string; playerNumber: string | null }[];
 }
 
 export interface RosterState {
@@ -226,6 +240,7 @@ export async function getRosterState(
     with: {
       images: { orderBy: (i, { asc: a }) => [a(i.sortOrder)] },
       sizeChartLinks: { with: { sizeChart: true } },
+      nameListEntries: { orderBy: (e, { asc: a }) => [a(e.sortOrder)] },
     },
   });
 
@@ -247,6 +262,13 @@ export async function getRosterState(
         sizeCharts: (
           await signChartRefs(linkedCharts.map((l) => l.sizeChart!))
         ).map((c) => ({ name: c.name, url: c.url ?? c.downloadUrl ?? null })),
+        nameListEnabled: g.nameListEnabled,
+        nameListRows: g.nameListRows,
+        nameListEntries: g.nameListEntries.map((e) => ({
+          id: e.id,
+          name: e.name,
+          playerNumber: e.playerNumber,
+        })),
       };
     }),
   );
@@ -450,8 +472,11 @@ async function writeGuestMemberSizes(
   member: { id: string; name: string; playerNumber: string | null },
   sizes: GuestMemberSizesInput['sizes'],
 ): Promise<void> {
+  // "Got Your Back" name-list garments (GOT_YOUR_BACK_PLAN.md) are excluded —
+  // they carry no size, and no per-member submission applies to them; the
+  // club admin edits the name list directly (updateGuestGarmentNameList below).
   const orderGarments = await db.query.garments.findMany({
-    where: eq(garments.orderId, orderId),
+    where: and(eq(garments.orderId, orderId), eq(garments.nameListEnabled, false)),
     columns: { id: true, sizingColumns: true },
     orderBy: [asc(garments.sortOrder)],
   });
@@ -515,4 +540,79 @@ async function writeGuestMemberSizes(
 
     await tx.update(rosterMembers).set({ submittedAt }).where(eq(rosterMembers.id, member.id));
   });
+}
+
+// ---------------------------------------------------------------------------
+// "Got Your Back" name list — CLUB ADMIN ONLY (unlike sizes above, which each
+// guest owns their own player's). The list is order-wide print content, not
+// one guest's property, so it follows the same "club admin edits anyone's"
+// rule already used for member sizes rather than introducing a new one.
+// ---------------------------------------------------------------------------
+
+async function assertNameListGarment(orderId: string, garmentId: string): Promise<void> {
+  const garment = await db.query.garments.findFirst({
+    where: and(eq(garments.id, garmentId), eq(garments.orderId, orderId)),
+    columns: { id: true, nameListEnabled: true },
+  });
+  if (!garment || !garment.nameListEnabled) notFound();
+}
+
+export async function updateGuestGarmentNameList(
+  orderNumber: string,
+  guestId: string,
+  isAdmin: boolean,
+  garmentId: string,
+  entries: UpsertNameListInput,
+) {
+  if (!isAdmin) throw new Error('admin_only');
+  const order = await getRosterPageOrder(orderNumber);
+  if (!order) notFound();
+  if (order.rosterLockedAt) rosterLocked();
+  await assertGuest(order.id, guestId);
+  await assertNameListGarment(order.id, garmentId);
+
+  try {
+    return await upsertNameListEntries(garmentId, entries);
+  } catch (err) {
+    if (err instanceof NameListFullError) throw new Error('name_list_full');
+    throw err;
+  }
+}
+
+export async function updateGuestGarmentNameListRows(
+  orderNumber: string,
+  guestId: string,
+  isAdmin: boolean,
+  garmentId: string,
+  rows: number | null,
+) {
+  if (!isAdmin) throw new Error('admin_only');
+  const order = await getRosterPageOrder(orderNumber);
+  if (!order) notFound();
+  if (order.rosterLockedAt) rosterLocked();
+  await assertGuest(order.id, guestId);
+  await assertNameListGarment(order.id, garmentId);
+
+  await db.update(garments).set({ nameListRows: rows, updatedAt: new Date() }).where(eq(garments.id, garmentId));
+}
+
+export async function importGuestGarmentNameListFromRoster(
+  orderNumber: string,
+  guestId: string,
+  isAdmin: boolean,
+  garmentId: string,
+) {
+  if (!isAdmin) throw new Error('admin_only');
+  const order = await getRosterPageOrder(orderNumber);
+  if (!order) notFound();
+  if (order.rosterLockedAt) rosterLocked();
+  await assertGuest(order.id, guestId);
+  await assertNameListGarment(order.id, garmentId);
+
+  try {
+    return await importNameListFromRoster(garmentId);
+  } catch (err) {
+    if (err instanceof NameListFullError) throw new Error('name_list_full');
+    throw err;
+  }
 }

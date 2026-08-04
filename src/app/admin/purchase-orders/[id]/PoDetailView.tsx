@@ -40,6 +40,7 @@ import {
   FileExcelOutlined,
   LinkOutlined,
   MailOutlined,
+  PaperClipOutlined,
   StopOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
@@ -55,8 +56,9 @@ import {
   type PoVariance,
   type PoVarianceCounts,
 } from '@/server/purchase-orders/snapshot';
-import type { PoSnapshot, PoSnapshotLine } from '@/db/schema';
+import type { PoSnapshot, PoSnapshotAsset, PoSnapshotLine } from '@/db/schema';
 import { PO_STATUS } from '@/lib/status';
+import { ASSET_KIND_COLOR, ASSET_KIND_LABEL } from '@/lib/asset-kind';
 import { formatDate } from '@/lib/format';
 import { getJson, postJson, patchJson, deleteJson } from '@/lib/api-fetch';
 
@@ -694,6 +696,47 @@ export function PoDetailView({ poId }: { poId: string }) {
             })}
           </Space>
         </Card>
+
+        {(latest.snapshot.assets ?? []).length > 0 && (
+          <Card title="Design files" size="small">
+            <Space direction="vertical" size={10} style={{ width: '100%' }}>
+              {latest.snapshot.assets!.map((asset, i) => {
+                // Signed here by the GET route (the stored snapshot only ever
+                // keeps the storageKey) — see signPoAssets in src/lib/signed-urls.ts.
+                const signed = asset as PoSnapshotAsset & { downloadUrl?: string | null };
+                const link = signed.downloadUrl ?? signed.url;
+                return (
+                  <div key={`${asset.name}-${i}`}>
+                    <Space size={6} wrap>
+                      <Tag color={ASSET_KIND_COLOR[asset.kind]} style={{ marginInlineEnd: 0 }}>
+                        {ASSET_KIND_LABEL[asset.kind]}
+                      </Tag>
+                      {link ? (
+                        <a href={link} target="_blank" rel="noopener noreferrer">
+                          <Space size={4}>
+                            {asset.storageKey ? <PaperClipOutlined /> : <LinkOutlined />}
+                            {asset.name}
+                          </Space>
+                        </a>
+                      ) : (
+                        <Text strong>{asset.name}</Text>
+                      )}
+                      {asset.garmentName && <Text type="secondary">({asset.garmentName})</Text>}
+                      {asset.usage && <Text type="secondary">for {asset.usage}</Text>}
+                    </Space>
+                    {asset.notes && (
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {asset.notes}
+                        </Text>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </Space>
+          </Card>
+        )}
 
         <Card title="Revision history" size="small">
           <Timeline

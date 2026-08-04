@@ -38,6 +38,7 @@ import type { ColumnType } from 'antd/es/table';
 import { deleteJson, patchJson, postForm, postJson } from '@/lib/api-fetch';
 import { SectionTitle } from '@/components/admin/SectionTitle';
 import { useAdminResource } from '@/lib/use-admin-resource';
+import { ASSET_KIND_COLOR, ASSET_KIND_LABEL } from '@/lib/asset-kind';
 import type { OrderAssetKind } from '@/db/schema';
 import { DesignAssetPickerModal } from './DesignAssetPickerModal';
 
@@ -64,18 +65,6 @@ interface Props {
   /** The originating DesignFlow project — enables the pull-from-DesignFlow picker. */
   designProjectRef?: string | null;
 }
-
-const KIND_LABEL: Record<OrderAssetKind, string> = {
-  design: 'Design',
-  font: 'Font',
-  other: 'Other',
-};
-
-const KIND_COLOR: Record<OrderAssetKind, string> = {
-  design: 'geekblue',
-  font: 'purple',
-  other: 'default',
-};
 
 interface FormValues {
   kind: OrderAssetKind;
@@ -245,7 +234,7 @@ export function OrderAssetsPanel({ orderId, garments, designProjectRef }: Props)
       title: 'Type',
       dataIndex: 'kind',
       width: 90,
-      render: (kind: OrderAssetKind) => <Tag color={KIND_COLOR[kind]}>{KIND_LABEL[kind]}</Tag>,
+      render: (kind: OrderAssetKind) => <Tag color={ASSET_KIND_COLOR[kind]}>{ASSET_KIND_LABEL[kind]}</Tag>,
     },
     {
       title: 'Name',

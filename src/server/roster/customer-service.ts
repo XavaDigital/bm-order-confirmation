@@ -15,6 +15,13 @@ import {
 } from '@/db/schema';
 import { resolveActiveToken } from '@/server/access/tokens';
 import { unionChartSizes } from '@/lib/sizes';
+import { assertGarmentBelongsToOrder } from '@/server/orders/guards';
+import {
+  upsertNameListEntries,
+  importNameListFromRoster,
+  NameListFullError,
+} from '@/server/orders/service';
+import type { UpsertNameListInput } from '@/server/orders/name-list-contract';
 import { MAX_ROSTER_MEMBERS } from './service';
 import type { AddRosterMemberInput, SubmitMemberSizesInput } from './contract';
 
@@ -72,6 +79,9 @@ function toRosterGarment(garment: {
   sizeChartLinks: {
     sizeChart: { name: string; storageKey: string | null; sizes: SizeChartSize[] | null } | null;
   }[];
+  nameListEnabled: boolean;
+  nameListRows: number | null;
+  nameListEntries: { id: string; name: string; playerNumber: string | null }[];
 }) {
   const linkedCharts = garment.sizeChartLinks.filter((link) => link.sizeChart);
   return {
@@ -83,6 +93,16 @@ function toRosterGarment(garment: {
     sizeCharts: linkedCharts.map((link) => ({
       name: link.sizeChart!.name,
       storageKey: link.sizeChart!.storageKey ?? null,
+    })),
+    // "Got Your Back" style — see GOT_YOUR_BACK_PLAN.md. Independent of the
+    // per-member size submission above; the manager edits this directly
+    // (updateGarmentNameList / importGarmentNameListFromRoster below).
+    nameListEnabled: garment.nameListEnabled,
+    nameListRows: garment.nameListRows,
+    nameListEntries: garment.nameListEntries.map((e) => ({
+      id: e.id,
+      name: e.name,
+      playerNumber: e.playerNumber,
     })),
   };
 }
@@ -133,6 +153,8 @@ export async function getRosterForMember(rawToken: string) {
           id: true,
           name: true,
           notes: true,
+          nameListEnabled: true,
+          nameListRows: true,
         },
         with: {
           sizeChartLinks: {
@@ -145,6 +167,10 @@ export async function getRosterForMember(rawToken: string) {
                 },
               },
             },
+          },
+          nameListEntries: {
+            orderBy: (e, { asc }) => [asc(e.sortOrder)],
+            columns: { id: true, name: true, playerNumber: true },
           },
         },
       },
@@ -238,6 +264,54 @@ export async function submitMemberSizes(
 }
 
 // ---------------------------------------------------------------------------
+// "Got Your Back" name list — manager-edited via the shared roster link only
+// (GOT_YOUR_BACK_PLAN.md: one person finalizes the list, not per-member
+// submissions like sizes above). No per-member-token variant.
+// ---------------------------------------------------------------------------
+
+async function assertNameListGarment(orderId: string, garmentId: string): Promise<void> {
+  const garment = await db.query.garments.findFirst({
+    where: and(eq(garments.id, garmentId), eq(garments.orderId, orderId)),
+    columns: { id: true, nameListEnabled: true },
+  });
+  if (!garment || !garment.nameListEnabled) throw new Error('garment_not_found');
+}
+
+export async function updateGarmentNameList(rawToken: string, garmentId: string, entries: UpsertNameListInput) {
+  const { order } = await getRosterOrderOrThrow(rawToken);
+  if (order.rosterLockedAt) rosterLocked();
+  await assertNameListGarment(order.id, garmentId);
+
+  try {
+    return await upsertNameListEntries(garmentId, entries);
+  } catch (err) {
+    if (err instanceof NameListFullError) throw new Error('name_list_full');
+    throw err;
+  }
+}
+
+export async function updateGarmentNameListRows(rawToken: string, garmentId: string, rows: number | null) {
+  const { order } = await getRosterOrderOrThrow(rawToken);
+  if (order.rosterLockedAt) rosterLocked();
+  await assertNameListGarment(order.id, garmentId);
+
+  await db.update(garments).set({ nameListRows: rows, updatedAt: new Date() }).where(eq(garments.id, garmentId));
+}
+
+export async function importGarmentNameListFromRoster(rawToken: string, garmentId: string) {
+  const { order } = await getRosterOrderOrThrow(rawToken);
+  if (order.rosterLockedAt) rosterLocked();
+  await assertNameListGarment(order.id, garmentId);
+
+  try {
+    return await importNameListFromRoster(garmentId);
+  } catch (err) {
+    if (err instanceof NameListFullError) throw new Error('name_list_full');
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // v2 — per-member individual link (TEAM_ROSTER_PLAN.md Phase 9). The token
 // resolves directly to one roster_member_id, so there's no "pick your name"
 // step and no memberId route param — the token itself scopes everything.
@@ -285,12 +359,16 @@ export async function getRosterForMemberByMemberToken(rawToken: string) {
     with: {
       garments: {
         orderBy: [asc(garments.sortOrder)],
-        columns: { id: true, name: true, notes: true },
+        columns: { id: true, name: true, notes: true, nameListEnabled: true, nameListRows: true },
         with: {
           sizeChartLinks: {
             with: {
               sizeChart: { columns: { name: true, storageKey: true, sizes: true } },
             },
+          },
+          nameListEntries: {
+            orderBy: (e, { asc }) => [asc(e.sortOrder)],
+            columns: { id: true, name: true, playerNumber: true },
           },
         },
       },
@@ -338,8 +416,11 @@ async function writeMemberSizes(
   member: { id: string; name: string; playerNumber: string | null },
   input: SubmitMemberSizesInput,
 ): Promise<PublicMember> {
+  // "Got Your Back" name-list garments (GOT_YOUR_BACK_PLAN.md) are excluded —
+  // they carry no size, and members never submit against them individually;
+  // the manager edits the name list directly (updateGarmentNameList above).
   const orderGarments = await db.query.garments.findMany({
-    where: eq(garments.orderId, orderId),
+    where: and(eq(garments.orderId, orderId), eq(garments.nameListEnabled, false)),
     columns: { id: true },
     orderBy: [asc(garments.sortOrder)],
   });

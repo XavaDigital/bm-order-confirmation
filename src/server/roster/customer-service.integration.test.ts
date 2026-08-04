@@ -201,6 +201,37 @@ describe('submitMemberSizes', () => {
     expect(rows.every((row) => row.playerNumber === '7')).toBe(true);
   });
 
+  it('excludes "Got Your Back" name-list garments from the required submission set', async () => {
+    // Regression: a name-list garment must not force every member to submit a
+    // size for it (GOT_YOUR_BACK_PLAN.md) — before the fix, writeMemberSizes
+    // required exactly one entry per order garment, including name-list ones.
+    const created = await createOrder(
+      minimalInput({ garments: [{ name: 'Jersey' }, { name: 'Tribute Tee' }] }),
+    );
+    const order = await db.query.orders.findFirst({
+      where: eq(schema.orders.id, created.orderId),
+      with: { garments: { orderBy: (g, { asc }) => [asc(g.sortOrder)] } },
+    });
+    const [sizedGarment, nameListGarment] = order!.garments;
+    await db
+      .update(schema.garments)
+      .set({ nameListEnabled: true })
+      .where(eq(schema.garments.id, nameListGarment.id));
+    const member = await addRosterMember(created.orderId, { name: 'Alex' });
+    const { token } = await generateRosterToken(created.orderId);
+
+    const updatedMember = await submitMemberSizes(token, member.id, {
+      sizes: [{ garmentId: sizedGarment.id, size: 'M' }],
+    });
+
+    expect(updatedMember.submittedAt).not.toBeNull();
+    const rows = await db.query.garmentSizing.findMany({
+      where: eq(schema.garmentSizing.rosterMemberId, member.id),
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].garmentId).toBe(sizedGarment.id);
+  });
+
   it('updates existing rows instead of creating duplicates on resubmit', async () => {
     const created = await createOrder(minimalInput());
     const order = await db.query.orders.findFirst({

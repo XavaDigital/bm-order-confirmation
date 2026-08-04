@@ -14,11 +14,12 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { App, Button, Card, Empty, Input, Space, Table, Tag, Typography } from 'antd';
 import type { ColumnType } from 'antd/es/table';
-import { SendOutlined } from '@ant-design/icons';
+import { LinkOutlined, PaperClipOutlined, SendOutlined } from '@ant-design/icons';
 import { postJson } from '@/lib/api-fetch';
 import { formatDate } from '@/lib/format';
 import { PO_STATUS } from '@/lib/status';
-import type { PoSnapshot, PoSnapshotLine } from '@/db/schema';
+import { ASSET_KIND_COLOR, ASSET_KIND_LABEL } from '@/lib/asset-kind';
+import type { PoSnapshot, PoSnapshotAsset, PoSnapshotLine } from '@/db/schema';
 import type { PoStatus } from '@/server/purchase-orders/contract';
 import type { SupplierAllowedStatus } from '@/server/supplier-portal/contract';
 import { CustomerPageShell } from '@/components/customer/CustomerPageShell';
@@ -222,6 +223,54 @@ export function SupplierPortalView({ token, view }: SupplierPortalViewProps) {
           ))}
         </Space>
       </Card>
+
+      {(view.snapshot.assets ?? []).length > 0 && (
+        <Card title="Design files" style={CARD_STYLE} styles={CARD_BODY_STYLES}>
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            {view.snapshot.assets!.map((asset, i) => {
+              const signed = asset as PoSnapshotAsset & { downloadUrl?: string | null };
+              const link = signed.downloadUrl ?? signed.url;
+              return (
+                <div key={`${asset.name}-${i}`}>
+                  <Space size={6} wrap>
+                    <Tag color={ASSET_KIND_COLOR[asset.kind]} style={{ marginInlineEnd: 0 }}>
+                      {ASSET_KIND_LABEL[asset.kind]}
+                    </Tag>
+                    {link ? (
+                      <a
+                        href={link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: '#fff' }}
+                      >
+                        <Space size={4}>
+                          {asset.storageKey ? <PaperClipOutlined /> : <LinkOutlined />}
+                          {asset.name}
+                        </Space>
+                      </a>
+                    ) : (
+                      <Text style={{ color: 'rgba(255,255,255,0.9)' }}>{asset.name}</Text>
+                    )}
+                    {asset.garmentName && (
+                      <Text style={{ color: 'rgba(255,255,255,0.45)' }}>({asset.garmentName})</Text>
+                    )}
+                    {asset.usage && (
+                      <Text style={{ color: 'rgba(255,255,255,0.45)' }}>for {asset.usage}</Text>
+                    )}
+                  </Space>
+                  {asset.notes && (
+                    <div>
+                      <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>
+                        {asset.notes}
+                      </Text>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </Space>
+        </Card>
+      )}
 
       <Card title="Comments" style={CARD_STYLE} styles={CARD_BODY_STYLES}>
         <Space direction="vertical" size={14} style={{ width: '100%' }}>

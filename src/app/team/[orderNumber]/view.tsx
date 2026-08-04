@@ -21,12 +21,14 @@ import {
   Grid,
   Image,
   Input,
+  InputNumber,
   Popconfirm,
   Select,
   Skeleton,
   Space,
   Spin,
   Tag,
+  Tooltip,
   Tour,
   Typography,
 } from 'antd';
@@ -34,6 +36,7 @@ import {
   CheckCircleFilled,
   DeleteOutlined,
   FileSearchOutlined,
+  ImportOutlined,
   LockOutlined,
   PlusOutlined,
   TeamOutlined,
@@ -52,6 +55,12 @@ interface GarmentOption {
   defaultValue?: string;
 }
 
+interface RosterNameListEntry {
+  id: string;
+  name: string;
+  playerNumber: string | null;
+}
+
 interface RosterGarment {
   id: string;
   name: string;
@@ -60,6 +69,13 @@ interface RosterGarment {
   sizingColumns: GarmentOption[];
   images: { url: string; caption: string | null }[];
   sizeCharts: { name: string; url: string | null }[];
+  /**
+   * "Got Your Back" style (GOT_YOUR_BACK_PLAN.md) — excluded from the
+   * per-member sizing flow; club-admin-edited only.
+   */
+  nameListEnabled: boolean;
+  nameListRows: number | null;
+  nameListEntries: RosterNameListEntry[];
 }
 
 interface RosterMember {
@@ -167,6 +183,11 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
   const [chartConfirmed, setChartConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
   const hasSizeCharts = Boolean(state?.garments.some((g) => g.sizeCharts.some((c) => c.url)));
+  // "Got Your Back" style garments (GOT_YOUR_BACK_PLAN.md) carry a name list
+  // instead of a per-member size — excluded from the sizing flow entirely;
+  // the club admin edits that list directly (name-list section below).
+  const sizingGarments = useMemo(() => (state ? state.garments.filter((g) => !g.nameListEnabled) : []), [state]);
+  const nameListGarments = useMemo(() => (state ? state.garments.filter((g) => g.nameListEnabled) : []), [state]);
 
   const loadState = useCallback(async () => {
     try {
@@ -207,14 +228,14 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
     if (!state) return;
     if (selectedId === 'new') {
       setDraftName('');
-      setDraftSizes(emptyDraft(state.garments));
+      setDraftSizes(emptyDraft(sizingGarments));
     } else if (selectedMember) {
       setDraftName(selectedMember.name);
-      setDraftSizes(draftFromMember(selectedMember, state.garments));
+      setDraftSizes(draftFromMember(selectedMember, sizingGarments));
     }
     // Every player's sizes need their own chart check.
     setChartConfirmed(false);
-  }, [state, selectedId, selectedMember]);
+  }, [state, selectedId, selectedMember, sizingGarments]);
 
   async function enter() {
     if (!email.trim()) {
@@ -302,7 +323,7 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
 
   function sizesComplete(): boolean {
     if (!state) return false;
-    return state.garments.every((g) => Boolean(draftSizes[g.id]?.size));
+    return sizingGarments.every((g) => Boolean(draftSizes[g.id]?.size));
   }
 
   async function save() {
@@ -325,7 +346,7 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
     try {
       const payload = {
         name: draftName.trim(),
-        sizes: state.garments.map((g) => ({
+        sizes: sizingGarments.map((g) => ({
           garmentId: g.id,
           size: draftSizes[g.id].size!,
           // Per-garment print name/number; blank name falls back to the
@@ -379,6 +400,93 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
       await loadState();
     } catch {
       message.error('Failed to remove. Please try again.');
+    }
+  }
+
+  // "Got Your Back" name list — club admin only (GOT_YOUR_BACK_PLAN.md).
+  const [nameListDrafts, setNameListDrafts] = useState<
+    Record<string, { entries: RosterNameListEntry[]; rows: number | null }>
+  >({});
+  useEffect(() => {
+    setNameListDrafts(
+      Object.fromEntries(nameListGarments.map((g) => [g.id, { entries: g.nameListEntries, rows: g.nameListRows }])),
+    );
+  }, [nameListGarments]);
+
+  function updateNameListDraft(garmentId: string, entries: RosterNameListEntry[]) {
+    setNameListDrafts((prev) => ({ ...prev, [garmentId]: { ...prev[garmentId], entries } }));
+  }
+
+  async function saveNameList(garmentId: string) {
+    const draft = nameListDrafts[garmentId];
+    if (!draft) return;
+    try {
+      const res = await fetch(`/api/roster/${encodeURIComponent(orderNumber)}/garments/${garmentId}/name-list`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          draft.entries
+            .filter((e) => e.name.trim())
+            .map((e, i) => ({
+              ...(e.id ? { id: e.id } : {}),
+              name: e.name.trim(),
+              playerNumber: e.playerNumber || undefined,
+              sortOrder: i,
+            })),
+        ),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 401) setEntered(false);
+        message.error(data.error ?? 'Failed to save the name list.');
+        return;
+      }
+      setNameListDrafts((prev) => ({ ...prev, [garmentId]: { ...prev[garmentId], entries: data.entries ?? [] } }));
+      message.success('Name list saved');
+    } catch {
+      message.error('Failed to save the name list.');
+    }
+  }
+
+  async function saveNameListRows(garmentId: string, rows: number | null) {
+    setNameListDrafts((prev) => ({ ...prev, [garmentId]: { ...prev[garmentId], rows } }));
+    try {
+      const res = await fetch(
+        `/api/roster/${encodeURIComponent(orderNumber)}/garments/${garmentId}/name-list/rows`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nameListRows: rows }),
+        },
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 401) setEntered(false);
+        message.error(data.error ?? 'Failed to save the row count.');
+      }
+    } catch {
+      message.error('Failed to save the row count.');
+    }
+  }
+
+  async function importNameListFromRoster(garmentId: string) {
+    try {
+      const res = await fetch(
+        `/api/roster/${encodeURIComponent(orderNumber)}/garments/${garmentId}/name-list/import`,
+        { method: 'POST' },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 401) setEntered(false);
+        message.error(data.error ?? 'Failed to import from roster.');
+        return;
+      }
+      setNameListDrafts((prev) => ({ ...prev, [garmentId]: { ...prev[garmentId], entries: data.entries ?? [] } }));
+      message.success(
+        data.imported > 0 ? `Imported ${data.imported} name${data.imported > 1 ? 's' : ''}` : 'No new roster names to import',
+      );
+    } catch {
+      message.error('Failed to import from roster.');
     }
   }
 
@@ -567,7 +675,7 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
         />
       )}
 
-      {state.garments.map((g) => {
+      {sizingGarments.map((g) => {
         const draft = draftSizes[g.id];
         const current = selectedMember?.sizes[g.id];
         return (
@@ -810,6 +918,102 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
               <div ref={listRef} style={{ width: 260, flexShrink: 0 }}>{memberList}</div>
               <div ref={detailRef} style={{ flex: 1, minWidth: 0 }}>{detail}</div>
             </div>
+          )}
+
+          {state?.guest.isAdmin && nameListGarments.length > 0 && (
+            <Space direction="vertical" size={16} style={{ width: '100%', marginTop: 24 }}>
+              <Divider style={{ borderColor: 'rgba(255,255,255,0.1)', margin: 0 }} />
+              {nameListGarments.map((g) => {
+                const draft = nameListDrafts[g.id] ?? { entries: [], rows: null };
+                return (
+                  <div
+                    key={g.id}
+                    style={{
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: 8,
+                      padding: 16,
+                      background: 'rgba(255,255,255,0.03)',
+                    }}
+                  >
+                    <Title level={5} style={{ color: '#fff', marginTop: 0 }}>
+                      &ldquo;Got Your Back&rdquo; name list — {g.name}
+                    </Title>
+                    <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, display: 'block', marginBottom: 12 }}>
+                      Every name here is printed on this design — separate from the team&apos;s sizes above.
+                      Team manager only.
+                    </Text>
+                    <Space wrap style={{ marginBottom: 12 }}>
+                      <Text style={{ color: '#fff' }}>Rows:</Text>
+                      <InputNumber
+                        min={1}
+                        max={100}
+                        value={draft.rows ?? undefined}
+                        disabled={state.order.locked}
+                        onChange={(v) => saveNameListRows(g.id, v ?? null)}
+                      />
+                      <Tooltip title="Copy in any team roster names not already on this list">
+                        <Button
+                          icon={<ImportOutlined />}
+                          disabled={state.order.locked}
+                          onClick={() => importNameListFromRoster(g.id)}
+                        >
+                          Import from roster
+                        </Button>
+                      </Tooltip>
+                    </Space>
+                    <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                      {draft.entries.map((entry, i) => (
+                        <Space key={entry.id || `new-${i}`} wrap>
+                          <Input
+                            placeholder="Name"
+                            value={entry.name}
+                            disabled={state.order.locked}
+                            style={{ width: 200 }}
+                            onChange={(e) => {
+                              const next = [...draft.entries];
+                              next[i] = { ...next[i], name: e.target.value };
+                              updateNameListDraft(g.id, next);
+                            }}
+                          />
+                          <Input
+                            placeholder="# (optional)"
+                            value={entry.playerNumber ?? ''}
+                            disabled={state.order.locked}
+                            style={{ width: 120 }}
+                            onChange={(e) => {
+                              const next = [...draft.entries];
+                              next[i] = { ...next[i], playerNumber: e.target.value };
+                              updateNameListDraft(g.id, next);
+                            }}
+                          />
+                          <Button
+                            type="text"
+                            danger
+                            icon={<DeleteOutlined />}
+                            disabled={state.order.locked}
+                            onClick={() => updateNameListDraft(g.id, draft.entries.filter((_, j) => j !== i))}
+                          />
+                        </Space>
+                      ))}
+                      <Button
+                        type="dashed"
+                        icon={<PlusOutlined />}
+                        disabled={state.order.locked}
+                        onClick={() =>
+                          updateNameListDraft(g.id, [...draft.entries, { id: '', name: '', playerNumber: null }])
+                        }
+                      >
+                        Add name
+                      </Button>
+                    </Space>
+                    <Divider style={{ borderColor: 'rgba(255,255,255,0.1)' }} />
+                    <Button type="primary" disabled={state.order.locked} onClick={() => saveNameList(g.id)}>
+                      Save name list
+                    </Button>
+                  </div>
+                );
+              })}
+            </Space>
           )}
         </div>
       </div>

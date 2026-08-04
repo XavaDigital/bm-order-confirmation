@@ -32,6 +32,13 @@ export interface OrderGarment {
   sizeCharts: SizeChartLink[];
 }
 
+/** A name printed on a "Got Your Back" style garment's shared design. */
+export interface RosterNameListEntry {
+  id: string;
+  name: string;
+  playerNumber: string | null;
+}
+
 /** Garment as shown on the roster pages (shared link + per-member link). */
 export interface RosterGarment {
   id: string;
@@ -40,6 +47,16 @@ export interface RosterGarment {
   /** Chart-defined sizes — when non-empty the size input becomes a dropdown. */
   sizes: SizeChartSize[];
   sizeCharts: SizeChartLink[];
+  /**
+   * "Got Your Back" style (GOT_YOUR_BACK_PLAN.md) — many names on one shared
+   * design. Manager-edited on the shared roster link only; excluded from the
+   * per-member "Enter Your Sizes" flow entirely (no size applies). Optional:
+   * always populated by the server, but most garments (and every existing
+   * test fixture) simply don't carry this style.
+   */
+  nameListEnabled?: boolean;
+  nameListRows?: number | null;
+  nameListEntries?: RosterNameListEntry[];
 }
 
 /** Roster member row as delivered to (and returned to) the roster views. */

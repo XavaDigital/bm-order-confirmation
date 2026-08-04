@@ -5,7 +5,9 @@ import { useSearchParams } from 'next/navigation';
 import {
   Form,
   Input,
+  InputNumber,
   Select,
+  Switch,
   Button,
   Space,
   App,
@@ -25,6 +27,7 @@ import {
 import type { GarmentTypeOption, GarmentTypeFabricField, SizeChartSize } from '@/db/schema';
 import { SectionTitle } from '@/components/admin/SectionTitle';
 import { SizingTable } from './SizingTable';
+import { NameListTable } from './NameListTable';
 import { MockupUploader, type MockupImage } from './MockupUploader';
 import { SizeChartLinker } from './SizeChartLinker';
 import { postJson, patchJson, deleteJson, getJson } from '@/lib/api-fetch';
@@ -40,6 +43,12 @@ interface SizingRow {
   sortOrder?: number;
 }
 
+interface NameListEntry {
+  id?: string;
+  name?: string | null;
+  playerNumber?: string | null;
+}
+
 interface Garment {
   id: string;
   name: string;
@@ -53,6 +62,10 @@ interface Garment {
   selectedOptions?: Record<string, string> | null;
   selectedFabrics?: Record<string, string> | null;
   sizingColumns?: GarmentTypeOption[];
+  /** "Got Your Back" style — see GOT_YOUR_BACK_PLAN.md. */
+  nameListEnabled?: boolean;
+  nameListRows?: number | null;
+  nameListEntries?: NameListEntry[];
 }
 
 interface GarmentType {
@@ -185,6 +198,8 @@ export function GarmentsMasterDetail({
           ...(edits.garmentTypeId !== undefined && { garmentTypeId: edits.garmentTypeId }),
           ...(edits.selectedOptions !== undefined && { selectedOptions: edits.selectedOptions }),
           ...(edits.selectedFabrics !== undefined && { selectedFabrics: edits.selectedFabrics }),
+          ...(edits.nameListEnabled !== undefined && { nameListEnabled: edits.nameListEnabled }),
+          ...(edits.nameListRows !== undefined && { nameListRows: edits.nameListRows }),
         },
         'Save failed',
       );
@@ -389,6 +404,8 @@ export function GarmentsMasterDetail({
         const currentTypeId = getEdit(garment, 'garmentTypeId');
         const currentOptions = getEdit(garment, 'selectedOptions') ?? {};
         const currentSelectedFabrics = getEdit(garment, 'selectedFabrics') ?? {};
+        const currentNameListEnabled = getEdit(garment, 'nameListEnabled') ?? false;
+        const currentNameListRows = getEdit(garment, 'nameListRows') ?? null;
         const currentType = types.find((t) => t.id === currentTypeId) ?? null;
         const fabricFields = currentType ? currentType.fabricFields : [];
         const typeChoices = types
@@ -516,6 +533,28 @@ export function GarmentsMasterDetail({
                   />
                 </Form.Item>
               </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+                <Form.Item
+                  label={'"Got Your Back" style'}
+                  extra="Many names printed on one shared design, arranged in rows for the artwork — independent of the sizing table below."
+                >
+                  <Switch
+                    checked={currentNameListEnabled}
+                    onChange={(checked) => setEdit(garment.id, { nameListEnabled: checked })}
+                  />
+                </Form.Item>
+                {currentNameListEnabled && (
+                  <Form.Item label="Rows" extra="Row count for the print layout.">
+                    <InputNumber
+                      min={1}
+                      max={100}
+                      value={currentNameListRows ?? undefined}
+                      onChange={(v) => setEdit(garment.id, { nameListRows: v ?? null })}
+                      style={{ width: '100%' }}
+                    />
+                  </Form.Item>
+                )}
+              </div>
               {currentType && currentType.orderOptions.length > 0 && (
                 <>
                   <SectionTitle style={{ marginBottom: 8 }}>Options</SectionTitle>
@@ -601,6 +640,21 @@ export function GarmentsMasterDetail({
                 onColumnsChange={(columns) => saveSizingColumns(garment.id, columns)}
               />
             </div>
+
+            {garment.nameListEnabled && (
+              <div>
+                <SectionTitle style={{ marginBottom: 8 }}>
+                  &ldquo;Got Your Back&rdquo; Name List
+                </SectionTitle>
+                <NameListTable
+                  key={garment.id}
+                  orderId={orderId}
+                  garmentId={garment.id}
+                  initialEntries={garment.nameListEntries ?? []}
+                  onSaved={onGarmentsChanged}
+                />
+              </div>
+            )}
 
             <div>
               <SectionTitle style={{ marginBottom: 8 }}>Reference Size Charts</SectionTitle>

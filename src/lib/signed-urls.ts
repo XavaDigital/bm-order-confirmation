@@ -78,3 +78,22 @@ export async function signImageRefs<T extends { storageKey: string; thumbnailSto
     }),
   );
 }
+
+/**
+ * Enrich PO snapshot assets (`PoSnapshot.assets`) with one field the UI can
+ * always link: the Drive `url`, or a short-lived signed URL for an uploaded
+ * `storageKey`. Mirrors `GET /api/admin/orders/[id]/assets` — signed HERE, per
+ * request, so nothing durable (the snapshot itself) ever holds an expiring
+ * URL. Null on a storage hiccup; the row still renders, just not as a link.
+ */
+export async function signPoAssets<T extends { url: string | null; storageKey?: string | null }>(
+  assets: T[],
+  ttlSeconds = DEFAULT_TTL_SECONDS,
+): Promise<(T & { downloadUrl: string | null })[]> {
+  return Promise.all(
+    assets.map(async (asset) => ({
+      ...asset,
+      downloadUrl: asset.url ?? (asset.storageKey ? await getSignedUrl(asset.storageKey, ttlSeconds).catch(() => null) : null),
+    })),
+  );
+}

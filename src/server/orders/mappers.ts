@@ -18,6 +18,12 @@ export interface GarmentSizingDto {
   viaTeamRoster?: boolean;
 }
 
+export interface GarmentNameListEntryDto {
+  id: string;
+  name: string;
+  playerNumber: string | null;
+}
+
 export interface GarmentDto {
   name: string;
   fabrics: string[];
@@ -28,6 +34,15 @@ export interface GarmentDto {
   /** Custom sizing-column definitions, so a reader knows the column order. */
   sizingColumns: GarmentTypeOption[];
   sizing: GarmentSizingDto[];
+  /**
+   * "Got Your Back" style — a name list printed on this garment's shared
+   * design, independent of `sizing` (GOT_YOUR_BACK_PLAN.md). `nameListRows`
+   * is the print layout's row count; `nameListEntries` is empty/unused when
+   * `nameListEnabled` is false.
+   */
+  nameListEnabled: boolean;
+  nameListRows: number | null;
+  nameListEntries: GarmentNameListEntryDto[];
 }
 
 interface SizingRecord {
@@ -49,6 +64,9 @@ interface GarmentRecord {
   sizingColumns?: GarmentTypeOption[] | null;
   garmentType?: { name: string } | null;
   sizing: SizingRecord[];
+  nameListEnabled?: boolean | null;
+  nameListRows?: number | null;
+  nameListEntries?: { id: string; name: string; playerNumber: string | null }[];
 }
 
 export function toSizingDto(row: SizingRecord): GarmentSizingDto {
@@ -91,5 +109,12 @@ export function toGarmentDto(
           }
         : toSizingDto(row),
     ),
+    nameListEnabled: garment.nameListEnabled ?? false,
+    nameListRows: garment.nameListRows ?? null,
+    nameListEntries: (garment.nameListEntries ?? []).map((row) => ({
+      id: row.id,
+      name: row.name,
+      playerNumber: row.playerNumber ?? null,
+    })),
   };
 }

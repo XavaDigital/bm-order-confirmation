@@ -23,6 +23,9 @@ export default async function CustomerRosterPage({ params }: Props) {
       notes: garment.notes,
       sizes: garment.sizes,
       sizeCharts: await signChartRefs(garment.sizeCharts),
+      nameListEnabled: garment.nameListEnabled,
+      nameListRows: garment.nameListRows,
+      nameListEntries: garment.nameListEntries,
     })),
   );
 

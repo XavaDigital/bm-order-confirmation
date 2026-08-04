@@ -820,6 +820,9 @@ describe('buildConfirmationSnapshot (pure)', () => {
       sizing: [
         { size: 'M', playerName: 'Alex', playerNumber: '7', quantity: 1, notes: null, customValues: null },
       ],
+      nameListEnabled: false,
+      nameListRows: null,
+      nameListEntries: [],
       sizeChartNames: ['Adult Unisex'],
       mockupImageCaptions: ['front'],
     });
