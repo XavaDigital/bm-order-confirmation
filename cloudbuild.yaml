@@ -1,0 +1,55 @@
+# Deploy-on-push pipeline (David, 2026-08-04): replaces local `npm run deploy`,
+# which died daily to the Workspace gcloud reauth policy. Trigger: push to main
+# on XavaDigital/bm-order-confirmation (Cloud Build GitHub App).
+#
+# Step order is LOAD-BEARING (CLAUDE.md, the 0027 outage): migrations run
+# BEFORE the deploy, and a migration failure stops the build so the old
+# revision keeps serving against the schema it knows.
+steps:
+  # 1. Apply pending Drizzle migrations. drizzle.config.ts prefers
+  #    DATABASE_DIRECT_URL (port 5432) — the pooler rejects DDL.
+  #    --ignore-scripts: drizzle-kit needs no native postinstalls (skips sharp).
+  - id: migrate
+    name: node:22
+    entrypoint: bash
+    args:
+      - -c
+      - npm ci --ignore-scripts && npm run db:migrate
+    secretEnv: ['DATABASE_DIRECT_URL']
+
+  # 2. Build the container from the repo Dockerfile and push both tags.
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args: ['build', '-t', '${_IMAGE}:${COMMIT_SHA}', '-t', '${_IMAGE}:latest', '.']
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '--all-tags', '${_IMAGE}']
+
+  # 3. Deploy by image. Env vars/secrets on the SERVICE are untouched — this
+  #    only swaps the running image, same as `gcloud run deploy --source` did.
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - bm-orders
+      - --image=${_IMAGE}:${COMMIT_SHA}
+      - --region=asia-southeast1
+      - --project=beastmode-pm
+      - --quiet
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/beastmode-pm/secrets/bm-orders-database-direct-url/versions/latest
+      env: DATABASE_DIRECT_URL
+
+substitutions:
+  # The same Artifact Registry repo `gcloud run deploy --source` used.
+  _IMAGE: asia-southeast1-docker.pkg.dev/beastmode-pm/cloud-run-source-deploy/bm-orders
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+timeout: 1800s
