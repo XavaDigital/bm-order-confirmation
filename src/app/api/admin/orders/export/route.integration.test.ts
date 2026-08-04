@@ -71,7 +71,7 @@ describe('GET /api/admin/orders/export', () => {
 
     const body = await res.text();
     const lines = body.replace(/^﻿/, '').split('\r\n');
-    expect(lines[0]).toBe('Order Number,Customer Name,Customer Email,Club,Status,Value,Currency,Created At,Confirmed At');
+    expect(lines[0]).toBe('Order Number,Order Name,Customer Name,Customer Email,Club,Status,Value,Currency,Created At,Confirmed At');
     expect(lines).toHaveLength(3); // header + 2 orders
     expect(lines.some((l) => l.includes('Jane Coach') && l.includes('Wildcats'))).toBe(true);
     expect(lines.some((l) => l.includes('Bob Coach'))).toBe(true);

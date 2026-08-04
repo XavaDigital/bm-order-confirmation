@@ -5,6 +5,13 @@ import { App as AntdApp } from 'antd';
 import { installMockFetch, type MockRoute } from '@/test/mockFetch';
 import { PurchaseOrdersView } from './PurchaseOrdersView';
 
+// The board view renders WorkflowBoard, whose card-click navigation calls
+// useRouter — jsdom has no app router mounted, so mock it like every other
+// component test here does.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+}));
+
 function poRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'po-1',
