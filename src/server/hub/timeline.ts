@@ -5,12 +5,13 @@
  *
  * The hub timeline is the customer's cross-fleet history — every sibling app
  * renders whatever lands on it. The contract is the semantic itself: push ONLY
- * what belongs on the customer's timeline. v1 is therefore lifecycle events
- * only — created / confirmed / changes_requested — never internal staff
- * discussion, never supplier-authored notes. Order NOTES (finalisation
- * points) do not ride it either: MailFlow reads those via the brokered
- * capability GET (salesflow's re-pin, fleet thread 2026-08-03/04 — "timeline
- * is NOT the transport").
+ * what belongs on the customer's timeline: lifecycle events (created /
+ * confirmed / changes_requested) and ORDER NOTES (finalisation points, kind
+ * 'note') — order-scoped subjects keep the order connection obvious, David's
+ * condition. Never comments/discussion, never supplier-authored or system
+ * rows. Two-transport model (salesflow's 2026-08-04 reconciliation): the
+ * brokered capability GET is the CURRENT-STATE list; timeline rows are
+ * append-only visibility/history.
  *
  * Unlike the index snapshot push (order-sync.ts), this is an EVENT push, but
  * it is deliberately best-effort and never throws, including from outbox
@@ -70,6 +71,59 @@ export function buildOrderTimelineItem(
  * which emits no outbox event). Takes an optional executor because outbox
  * handlers run inside the batch transaction and must not touch the global db.
  */
+/**
+ * Push one ORDER NOTE (kind 'note') onto the hub timeline — reinstated per
+ * salesflow's 2026-08-04 reconciliation (David's widened ruling governs).
+ * Same best-effort/no-throw stance and idempotency (channel='note',
+ * externalRef = the outbox event id) as the lifecycle push. Edits and
+ * deletions do not follow — the timeline keeps the item as posted; the
+ * brokered capability GET is where current state lives.
+ */
+export async function pushOrderNoteToTimeline(
+  orderId: string,
+  opts: {
+    body: string;
+    authorLabel: string | null;
+    externalRef: string;
+    occurredAt: Date;
+    executor?: Transaction;
+  },
+): Promise<void> {
+  const ex = opts.executor ?? db;
+  try {
+    if (!isHubConfigured()) return;
+
+    const [order] = await ex
+      .select({
+        hubCustomerId: orders.hubCustomerId,
+        hubContactId: orders.hubContactId,
+        hubOrderId: orders.hubOrderId,
+        orderNumber: orders.orderNumber,
+      })
+      .from(orders)
+      .where(eq(orders.id, orderId));
+    if (!order?.hubCustomerId) return;
+
+    const ref = order.orderNumber ? `Order ${order.orderNumber}` : 'Order';
+    const ok = await postHubCommunication({
+      channel: 'note',
+      direction: 'outbound',
+      occurredAt: opts.occurredAt,
+      customerId: order.hubCustomerId,
+      contactId: order.hubContactId,
+      orderId: order.hubOrderId,
+      externalRef: opts.externalRef,
+      subject: opts.authorLabel ? `${ref}: order note from ${opts.authorLabel}` : `${ref}: order note`,
+      snippet: opts.body.slice(0, SNIPPET_MAX),
+    });
+    if (!ok) {
+      logger.warn('[hub/timeline] note push failed (best-effort, not retried)', { orderId });
+    }
+  } catch (err) {
+    logger.warn('[hub/timeline] note push failed (best-effort, not retried)', { orderId, err });
+  }
+}
+
 export async function pushOrderTimelineEvent(
   orderId: string,
   kind: OrderTimelineKind,

@@ -17,7 +17,11 @@ npm run db:push      # push schema directly (dev only, skips migration files)
 npm run db:studio    # Drizzle Studio UI
 npm run db:seed      # create/update the first admin user (reads SEED_ADMIN_* from .env.local)
 npm run db:seed-demo # seed demo orders
-npm run deploy       # db:migrate (via predeploy), then gcloud run deploy bm-orders (beastmode-pm, asia-southeast1)
+npm run deploy       # BREAK-GLASS ONLY since 2026-08-04: db:migrate then gcloud run deploy (needs a live gcloud auth login)
+# DEPLOYS ARE AUTOMATIC: every push to main runs the Cloud Build trigger
+# deploy-bm-orders-on-push (cloudbuild.yaml: migrate -> build -> deploy, as
+# bm-orders-deployer@). PUSHING TO MAIN IS DEPLOYING — never push unverified
+# work. Watch a build: gcloud builds list --project beastmode-pm --limit 3.
 
 # Tests (Vitest)
 npm run test          # full suite (unit + integration)
