@@ -28,6 +28,7 @@ import type { Transaction } from '@/db';
 import { orders } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { isHubConfigured, postHubCommunication, postHubEnvelope } from './client';
+import type { AnnotationEnvelope } from './client';
 
 export type OrderTimelineKind = 'created' | 'confirmed' | 'changes_requested';
 
@@ -85,6 +86,38 @@ export interface OrderNoteEnvelopeInput {
 }
 
 /**
+ * THE serializer for an order note's §3 envelope — FLEET_STANDARD_ANNOTATIONS
+ * §7 (one serializer, two transports): the outbox push AND the capability
+ * notes GET/POST responses are all built here, so push and read-repair
+ * physically cannot disagree on shape. `pushRef` is a delivery concern and is
+ * added by the push, not here — record identity is the row uuid.
+ */
+export function buildOrderNoteEnvelope(
+  orderId: string,
+  note: OrderNoteEnvelopeInput,
+): AnnotationEnvelope {
+  const edited = note.updatedAt.getTime() - note.createdAt.getTime() > 1000;
+  return {
+    id: note.id,
+    schemaVersion: 1,
+    subject: { type: 'order', id: orderId, app: 'bm-orders' },
+    kind: 'note',
+    body: { text: note.body.slice(0, ENVELOPE_BODY_MAX), format: 'plain' },
+    author: {
+      kind:
+        note.authorKind === 'supplier' || note.authorKind === 'system'
+          ? note.authorKind
+          : 'staff', // email_flow is a staff member acting from the email app
+      label: note.authorLabel ?? 'Staff',
+    },
+    audience: [], // staff-only — David's pin; order notes never reach customer surfaces
+    occurredAt: note.createdAt.toISOString(),
+    ...(edited && { editedAt: note.updatedAt.toISOString() }),
+    ...(note.deletedAt && { deletedAt: note.deletedAt.toISOString() }),
+  };
+}
+
+/**
  * Push one ORDER NOTE (kind 'note') to the hub as a §3 ENVELOPE, keyed on the
  * note ROW uuid (FLEET_STANDARD_ANNOTATIONS R1 — re-keyed from the event uuid
  * once the hub's upsert-by-id went live, bm-sales rev 00064-vkc). Edits
@@ -111,25 +144,9 @@ export async function pushOrderNoteToTimeline(
       .where(eq(orders.id, orderId));
     if (!order?.hubCustomerId) return;
 
-    const edited = note.updatedAt.getTime() - note.createdAt.getTime() > 1000;
     const ok = await postHubEnvelope({
-      id: note.id,
-      schemaVersion: 1,
+      ...buildOrderNoteEnvelope(orderId, note),
       pushRef: opts.pushRef,
-      subject: { type: 'order', id: orderId, app: 'bm-orders' },
-      kind: 'note',
-      body: { text: note.body.slice(0, ENVELOPE_BODY_MAX), format: 'plain' },
-      author: {
-        kind:
-          note.authorKind === 'supplier' || note.authorKind === 'system'
-            ? note.authorKind
-            : 'staff', // email_flow is a staff member acting from the email app
-        label: note.authorLabel ?? 'Staff',
-      },
-      audience: [], // staff-only — David's pin; order notes never reach customer surfaces
-      occurredAt: note.createdAt.toISOString(),
-      ...(edited && { editedAt: note.updatedAt.toISOString() }),
-      ...(note.deletedAt && { deletedAt: note.deletedAt.toISOString() }),
     });
     if (!ok) {
       logger.warn('[hub/timeline] note envelope push failed (best-effort, not retried)', { orderId });

@@ -1,8 +1,28 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { addOrderNote, listOrderNotes } from '@/server/orders/notes-service';
+import type { OrderNoteDto } from '@/server/orders/notes-service';
+import { buildOrderNoteEnvelope } from '@/server/hub/timeline';
 import { defineRoute } from '@/lib/route-handler';
 import { resolveActingUserLabel } from '@/server/identity/client';
+
+/**
+ * The §3 envelope for a live (non-deleted) note DTO, from THE note-envelope
+ * serializer (FLEET_STANDARD_ANNOTATIONS §7) — the same function the outbox
+ * push feeds, so this surface and the push cannot drift apart in shape.
+ */
+function noteEnvelope(orderId: string, n: OrderNoteDto) {
+  return buildOrderNoteEnvelope(orderId, {
+    id: n.id,
+    body: n.body,
+    kind: n.kind,
+    authorKind: n.authorKind,
+    authorLabel: n.authorLabel,
+    createdAt: n.createdAt,
+    updatedAt: n.updatedAt,
+    deletedAt: null, // this surface only serves live rows — absence IS the tombstone
+  });
+}
 
 const noteSchema = z.object({
   body: z.string().trim().min(1).max(5000),
@@ -28,7 +48,10 @@ export const POST = defineRoute<{ id: string }, typeof noteSchema._type>({
       // behaviour as before.
       authorLabel: await resolveActingUserLabel(actingUser!),
     });
-    return NextResponse.json(note, { status: 201 });
+    // `envelope` rides additively: the hub's write-through caches the OWNER's
+    // response (FLEET_STANDARD_ANNOTATIONS §5.2), and this is the canonical
+    // shape it caches. Existing readers of the flat DTO fields are untouched.
+    return NextResponse.json({ ...note, envelope: noteEnvelope(params.id, note) }, { status: 201 });
   },
 });
 
@@ -48,13 +71,22 @@ export const GET = defineRoute<{ id: string }>({
     const notes = await listOrderNotes(params.id, 'all', { kind: 'note' });
     return NextResponse.json({
       items: notes
-        .filter((n) => !n.deleted)
+        // Full state of the FLEET-VISIBLE subset (FLEET_STANDARD_ANNOTATIONS
+        // §2/§9): deleted rows are absent (absence = tombstone to diff-apply),
+        // and supplier-authored rows never leave the app — today no supplier
+        // path writes kind 'note', but the boundary belongs here, not in that
+        // assumption.
+        .filter((n) => !n.deleted && n.authorKind !== 'supplier')
         .map((n) => ({
           id: n.id,
           body: n.body,
           authorLabel: n.authorLabel,
           authorKind: n.authorKind,
           createdAt: n.createdAt,
+          // Additive per §11: the flat fields stay for existing readers
+          // (Email Flow's panel); the envelope is what the hub's read-repair
+          // diff-applies, from the same serializer as the push (§7).
+          envelope: noteEnvelope(params.id, n),
         })),
     });
   },

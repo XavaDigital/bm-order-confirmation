@@ -278,6 +278,19 @@ describe('POST /api/capability/v1/orders/[id]/notes', () => {
     // David's 2026-08-04 distinction: relayed notes are finalisation points,
     // not thread comments.
     expect(json.kind).toBe('note');
+    // FLEET_STANDARD_ANNOTATIONS §5.2: the owner's response carries the
+    // canonical envelope — this is what the hub's write-through caches.
+    expect(json.envelope).toMatchObject({
+      id: json.id,
+      schemaVersion: 1,
+      subject: { type: 'order', id: created.orderId, app: 'bm-orders' },
+      kind: 'note',
+      body: { text: 'Customer emailed: hold shipment until Friday', format: 'plain' },
+      author: { kind: 'staff', label: 'core-user-1' },
+      audience: [],
+    });
+    expect(json.envelope.occurredAt).toBeTruthy();
+    expect(json.envelope.pushRef).toBeUndefined();
 
     const notes = await db.query.orderNotes.findMany({
       where: eq(schema.orderNotes.orderId, created.orderId),
@@ -322,6 +335,18 @@ describe('POST /api/capability/v1/orders/[id]/notes', () => {
     });
     expect(json.items[0].id).toBeTruthy();
     expect(json.items[0].createdAt).toBeTruthy();
+    // §7 one-serializer: the repair read carries the same envelope shape the
+    // push emits, keyed on the row uuid. Additive — the flat fields above stay.
+    expect(json.items[0].envelope).toMatchObject({
+      id: json.items[0].id,
+      schemaVersion: 1,
+      subject: { type: 'order', id: created.orderId, app: 'bm-orders' },
+      kind: 'note',
+      body: { text: 'Sleeves 1cm shorter', format: 'plain' },
+      author: { kind: 'staff', label: 'core-user-1' },
+      audience: [],
+    });
+    expect(json.items[0].envelope.pushRef).toBeUndefined();
   });
 });
 
