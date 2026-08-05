@@ -231,19 +231,29 @@ describe('PATCH /api/admin/purchase-orders/[id]', () => {
     });
   });
 
-  it('silently strips deadlineDate — the PO mirrors the order and is not per-PO editable', async () => {
+  it('sets deadlineDate directly — auto-imported from the order but per-PO editable (David, 2026-08-06)', async () => {
     await setStaffSession();
     const { po } = await createPoViaRoute();
 
     const res = await PATCH(
       jsonRequest(`/api/admin/purchase-orders/${po.id}`, 'PATCH', {
-        deadlineDate: '2026-09-15', // no longer part of the update contract
+        deadlineDate: '2026-09-15',
       }),
       withId(po.id),
     );
     const updated = await res.json();
     expect(res.status).toBe(200);
-    expect(updated.deadlineDate).toBeNull(); // untouched (order has no deadline)
+    expect(updated.deadlineDate).toBe('2026-09-15');
+
+    // Clearable too. (An order-side deadline change still re-syncs every PO —
+    // last write wins; that path is covered in the orders service tests.)
+    const cleared = await (
+      await PATCH(
+        jsonRequest(`/api/admin/purchase-orders/${po.id}`, 'PATCH', { deadlineDate: null }),
+        withId(po.id),
+      )
+    ).json();
+    expect(cleared.deadlineDate).toBeNull();
   });
 });
 
