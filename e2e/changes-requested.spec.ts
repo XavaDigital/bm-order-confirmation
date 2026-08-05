@@ -7,7 +7,7 @@ import {
 } from './helpers';
 
 test.describe('Changes requested', () => {
-  test('customer requests changes, staff edits and resends the link, customer re-confirms', async ({
+  test('customer requests changes, staff edits the order, and the customer re-confirms on the same link', async ({
     page,
     context,
   }) => {
@@ -19,12 +19,12 @@ test.describe('Changes requested', () => {
       customerName: `E2E Changes ${suffix}`,
       customerEmail: `e2e-changes-${suffix}@example.com`,
     });
-    const firstUrl = await generateCustomerLink(page);
+    const customerUrl = await generateCustomerLink(page);
 
     // 2. Customer requests changes instead of confirming.
     const customerContext = await context.browser()!.newContext();
     const customerPage = await customerContext.newPage();
-    await customerPage.goto(firstUrl);
+    await customerPage.goto(customerUrl);
     await customerPage.getByRole('button', { name: /request changes/i }).click();
     const dialog = customerPage.getByRole('dialog');
     await dialog.getByPlaceholder(/the sizing for jersey/i).fill(comment);
@@ -32,23 +32,37 @@ test.describe('Changes requested', () => {
     await expect(customerPage.getByText('Changes Requested', { exact: true })).toBeVisible();
     await customerContext.close();
 
-    // 3. Staff sees the comment and status, edits the order, and resends a fresh link.
+    // 3. Staff sees the status and, on the Details tab, the comment — that
+    // alert lives inside the Details section's own children (OrderDetailView
+    // renders one section's content at a time via its Menu nav), and reload
+    // leaves the page on whatever tab generateCustomerLink() last opened
+    // (?tab=share), so switch to Details before asserting the comment is
+    // there. The link itself is never revoked by a changes-requested cycle
+    // (requestOrderChanges() only flips the order status — customer-service.ts)
+    // and ShareLinkPanel has no Regenerate action any more (David, 2026-08-04),
+    // so the same link is reused below rather than minting a second one.
     await page.reload();
     await expect(page.getByText('Changes Requested', { exact: true }).first()).toBeVisible();
+    await page.getByRole('menuitem', { name: 'Details' }).click();
     await expect(page.getByText(comment)).toBeVisible();
 
-    await page.getByRole('tab', { name: 'Details' }).click();
+    // Contact & branding fields (including club name) moved out of the
+    // Details form onto the Team order page tab (OrderContactPanel.tsx,
+    // David 2026-08-04) — Details' own OrderForm renders with
+    // hideContactFields, so "Westside FC" only exists over there.
+    await page.getByRole('menuitem', { name: 'Team order page' }).click();
     await page.getByPlaceholder('Westside FC').fill(`E2E Club ${suffix}`);
-    await page.getByRole('button', { name: /save details/i }).click();
-    await expect(page.getByText('Order details saved')).toBeVisible();
+    await page.getByRole('button', { name: /save contact details/i }).click();
+    await expect(page.getByText('Contact details saved')).toBeVisible();
 
-    const secondUrl = await generateCustomerLink(page);
-    expect(secondUrl).not.toBe(firstUrl);
-
-    // 4. Customer opens the fresh link and confirms this time.
+    // 4. Customer reopens the SAME link. order.status is still
+    // 'changes_requested', not 'confirmed' — view.tsx only special-cases
+    // 'confirmed' server-side, so the normal confirm form renders again (the
+    // "Changes Requested" panel above was local post-submit state, not
+    // something persisted into the page on reload).
     const secondCustomerContext = await context.browser()!.newContext();
     const secondCustomerPage = await secondCustomerContext.newPage();
-    await secondCustomerPage.goto(secondUrl);
+    await secondCustomerPage.goto(customerUrl);
     await checkAllAcknowledgments(secondCustomerPage);
     await secondCustomerPage.getByRole('button', { name: /confirm order/i }).click();
     await secondCustomerPage.getByRole('button', { name: /yes, confirm/i }).click();

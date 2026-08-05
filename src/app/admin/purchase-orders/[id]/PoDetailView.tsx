@@ -326,12 +326,21 @@ export function PoDetailView({ poId }: { poId: string }) {
   async function sendToSupplier() {
     setSending(true);
     try {
-      const res = await postJson<{ ok: true; poNumber: string; to: string }>(
-        `/api/admin/purchase-orders/${poId}/send`,
-        {},
-        'Failed to send purchase order',
-      );
-      message.success(`Purchase order emailed to ${res.to}`);
+      const res = await postJson<{
+        ok: true;
+        poNumber: string;
+        to: string;
+        attachmentSummary: { images: number; fonts: number; sizeCharts: number; sizeReduced: boolean };
+      }>(`/api/admin/purchase-orders/${poId}/send`, {}, 'Failed to send purchase order');
+      const { images, fonts, sizeCharts, sizeReduced } = res.attachmentSummary;
+      const parts = ['PDF', 'spreadsheet'];
+      if (images > 0) parts.push(`${images} image${images === 1 ? '' : 's'}`);
+      if (fonts > 0) parts.push(`${fonts} font/design file${fonts === 1 ? '' : 's'}`);
+      if (sizeCharts > 0) parts.push(`${sizeCharts} size chart${sizeCharts === 1 ? '' : 's'}`);
+      message.success(`Purchase order emailed to ${res.to} (${parts.join(', ')})`);
+      if (sizeReduced) {
+        message.warning('Images were too large to attach at full resolution — reduced-size copies were sent instead.');
+      }
       await load();
     } catch (err) {
       // 503 (email unconfigured), 409 (guards) and 500 (SMTP) all carry a

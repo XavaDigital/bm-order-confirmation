@@ -18,6 +18,17 @@ vi.mock('@/lib/email', async (importOriginal) => ({
   sendSupplierPoEmail: sendSupplierPoEmailMock,
 }));
 
+// Fake file contents keyed by storage key, instead of hitting real storage —
+// same shape used for getSignedUrl elsewhere in this file (real impl kept,
+// only getFileBuffer is faked, since signPoSnapshotMedia already tolerates a
+// failing getSignedUrl by catching to null).
+const defaultGetFileBuffer = async (key: string) => Buffer.from(`content:${key}`);
+const getFileBufferMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/storage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/storage')>()),
+  getFileBuffer: getFileBufferMock,
+}));
+
 import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
@@ -35,9 +46,13 @@ import {
   updatePurchaseOrderStatus,
 } from './service';
 
+getFileBufferMock.mockImplementation(defaultGetFileBuffer);
+
 afterEach(async () => {
   await resetTestDb(db);
   sendSupplierPoEmailMock.mockClear();
+  getFileBufferMock.mockReset();
+  getFileBufferMock.mockImplementation(defaultGetFileBuffer);
 });
 
 async function seedSupplier(overrides: Partial<typeof schema.suppliers.$inferInsert> = {}) {
@@ -370,13 +385,21 @@ describe('sendPurchaseOrder', () => {
     await updatePurchaseOrderStatus(po.id, 'approved');
 
     const result = await sendPurchaseOrder(po.id, { actorEmail: 'sam@example.com' }, renderPdf);
-    expect(result).toEqual({ poNumber: po.poNumber, to: 'factory@example.com' });
+    expect(result).toEqual({
+      poNumber: po.poNumber,
+      to: 'factory@example.com',
+      attachmentSummary: { images: 0, fonts: 0, sizeCharts: 0, sizeReduced: false },
+    });
 
     expect(sendSupplierPoEmailMock).toHaveBeenCalledTimes(1);
     const emailArgs = sendSupplierPoEmailMock.mock.calls[0][0];
     expect(emailArgs.to).toBe('factory@example.com');
     // The pretty deterministic per-PO URL — no token minting anymore.
     expect(emailArgs.portalUrl).toBe(`http://localhost:3000/supplier/VA/po/${po.poNumber}`);
+    // The xlsx twin of the PDF now rides every send (AUTO_ORDER_EMAIL_PLAN.md).
+    expect(emailArgs.xlsx).toBeInstanceOf(Buffer);
+    expect((emailArgs.xlsx as Buffer).length).toBeGreaterThan(0);
+    expect(emailArgs.sizeReduced).toBe(false);
 
     const updated = await db.query.purchaseOrders.findFirst({
       where: eq(schema.purchaseOrders.id, po.id),
@@ -417,6 +440,86 @@ describe('sendPurchaseOrder', () => {
     await expect(sendPurchaseOrder(po.id, {}, renderPdf)).rejects.toThrow(
       'Cannot send a received purchase order',
     );
+  });
+});
+
+// AUTO_ORDER_EMAIL_PLAN.md Phase 1 — the fuller attachment set on every send.
+describe('sendPurchaseOrder — attachments', () => {
+  const renderPdf = async () => Buffer.from('%PDF-fake');
+
+  async function seedSendablePoWithFiles() {
+    const supplier = await seedSupplier({ email: 'factory@example.com' });
+    const { orderId, garments } = await seedOrder();
+    const hoodie = garments[0];
+
+    await db.insert(schema.mockupImages).values({
+      garmentId: hoodie.id,
+      storageKey: 'mockups/hoodie-front-full.png',
+      thumbnailStorageKey: 'mockups/hoodie-front-thumb.png',
+      caption: 'Front',
+    });
+    await db.insert(schema.orderAssets).values({
+      orderId,
+      kind: 'font',
+      name: 'Team Font',
+      storageKey: 'fonts/team.ttf',
+      includeOnPo: true,
+    });
+
+    const po = await createPurchaseOrder({
+      orderId,
+      supplierId: supplier.id,
+      garmentIds: [hoodie.id],
+    });
+    // Open the po_send gate, same as seedSendablePo above.
+    await db.update(schema.workflowStageTasks).set({ isActive: false });
+    await updatePurchaseOrderStatus(po.id, 'approved');
+    return { po, orderId, hoodie };
+  }
+
+  it('attaches the xlsx workbook, the garment image, and the font — full resolution', async () => {
+    const { po } = await seedSendablePoWithFiles();
+
+    const result = await sendPurchaseOrder(po.id, {}, renderPdf);
+    expect(result.attachmentSummary).toEqual({
+      images: 1,
+      fonts: 1,
+      sizeCharts: 0,
+      sizeReduced: false,
+    });
+
+    expect(getFileBufferMock).toHaveBeenCalledWith('mockups/hoodie-front-full.png');
+    expect(getFileBufferMock).not.toHaveBeenCalledWith('mockups/hoodie-front-thumb.png');
+
+    const emailArgs = sendSupplierPoEmailMock.mock.calls[0][0];
+    const extraAttachments = emailArgs.extraAttachments as { filename: string }[];
+    expect(emailArgs.xlsx).toBeInstanceOf(Buffer);
+    expect(emailArgs.sizeReduced).toBe(false);
+    expect(extraAttachments).toHaveLength(2);
+    expect(extraAttachments.map((a) => a.filename)).toEqual(
+      expect.arrayContaining([expect.stringContaining('Front'), 'Team Font.ttf']),
+    );
+  });
+
+  it('falls back to the thumbnail image when the full attachment set is over budget', async () => {
+    const { po } = await seedSendablePoWithFiles();
+
+    // One oversized "full-res" image is enough to blow the budget on its own;
+    // everything else (font, thumbnail) stays small.
+    getFileBufferMock.mockImplementation(async (key: string) => {
+      if (key.includes('front-full')) return Buffer.alloc(21 * 1024 * 1024);
+      return defaultGetFileBuffer(key);
+    });
+
+    const result = await sendPurchaseOrder(po.id, {}, renderPdf);
+    expect(result.attachmentSummary.sizeReduced).toBe(true);
+    expect(result.attachmentSummary.images).toBe(1);
+
+    expect(getFileBufferMock).toHaveBeenCalledWith('mockups/hoodie-front-full.png');
+    expect(getFileBufferMock).toHaveBeenCalledWith('mockups/hoodie-front-thumb.png');
+
+    const emailArgs = sendSupplierPoEmailMock.mock.calls[0][0];
+    expect(emailArgs.sizeReduced).toBe(true);
   });
 });
 

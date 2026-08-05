@@ -22,6 +22,7 @@ import { CustomerPageShell } from '@/components/customer/CustomerPageShell';
 import { SectionHeading } from '@/components/customer/SectionHeading';
 import { LockedRosterAlert } from '@/components/customer/LockedRosterAlert';
 import { RosterSizeEntry, buildSizeDraft } from '@/components/customer/RosterSizeEntry';
+import { NameListPreview } from '@/components/customer/NameListPreview';
 import { SizeChartPreviewModal } from '@/components/customer/SizeChartPreviewModal';
 import {
   CARD_STYLE,
@@ -531,6 +532,9 @@ export function RosterCustomerView({ rosterToken, roster }: RosterCustomerViewPr
                 Add name
               </Button>
             </Space>
+
+            <NameListPreview entries={draft.entries} rows={draft.rows} />
+
             <Divider style={{ borderColor: 'rgba(255,255,255,0.1)' }} />
             <Button type="primary" disabled={locked} onClick={() => saveNameList(garment.id)}>
               Save name list

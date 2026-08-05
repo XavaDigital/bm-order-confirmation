@@ -34,6 +34,7 @@ import { generateAccessCode, hashAccessCode } from '@/lib/access-code';
 import { STALE_THRESHOLD_DAYS } from '@/lib/config';
 import { env } from '@/lib/env';
 import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
+import { resolveVisibleOptions, typeOptionDefaults } from '@/server/garment-types/visibility';
 import { canTransitionOrder, explainOrderTransition } from './status-machine';
 import type { OrderStatus } from '@/lib/status';
 import type { CreateOrderInput } from './contract';
@@ -239,6 +240,7 @@ async function resolveGarmentTypePreset(
 ): Promise<{
   chartIds: string[];
   optionDefaults: Record<string, string>;
+  orderOptions: GarmentTypeOption[];
   sizingColumns: GarmentTypeOption[];
 }> {
   const type = await tx.query.garmentTypes.findFirst({
@@ -247,14 +249,10 @@ async function resolveGarmentTypePreset(
   });
   if (!type) throw new NotFoundError('Garment type');
 
-  const optionDefaults: Record<string, string> = {};
-  for (const opt of type.orderOptions ?? []) {
-    if (opt.type === 'select' && opt.defaultOption) optionDefaults[opt.label] = opt.defaultOption;
-    if (opt.type === 'text' && opt.defaultValue) optionDefaults[opt.label] = opt.defaultValue;
-  }
   return {
     chartIds: type.sizeChartLinks.map((l) => l.sizeChartId),
-    optionDefaults,
+    optionDefaults: typeOptionDefaults(type.orderOptions ?? []),
+    orderOptions: type.orderOptions ?? [],
     // Copied onto the garment; the garment owns its copy from then on, so
     // editing the type never rewrites live orders.
     sizingColumns: type.sizingColumns ?? [],
@@ -406,9 +404,12 @@ export async function createOrder(
       const preset = g.garmentTypeId
         ? await resolveGarmentTypePreset(tx, g.garmentTypeId)
         : null;
-      const selectedOptions = preset
+      const mergedOptions = preset
         ? { ...preset.optionDefaults, ...(g.selectedOptions ?? {}) }
         : (g.selectedOptions ?? null);
+      const selectedOptions = preset
+        ? resolveVisibleOptions(preset.orderOptions, mergedOptions)
+        : mergedOptions;
       const chartIds = [...new Set([...(g.sizeChartIds ?? []), ...(preset?.chartIds ?? [])])];
 
       await insertGarmentTree(tx, orderId, {
@@ -952,9 +953,12 @@ export async function addGarment(
     const preset = data.garmentTypeId
       ? await resolveGarmentTypePreset(tx, data.garmentTypeId)
       : null;
-    const selectedOptions = preset
+    const mergedOptions = preset
       ? { ...preset.optionDefaults, ...(data.selectedOptions ?? {}) }
       : (data.selectedOptions ?? null);
+    const selectedOptions = preset
+      ? resolveVisibleOptions(preset.orderOptions, mergedOptions)
+      : mergedOptions;
 
     const sortOrder =
       data.sortOrder ?? (await nextSortOrder(tx, garments, eq(garments.orderId, orderId)));
@@ -1001,7 +1005,17 @@ export async function updateGarment(
   // free-text workflow — chosen options are cleared too unless the caller
   // explicitly provides a replacement set.
   const clearingType = data.garmentTypeId === null;
-  const { selectedOptions, selectedFabrics, sizeChartIds: _ignored, ...rest } = data;
+  const { selectedOptions: incomingOptions, selectedFabrics, sizeChartIds: _ignored, ...rest } = data;
+
+  let selectedOptions = incomingOptions;
+  if (incomingOptions !== undefined && !clearingType) {
+    const effectiveTypeId = data.garmentTypeId !== undefined ? data.garmentTypeId : garment.garmentTypeId;
+    if (effectiveTypeId) {
+      const type = await db.query.garmentTypes.findFirst({ where: eq(garmentTypes.id, effectiveTypeId) });
+      if (type) selectedOptions = resolveVisibleOptions(type.orderOptions ?? [], incomingOptions);
+    }
+  }
+
   await db.update(garments).set({
     ...pickDefined(rest),
     ...(selectedOptions !== undefined

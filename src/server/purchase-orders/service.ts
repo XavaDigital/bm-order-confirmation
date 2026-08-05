@@ -37,6 +37,7 @@ import { syncOrderProductionStatus } from './hub-sync';
 import { loadPoAssets } from '@/server/orders/assets-service';
 import { assertGateOpen } from '@/server/workflow/gates';
 import { supplierCodeOrFallback } from '@/server/suppliers/service';
+import { buildPoWorkbook } from './xlsx';
 import {
   canTransition,
   type CreatePurchaseOrderInput,
@@ -637,9 +638,17 @@ export interface RenderPoPdfProps {
  * `sent` through the normal status machine (stamping `sentAt`), and a
  * `po.sent` outbox event + audit row are recorded on the parent order.
  */
+/** Per-type counts of what actually made it into the email, for the UI. */
+export interface AttachmentCounts {
+  images: number;
+  fonts: number;
+  sizeCharts: number;
+}
+
 /**
- * The files that ride the supplier email alongside the PDF: uploaded assets
- * (fonts, design files) and the size charts each garment cuts to.
+ * The files that ride the supplier email alongside the PDF/XLSX: uploaded
+ * assets (fonts, design files), the size charts each garment cuts to, and
+ * each garment's mock-up images.
  *
  * From the SNAPSHOT, not the live rows — the email must match the document of
  * record. As actual attachments, not signed URLs, because a URL in a sent
@@ -649,16 +658,23 @@ export interface RenderPoPdfProps {
  * the send: the PDF itself is the contract, the attachments are supporting
  * material, and blocking a PO on a single unreadable object helps nobody. The
  * PDF names every file it expects, so a gap is visible to the recipient too.
+ *
+ * `preferThumbnails` swaps each garment image's full-resolution storage key
+ * for its thumbnail — used by the size-budget fallback in `sendPurchaseOrder`
+ * when the full set would exceed the SMTP size cap.
  */
 async function collectSnapshotAttachments(
   snapshot: PoSnapshot,
-): Promise<{ filename: string; content: Buffer }[]> {
+  options?: { preferThumbnails?: boolean },
+): Promise<{ attachments: { filename: string; content: Buffer }[]; counts: AttachmentCounts }> {
   const wanted = new Map<string, string>(); // storageKey -> filename
+  const kindByKey = new Map<string, keyof AttachmentCounts>();
 
   for (const asset of snapshot.assets ?? []) {
     if (asset.storageKey) {
       const ext = asset.storageKey.split('.').pop() ?? 'bin';
       wanted.set(asset.storageKey, `${asset.name}.${ext}`);
+      kindByKey.set(asset.storageKey, 'fonts');
     }
   }
   // Charts dedupe across garments — two garments cutting to the same chart
@@ -668,20 +684,68 @@ async function collectSnapshotAttachments(
       if (chart.storageKey && !wanted.has(chart.storageKey)) {
         const ext = chart.storageKey.split('.').pop() ?? 'bin';
         wanted.set(chart.storageKey, `size-chart-${chart.name}.${ext}`);
+        kindByKey.set(chart.storageKey, 'sizeCharts');
       }
+    }
+  }
+  // Garment mock-up images — full resolution by default (the factory prints/
+  // cuts from these), thumbnails when the size-budget guard has kicked in.
+  // Deduped per-garment with a counter so two uncaptioned images on the same
+  // garment don't collide on one filename.
+  for (const garment of snapshot.garments) {
+    let n = 0;
+    for (const image of garment.images ?? []) {
+      const key = options?.preferThumbnails
+        ? image.thumbnailStorageKey ?? image.storageKey
+        : image.storageKey;
+      if (!key || wanted.has(key)) continue;
+      n += 1;
+      const ext = key.split('.').pop() ?? 'bin';
+      const caption = image.caption?.trim();
+      const base = caption ? `${garment.name}-${caption}` : `${garment.name}-${n}`;
+      wanted.set(key, `${base}.${ext}`);
+      kindByKey.set(key, 'images');
     }
   }
 
   const attachments: { filename: string; content: Buffer }[] = [];
+  const counts: AttachmentCounts = { images: 0, fonts: 0, sizeCharts: 0 };
   for (const [key, filename] of wanted) {
     try {
       attachments.push({ filename, content: await getFileBuffer(key) });
+      const kind = kindByKey.get(key);
+      if (kind) counts[kind] += 1;
     } catch (err) {
       logger.warn('[po/send] attachment skipped — could not read from storage', { key, filename, err });
     }
   }
-  return attachments;
+  return { attachments, counts };
 }
+
+interface ProductionRecipient {
+  to: string;
+  toName: string;
+}
+
+/**
+ * Who a PO send actually goes to. Today this is always the PO's own
+ * supplier — there is no other recipient concept in this codebase
+ * (AUTO_ORDER_EMAIL_PLAN.md Open Question 1). Kept as its own function so a
+ * later decision (a distinct production-team contact, a cc, a company-wide
+ * inbox) is a change here, not a rewrite of sendPurchaseOrder's gate/
+ * attachment/status logic.
+ */
+function resolveProductionRecipients(po: {
+  supplier: { email: string | null; contactPerson: string | null; name: string };
+}): ProductionRecipient[] {
+  if (!po.supplier.email) return [];
+  return [{ to: po.supplier.email, toName: po.supplier.contactPerson ?? po.supplier.name }];
+}
+
+// Headroom under Mailgun's ~25MB message-size cap (AUTO_ORDER_EMAIL_PLAN.md
+// Phase 1.3). A PO with several garments each carrying full-res mock-ups can
+// plausibly get there; blowing the cap silently bounces the send.
+const MAX_EMAIL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 export async function sendPurchaseOrder(
   id: string,
@@ -706,8 +770,8 @@ export async function sendPurchaseOrder(
   if (po.status === 'cancelled' || po.status === 'completed' || po.status === 'received') {
     throw new ConflictError(`Cannot send a ${po.status} purchase order`);
   }
-  const supplierEmail = po.supplier.email;
-  if (!supplierEmail) throw new ConflictError('Supplier has no email address');
+  const recipients = resolveProductionRecipients(po);
+  if (recipients.length === 0) throw new ConflictError('Supplier has no email address');
 
   // Gate check goes HERE: after the cheap validity checks, before the PDF render
   // and the email. Rendering first would waste the work; checking earlier would
@@ -743,22 +807,62 @@ export async function sendPurchaseOrder(
     snapshot: await signPoSnapshotMedia(latest.snapshot),
   });
 
+  // UNSIGNED snapshot — the workbook only lists image captions/filenames as
+  // text (xlsx.ts), it never embeds bytes, so it needs no signed URLs. Kept
+  // as a separate read from the PDF's signed copy so a future change to
+  // signing can't silently affect the workbook too.
+  const xlsx = await buildPoWorkbook({
+    poNumber: po.poNumber,
+    revisionNumber: latest.revisionNumber,
+    revisionReason: latest.reason,
+    createdAt: latest.createdAt.toISOString(),
+    expectedShipDate: po.expectedShipDate,
+    notes: po.notes,
+    supplier: {
+      name: po.supplier.name,
+      contactPerson: po.supplier.contactPerson,
+      email: po.supplier.email,
+      phone: po.supplier.phone,
+    },
+    snapshot: latest.snapshot,
+  });
+
+  let { attachments: extraAttachments, counts } = await collectSnapshotAttachments(latest.snapshot);
+  let sizeReduced = false;
+  const totalBytes =
+    pdf.length + xlsx.length + extraAttachments.reduce((sum, a) => sum + a.content.length, 0);
+  if (totalBytes > MAX_EMAIL_ATTACHMENT_BYTES) {
+    logger.warn('[po/send] attachment set over size budget — falling back to thumbnail images', {
+      poId: po.id,
+      poNumber: po.poNumber,
+      totalBytes,
+    });
+    ({ attachments: extraAttachments, counts } = await collectSnapshotAttachments(latest.snapshot, {
+      preferThumbnails: true,
+    }));
+    sizeReduced = true;
+  }
+
   // The pretty per-PO portal URL (David, 2026-08-05): deterministic from the
   // supplier code + PO number, gated by the supplier's portal password — no
   // token to mint, and the link in an old email never stops working.
   const portalUrl = buildSupplierPoUrl(supplierCodeOrFallback(po.supplier), po.poNumber);
 
-  await sendSupplierPoEmail({
-    to: supplierEmail,
-    toName: po.supplier.contactPerson ?? po.supplier.name,
-    poNumber: po.poNumber,
-    orderNumber: po.order.orderNumber,
-    revisionNumber: latest.revisionNumber,
-    reason: latest.reason,
-    pdf,
-    portalUrl,
-    extraAttachments: await collectSnapshotAttachments(latest.snapshot),
-  });
+  for (const recipient of recipients) {
+    await sendSupplierPoEmail({
+      to: recipient.to,
+      toName: recipient.toName,
+      poNumber: po.poNumber,
+      orderNumber: po.order.orderNumber,
+      revisionNumber: latest.revisionNumber,
+      reason: latest.reason,
+      pdf,
+      xlsx,
+      sizeReduced,
+      portalUrl,
+      extraAttachments,
+    });
+  }
 
   // First send moves approved → sent via the normal status machine (sentAt
   // stamp + status_changed event). A resend leaves the status untouched.
@@ -770,7 +874,7 @@ export async function sendPurchaseOrder(
     poId: id,
     poNumber: po.poNumber,
     revisionNumber: latest.revisionNumber,
-    to: supplierEmail,
+    to: recipients.map((r) => r.to).join(', '),
   };
   await db.transaction(async (tx) => {
     await emitOrderEvent(tx, { aggregateId: po.orderId, eventType: 'po.sent', payload });
@@ -785,7 +889,11 @@ export async function sendPurchaseOrder(
     );
   });
 
-  return { poNumber: po.poNumber, to: supplierEmail };
+  return {
+    poNumber: po.poNumber,
+    to: recipients[0].to,
+    attachmentSummary: { ...counts, sizeReduced },
+  };
 }
 
 // ---------------------------------------------------------------------------

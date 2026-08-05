@@ -271,7 +271,12 @@ describe('PoDetailView', () => {
     addRoute({
       match: `/api/admin/purchase-orders/${PO_ID}/send`,
       method: 'POST',
-      response: { ok: true, poNumber: 'PO-2607-VA01-JANECOACH', to: 'factory@example.com' },
+      response: {
+        ok: true,
+        poNumber: 'PO-2607-VA01-JANECOACH',
+        to: 'factory@example.com',
+        attachmentSummary: { images: 2, fonts: 1, sizeCharts: 1, sizeReduced: false },
+      },
     });
     renderView();
     await screen.findByText('PO-2607-VA01-JANECOACH');

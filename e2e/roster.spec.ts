@@ -36,9 +36,9 @@ test.describe('Team roster', () => {
     ).toBeVisible();
     await memberContext.close();
 
-    // 3. Staff reloads the Team Roster tab, sees the submission, and locks the roster.
+    // 3. Staff reloads the Team order page tab, sees the submission, and locks the roster.
     await page.reload();
-    await page.getByRole('tab', { name: 'Team Roster' }).click();
+    await page.getByRole('menuitem', { name: 'Team order page' }).click();
     await expect(page.getByText('1 of 1 submitted')).toBeVisible();
     const memberRow = page.getByRole('row').filter({ hasText: memberName });
     await expect(memberRow).toContainText('Submitted');

@@ -22,10 +22,13 @@ export default async function globalSetup(config: FullConfig) {
   const page = await browser.newPage();
 
   await page.goto(`${baseURL}/login`);
-  await page.getByPlaceholder('Email').fill(SEED_ADMIN.email);
+  // Placeholder text, not the field label (LoginForm.tsx) — getByPlaceholder
+  // matches the `placeholder` attribute, which reads "you@company.com".
+  await page.getByPlaceholder('you@company.com').fill(SEED_ADMIN.email);
   await page.getByPlaceholder('Password').fill(SEED_ADMIN.password);
   await page.getByRole('button', { name: /sign in/i }).click();
-  await page.getByRole('heading', { name: 'Dashboard' }).waitFor({ timeout: 60_000 });
+  // URL is still /admin/dashboard, but AdminPageHeader's title reads "Home".
+  await page.getByRole('heading', { name: 'Home' }).waitFor({ timeout: 60_000 });
 
   await page.context().storageState({ path: STORAGE_STATE_PATH });
   await browser.close();

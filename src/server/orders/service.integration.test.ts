@@ -1394,6 +1394,95 @@ describe('custom sizing columns', () => {
   });
 });
 
+describe('chained conditional order options', () => {
+  const numbersChain = [
+    { label: 'Numbers?', type: 'checkbox' as const },
+    {
+      label: 'Numbers Front',
+      type: 'checkbox' as const,
+      showWhen: { parentLabel: 'Numbers?', equals: ['true'] },
+    },
+    {
+      label: 'Numbers Back',
+      type: 'checkbox' as const,
+      showWhen: { parentLabel: 'Numbers?', equals: ['true'] },
+    },
+  ];
+
+  async function seedNumbersType() {
+    return createGarmentType(
+      createGarmentTypeSchema.parse({ name: 'Chained Hoodie', orderOptions: numbersChain }),
+    );
+  }
+
+  it('drops a hidden child value on addGarment', async () => {
+    const type = await seedNumbersType();
+    const created = await createOrder(minimalInput());
+
+    const garment = await addGarment(created.orderId, {
+      name: 'Typed',
+      garmentTypeId: type.id,
+      selectedOptions: { 'Numbers?': 'false', 'Numbers Front': 'true', 'Numbers Back': 'true' },
+    });
+
+    expect(garment.selectedOptions).toEqual({ 'Numbers?': 'false' });
+  });
+
+  it('keeps a child value when its parent is checked on addGarment', async () => {
+    const type = await seedNumbersType();
+    const created = await createOrder(minimalInput());
+
+    const garment = await addGarment(created.orderId, {
+      name: 'Typed',
+      garmentTypeId: type.id,
+      selectedOptions: { 'Numbers?': 'true', 'Numbers Front': 'true' },
+    });
+
+    expect(garment.selectedOptions).toEqual({ 'Numbers?': 'true', 'Numbers Front': 'true' });
+  });
+
+  it('drops a hidden child value on updateGarment', async () => {
+    const type = await seedNumbersType();
+    // minimalInput() always seeds a plain "Home Jersey" garment alongside the
+    // typed one — look the typed garment up by id rather than assuming index 0.
+    const created = await createOrder(minimalInput());
+    const garment = await addGarment(created.orderId, {
+      name: 'Typed',
+      garmentTypeId: type.id,
+      selectedOptions: { 'Numbers?': 'true', 'Numbers Front': 'true' },
+    });
+
+    // Unchecking the parent while still (stale-client) sending the child's
+    // value must not let the child survive the write.
+    await updateGarment(garment.id, {
+      selectedOptions: { 'Numbers?': 'false', 'Numbers Front': 'true' },
+    });
+
+    const updated = await getOrderAdmin(created.orderId);
+    const typed = updated!.garments.find((g) => g.id === garment.id);
+    expect(typed!.selectedOptions).toEqual({ 'Numbers?': 'false' });
+  });
+
+  it('drops a hidden child value on create-order', async () => {
+    const type = await seedNumbersType();
+
+    const created = await createOrder(
+      minimalInput({
+        garments: [
+          {
+            name: 'Typed',
+            garmentTypeId: type.id,
+            selectedOptions: { 'Numbers?': 'false', 'Numbers Back': 'true' },
+          },
+        ],
+      }),
+    );
+
+    const order = await getOrderAdmin(created.orderId);
+    expect(order!.garments[0].selectedOptions).toEqual({ 'Numbers?': 'false' });
+  });
+});
+
 describe('updateOrder status transitions', () => {
   // The hole this closes: PATCH used to write `status` straight through, so a
   // confirmed order could be reverted to draft with the customer's signature

@@ -57,6 +57,24 @@ describe('garmentTypeOptionSchema', () => {
     });
     expect(parsed).toEqual({ label: 'Cord Color', type: 'text', defaultValue: 'Black' });
   });
+
+  it('parses a checkbox option with an optional default', () => {
+    const parsed = garmentTypeOptionSchema.parse({
+      label: 'Numbers?',
+      type: 'checkbox',
+      defaultValue: true,
+    });
+    expect(parsed).toEqual({ label: 'Numbers?', type: 'checkbox', defaultValue: true });
+  });
+
+  it('parses an option with a showWhen rule', () => {
+    const parsed = garmentTypeOptionSchema.parse({
+      label: 'Numbers Front',
+      type: 'checkbox',
+      showWhen: { parentLabel: 'Numbers?', equals: ['true'] },
+    });
+    expect(parsed.showWhen).toEqual({ parentLabel: 'Numbers?', equals: ['true'] });
+  });
 });
 
 describe('createGarmentTypeSchema', () => {
@@ -95,6 +113,101 @@ describe('createGarmentTypeSchema', () => {
       sizeChartIds: ['4d0f1f3e-58a3-4a44-bb62-cf7c88a11a10'],
     });
     expect(result.success).toBe(true);
+  });
+
+  it('accepts a chained checkbox: parent + two children gated on it', () => {
+    const result = createGarmentTypeSchema.safeParse({
+      name: 'Hoodie',
+      orderOptions: [
+        { label: 'Numbers?', type: 'checkbox' },
+        {
+          label: 'Numbers Front',
+          type: 'checkbox',
+          showWhen: { parentLabel: 'Numbers?', equals: ['true'] },
+        },
+        {
+          label: 'Numbers Back',
+          type: 'checkbox',
+          showWhen: { parentLabel: 'Numbers?', equals: ['true'] },
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a showWhen that references an option later in the list', () => {
+    const result = createGarmentTypeSchema.safeParse({
+      name: 'Hoodie',
+      orderOptions: [
+        {
+          label: 'Numbers Front',
+          type: 'checkbox',
+          showWhen: { parentLabel: 'Numbers?', equals: ['true'] },
+        },
+        { label: 'Numbers?', type: 'checkbox' },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a showWhen that references its own label', () => {
+    const result = createGarmentTypeSchema.safeParse({
+      name: 'Hoodie',
+      orderOptions: [
+        {
+          label: 'Numbers?',
+          type: 'checkbox',
+          showWhen: { parentLabel: 'Numbers?', equals: ['true'] },
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a showWhen gated on a free-text parent', () => {
+    const result = createGarmentTypeSchema.safeParse({
+      name: 'Hoodie',
+      orderOptions: [
+        { label: 'Cord Color', type: 'text' },
+        {
+          label: 'Cord Length',
+          type: 'text',
+          showWhen: { parentLabel: 'Cord Color', equals: ['Black'] },
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a showWhen.equals value not in the select parent options', () => {
+    const result = createGarmentTypeSchema.safeParse({
+      name: 'Hoodie',
+      orderOptions: [
+        { label: 'Zip Type', type: 'select', options: ['full-zip', 'pullover'] },
+        {
+          label: 'Zip Color',
+          type: 'select',
+          options: ['black'],
+          showWhen: { parentLabel: 'Zip Type', equals: ['quarter-zip'] },
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a showWhen.equals value outside true/false for a checkbox parent', () => {
+    const result = createGarmentTypeSchema.safeParse({
+      name: 'Hoodie',
+      orderOptions: [
+        { label: 'Numbers?', type: 'checkbox' },
+        {
+          label: 'Numbers Front',
+          type: 'checkbox',
+          showWhen: { parentLabel: 'Numbers?', equals: ['yes'] },
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
   });
 });
 

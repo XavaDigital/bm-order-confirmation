@@ -10,7 +10,7 @@ test.use({ storageState: { cookies: [], origins: [] } });
 test.describe('Auth', () => {
   test('logging in with the wrong password shows an error and stays on the login page', async ({ page }) => {
     await page.goto('/login');
-    await page.getByPlaceholder('Email').fill(SEED_ADMIN.email);
+    await page.getByPlaceholder('you@company.com').fill(SEED_ADMIN.email);
     await page.getByPlaceholder('Password').fill('definitely-wrong');
     await page.getByRole('button', { name: /sign in/i }).click();
 
@@ -20,7 +20,8 @@ test.describe('Auth', () => {
 
   test('logging in redirects to the dashboard, and logging out clears the session', async ({ page }) => {
     await loginAsSeedAdmin(page);
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+    // URL is still /admin/dashboard, but AdminPageHeader's title reads "Home".
+    await expect(page.getByRole('heading', { name: 'Home' })).toBeVisible();
 
     await logout(page);
 
@@ -65,7 +66,7 @@ test.describe('Auth', () => {
     await expect(userPage).toHaveURL(/\/login/);
 
     // 3. Log in as the new user and enable 2FA from their profile.
-    await userPage.getByPlaceholder('Email').fill(email);
+    await userPage.getByPlaceholder('you@company.com').fill(email);
     await userPage.getByPlaceholder('Password').fill(password);
     await userPage.getByRole('button', { name: /sign in/i }).click();
     await expect(userPage).toHaveURL(/\/admin\/dashboard/);
@@ -83,7 +84,7 @@ test.describe('Auth', () => {
 
     // 4. Log out and back in — this time it should stop at the 2FA challenge.
     await logout(userPage);
-    await userPage.getByPlaceholder('Email').fill(email);
+    await userPage.getByPlaceholder('you@company.com').fill(email);
     await userPage.getByPlaceholder('Password').fill(password);
     await userPage.getByRole('button', { name: /sign in/i }).click();
     await expect(userPage).toHaveURL(/\/login\/2fa/);

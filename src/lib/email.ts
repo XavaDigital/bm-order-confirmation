@@ -596,6 +596,14 @@ export interface SendSupplierPoEmailParams {
   /** Optional reason shown for amended POs (revision > 1). */
   reason?: string | null;
   pdf: Buffer;
+  /** The .xlsx twin of the PDF (AUTO_ORDER_EMAIL_PLAN.md Phase 1) — same revision snapshot, spreadsheet shape. */
+  xlsx: Buffer;
+  /**
+   * True when `collectSnapshotAttachments` had to substitute thumbnails for
+   * full-resolution garment images to stay under the SMTP size cap. Adds one
+   * line to the email body rather than failing the send.
+   */
+  sizeReduced?: boolean;
   /**
    * Supplier portal link (SUPPLIER_PORTAL_PLAN.md), minted fresh on every
    * send. Optional so a caller with no email step for it (tests, older
@@ -604,8 +612,9 @@ export interface SendSupplierPoEmailParams {
    */
   portalUrl?: string | null;
   /**
-   * Uploaded fonts/design files and size charts riding alongside the PDF —
-   * the files themselves, because a signed URL inside a sent email expires.
+   * Uploaded fonts/design files, size charts, and garment images riding
+   * alongside the PDF/XLSX — the files themselves, because a signed URL
+   * inside a sent email expires.
    */
   extraAttachments?: { filename: string; content: Buffer; contentType?: string }[];
 }
@@ -632,6 +641,11 @@ export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Pr
                     <p style="color:#1f2328;font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${params.reason}</p>`,
         )
       : '';
+  const sizeReducedBlock = params.sizeReduced
+    ? `<p style="color:#8b949e;font-size:13px;line-height:1.5;margin:0 0 16px;">
+        Full-resolution garment images were too large to attach — reduced-size copies are included instead.
+      </p>`
+    : '';
 
   await sendEmail({
     to: params.to,
@@ -647,6 +661,7 @@ export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Pr
                 ${supersedeLine}
               `)}
               ${reasonBlock}
+              ${sizeReducedBlock}
               ${portalBlock}
               <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
               <p style="color:#8b949e;font-size:12px;line-height:1.5;margin:0;">
@@ -661,6 +676,9 @@ export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Pr
       `Please find attached ${amended ? `revision ${revisionNumber} of ` : ''}purchase order ${poNumber} (our order ${orderNumber}).`,
       ...(supersedeLine ? ['', supersedeLine] : []),
       ...(amended && params.reason ? ['', `Reason for amendment: ${params.reason}`] : []),
+      ...(params.sizeReduced
+        ? ['', 'Full-resolution garment images were too large to attach — reduced-size copies are included instead.']
+        : []),
       ...(params.portalUrl
         ? ['', `Update the production status or leave a comment here: ${params.portalUrl}`]
         : []),
@@ -672,6 +690,11 @@ export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Pr
         filename: `${poNumber}${amended ? `-rev${revisionNumber}` : ''}.pdf`,
         content: params.pdf,
         contentType: 'application/pdf',
+      },
+      {
+        filename: `${poNumber}${amended ? `-rev${revisionNumber}` : ''}.xlsx`,
+        content: params.xlsx,
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       },
       ...(params.extraAttachments ?? []),
     ],

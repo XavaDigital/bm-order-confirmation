@@ -433,6 +433,7 @@ describe('sendSupplierPoEmail', () => {
     poNumber: 'PO-2607-GS01-ACMEUNITED',
     orderNumber: 'OC-ABCD1234',
     pdf: Buffer.from('%PDF-fake'),
+    xlsx: Buffer.from('xlsx-fake'),
   };
 
   it('throws when SMTP is not configured', async () => {
@@ -449,9 +450,13 @@ describe('sendSupplierPoEmail', () => {
     const call = sendMail.mock.calls[0][0] as Record<string, unknown>;
     expect(call.subject).toBe('Purchase order PO-2607-GS01-ACMEUNITED — BeastMode');
     const attachments = call.attachments as { filename: string; contentType: string }[];
-    expect(attachments).toHaveLength(1);
+    expect(attachments).toHaveLength(2);
     expect(attachments[0].filename).toBe('PO-2607-GS01-ACMEUNITED.pdf');
     expect(attachments[0].contentType).toBe('application/pdf');
+    expect(attachments[1].filename).toBe('PO-2607-GS01-ACMEUNITED.xlsx');
+    expect(attachments[1].contentType).toBe(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
     expect(call.text).not.toContain('supersedes');
   });
 
@@ -469,6 +474,7 @@ describe('sendSupplierPoEmail', () => {
     );
     const attachments = call.attachments as { filename: string }[];
     expect(attachments[0].filename).toBe('PO-2607-GS01-ACMEUNITED-rev3.pdf');
+    expect(attachments[1].filename).toBe('PO-2607-GS01-ACMEUNITED-rev3.xlsx');
     expect(call.text).toContain('supersedes all previous versions');
     expect(call.text).toContain('Two sizes changed after customer review');
     expect(call.html).toContain('Two sizes changed after customer review');

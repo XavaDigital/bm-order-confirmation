@@ -8,6 +8,7 @@ import {
   InputNumber,
   Select,
   Switch,
+  Checkbox,
   Button,
   Space,
   App,
@@ -32,6 +33,7 @@ import { MockupUploader, type MockupImage } from './MockupUploader';
 import { SizeChartLinker } from './SizeChartLinker';
 import { postJson, patchJson, deleteJson, getJson } from '@/lib/api-fetch';
 import { unionChartSizes } from '@/lib/sizes';
+import { resolveVisibleOptions, visibleOptionLabels, typeOptionDefaults } from '@/server/garment-types/visibility';
 
 interface SizingRow {
   id?: string;
@@ -83,16 +85,6 @@ interface SizeChart {
   name: string;
   description: string | null;
   sizes: SizeChartSize[];
-}
-
-/** Default option values for a type ({label: default}), for pre-filling on type selection. */
-function typeOptionDefaults(type: GarmentType): Record<string, string> {
-  const defaults: Record<string, string> = {};
-  for (const opt of type.orderOptions) {
-    if (opt.type === 'select' && opt.defaultOption) defaults[opt.label] = opt.defaultOption;
-    if (opt.type === 'text' && opt.defaultValue) defaults[opt.label] = opt.defaultValue;
-  }
-  return defaults;
 }
 
 interface Props {
@@ -431,7 +423,17 @@ export function GarmentsMasterDetail({
           // Pre-fill option defaults, keeping any values already chosen
           setEdit(garment.id, {
             garmentTypeId: type.id,
-            selectedOptions: { ...typeOptionDefaults(type), ...currentOptions },
+            selectedOptions: { ...typeOptionDefaults(type.orderOptions), ...currentOptions },
+          });
+        }
+
+        /** Set one option's value, pruning any child that becomes hidden as a result. */
+        function updateOption(label: string, val: string) {
+          setEdit(garment.id, {
+            selectedOptions: resolveVisibleOptions(currentType!.orderOptions, {
+              ...currentOptions,
+              [label]: val,
+            }),
           });
         }
 
@@ -555,40 +557,43 @@ export function GarmentsMasterDetail({
                   </Form.Item>
                 )}
               </div>
-              {currentType && currentType.orderOptions.length > 0 && (
-                <>
-                  <SectionTitle style={{ marginBottom: 8 }}>Options</SectionTitle>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                    {currentType.orderOptions.map((opt) => (
-                      <Form.Item key={opt.label} label={opt.label}>
-                        {opt.type === 'select' ? (
-                          <Select
-                            value={currentOptions[opt.label] || undefined}
-                            onChange={(v) =>
-                              setEdit(garment.id, {
-                                selectedOptions: { ...currentOptions, [opt.label]: v ?? '' },
-                              })
-                            }
-                            allowClear
-                            placeholder={`Select ${opt.label.toLowerCase()}`}
-                            options={opt.options.map((o) => ({ value: o, label: o }))}
-                          />
-                        ) : (
-                          <Input
-                            value={currentOptions[opt.label] ?? ''}
-                            onChange={(e) =>
-                              setEdit(garment.id, {
-                                selectedOptions: { ...currentOptions, [opt.label]: e.target.value },
-                              })
-                            }
-                            placeholder={opt.label}
-                          />
-                        )}
-                      </Form.Item>
-                    ))}
-                  </div>
-                </>
-              )}
+              {(() => {
+                if (!currentType || currentType.orderOptions.length === 0) return null;
+                const visibleLabels = visibleOptionLabels(currentType.orderOptions, currentOptions);
+                const visibleOpts = currentType.orderOptions.filter((opt) => visibleLabels.has(opt.label));
+                if (visibleOpts.length === 0) return null;
+                return (
+                  <>
+                    <SectionTitle style={{ marginBottom: 8 }}>Options</SectionTitle>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+                      {visibleOpts.map((opt) => (
+                        <Form.Item key={opt.label} label={opt.label}>
+                          {opt.type === 'select' ? (
+                            <Select
+                              value={currentOptions[opt.label] || undefined}
+                              onChange={(v) => updateOption(opt.label, v ?? '')}
+                              allowClear
+                              placeholder={`Select ${opt.label.toLowerCase()}`}
+                              options={opt.options.map((o) => ({ value: o, label: o }))}
+                            />
+                          ) : opt.type === 'checkbox' ? (
+                            <Checkbox
+                              checked={currentOptions[opt.label] === 'true'}
+                              onChange={(e) => updateOption(opt.label, e.target.checked ? 'true' : 'false')}
+                            />
+                          ) : (
+                            <Input
+                              value={currentOptions[opt.label] ?? ''}
+                              onChange={(e) => updateOption(opt.label, e.target.value)}
+                              placeholder={opt.label}
+                            />
+                          )}
+                        </Form.Item>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
             </Form>
 
             {hasEdits && (

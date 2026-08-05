@@ -32,7 +32,9 @@ export function SizingColumnModal({ open, editing, existingLabels, onClose, onSa
   useEffect(() => {
     if (!open) return;
     setLabel(editing?.label ?? '');
-    setType(editing?.type ?? 'text');
+    // Sizing columns don't support the checkbox variant (out of scope — see
+    // CHAINED_CONDITIONAL_FIELDS_PLAN.md); fall back to text for that case.
+    setType(editing?.type === 'select' ? 'select' : 'text');
     setOptions(editing && editing.type === 'select' ? editing.options : []);
     setError(null);
   }, [open, editing]);

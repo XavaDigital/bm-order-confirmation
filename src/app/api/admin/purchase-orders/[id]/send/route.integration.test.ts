@@ -172,7 +172,12 @@ describe('POST /api/admin/purchase-orders/[id]/send', () => {
     const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(json).toEqual({ ok: true, poNumber: po.poNumber, to: 'factory@example.com' });
+    expect(json).toEqual({
+      ok: true,
+      poNumber: po.poNumber,
+      to: 'factory@example.com',
+      attachmentSummary: { images: 0, fonts: 0, sizeCharts: 0, sizeReduced: false },
+    });
 
     expect(sendSupplierPoEmail).toHaveBeenCalledTimes(1);
     const emailArgs = sendSupplierPoEmail.mock.calls[0][0];

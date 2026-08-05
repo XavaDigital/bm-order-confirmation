@@ -44,6 +44,7 @@ import {
 } from '@ant-design/icons';
 import { darkTheme, BRAND } from '@/lib/theme';
 import { SALES_REP_LABEL } from '@/lib/config';
+import { NameListPreview } from '@/components/customer/NameListPreview';
 
 const { Title, Text } = Typography;
 
@@ -1006,6 +1007,9 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
                         Add name
                       </Button>
                     </Space>
+
+                    <NameListPreview entries={draft.entries} rows={draft.rows} />
+
                     <Divider style={{ borderColor: 'rgba(255,255,255,0.1)' }} />
                     <Button type="primary" disabled={state.order.locked} onClick={() => saveNameList(g.id)}>
                       Save name list

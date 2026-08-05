@@ -562,10 +562,17 @@ export const rosterMemberAccess = confirmation.table(
 // Mirrors Sales Hub's products.orderOptions/sizes shapes (bm-sales
 // src/db/schema/sales.ts) for fleet parity, extended with free-text options.
 
-/** One configurable option on a garment type: a constrained pick-list or a free-text field. */
+/** A field is shown only when the named parent option currently equals one of `equals`. */
+export interface ConditionalRule {
+  parentLabel: string;
+  equals: string[]; // checkbox parent: ['true'] / ['false']; select parent: one or more of its option values
+}
+
+/** One configurable option on a garment type: a constrained pick-list, a free-text field, or a checkbox — optionally shown only when a preceding option (`showWhen`) matches. */
 export type GarmentTypeOption =
-  | { label: string; type: 'select'; options: string[]; defaultOption?: string }
-  | { label: string; type: 'text'; defaultValue?: string };
+  | { label: string; type: 'select'; options: string[]; defaultOption?: string; showWhen?: ConditionalRule }
+  | { label: string; type: 'text'; defaultValue?: string; showWhen?: ConditionalRule }
+  | { label: string; type: 'checkbox'; defaultValue?: boolean; showWhen?: ConditionalRule };
 
 /** A labeled fabric slot on a garment type (e.g. "Outer Fabric", "Hood Lining") — staff pick ONE per field. */
 export interface GarmentTypeFabricField {

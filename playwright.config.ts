@@ -58,7 +58,14 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `npx next build && npx next start -p ${PORT}`,
+    // `next start` does not work with `output: 'standalone'` (set in
+    // next.config.mjs for the Docker/App Runner deploy target) — it prints
+    // a warning to that effect and it is not cosmetic: RSC/Suspense
+    // streaming never resolves, so every page hangs on its loading
+    // fallback forever. e2e/serve-standalone.mjs runs the actual standalone
+    // server the same way the Dockerfile does (copy public/ + .next/static
+    // in, then `node server.js`).
+    command: `npx next build && node e2e/serve-standalone.mjs`,
     url: `${BASE_URL}/login`,
     reuseExistingServer: false,
     timeout: 180_000,
@@ -69,6 +76,7 @@ export default defineConfig({
       // Customer/admin links embedded in emails and API responses must
       // point back at this dedicated e2e server, not the default :3000.
       APP_BASE_URL: BASE_URL,
+      PORT: String(PORT),
     },
   },
 });

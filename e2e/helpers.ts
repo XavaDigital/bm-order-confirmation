@@ -27,19 +27,19 @@ export function uniqueSuffix() {
 
 export async function loginAsSeedAdmin(page: Page) {
   await page.goto('/login');
-  await page.getByPlaceholder('Email').fill(SEED_ADMIN.email);
+  // Placeholder text, not the field label (LoginForm.tsx) — getByPlaceholder
+  // matches the `placeholder` attribute, which reads "you@company.com".
+  await page.getByPlaceholder('you@company.com').fill(SEED_ADMIN.email);
   await page.getByPlaceholder('Password').fill(SEED_ADMIN.password);
   await page.getByRole('button', { name: /sign in/i }).click();
   await expect(page).toHaveURL(/\/admin\/dashboard/);
 }
 
 export async function logout(page: Page) {
-  // The user menu trigger sits at the bottom of the sidebar and shows the
-  // staff member's own name (not a fixed label), so click the stable user
-  // icon inside it rather than matching on name text. dispatchEvent bypasses
-  // hit-testing because Next's dev-mode overlay badge sits in that same
-  // corner of the viewport and would otherwise intercept a real click there.
-  await page.locator('.ant-layout-sider .anticon-user').dispatchEvent('click');
+  // The user menu (UserMenu.tsx) lives in the top Header, not the sidebar —
+  // its trigger carries an explicit aria-label, so use that instead of a
+  // CSS-class/icon guess.
+  await page.getByRole('button', { name: 'Account menu' }).click();
   await page.getByText('Sign out').click();
   await expect(page).toHaveURL(/\/login/);
 }
@@ -58,30 +58,32 @@ export async function createDraftOrder(
 }
 
 /**
- * From an order detail page, opens the Share Link tab and generates a fresh
- * customer link. `createOrder` (used by both the New Order form and the
- * external `/api/orders` integration point) always creates an initial
- * access token, so the button already reads "Regenerate link" rather than
- * "Generate link" from the very first visit — match either.
+ * From an order detail page, opens the Confirmation Link tab and reads the
+ * customer link. `createOrder` mints the token at order-creation time, so it
+ * is already present by the time this tab is opened — there is no button to
+ * click, and Regenerate/Revoke were removed entirely (David, 2026-08-04:
+ * "with the URL always visible there is nothing to re-surface"). Wait for it
+ * explicitly rather than relying on the default action timeout.
  */
 export async function generateCustomerLink(page: Page) {
   const origin = new URL(page.url()).origin;
-  await page.getByRole('tab', { name: 'Share Link' }).click();
-  // Accessible name includes the icon's own label (e.g. "reload Regenerate link"), so match loosely.
-  await page.getByRole('button', { name: /generate link/i }).click();
-  const urlText = await page.getByText(new RegExp(`^${origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/o/`)).textContent();
+  // OrderDetailView's section nav is an antd Menu (role="menuitem"), not Tabs.
+  await page.getByRole('menuitem', { name: 'Confirmation Link' }).click();
+  const urlLocator = page.getByText(new RegExp(`^${origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/o/`));
+  await urlLocator.waitFor({ timeout: 15_000 });
+  const urlText = await urlLocator.textContent();
   expect(urlText).toBeTruthy();
   return urlText!.trim();
 }
 
 /**
- * From an order detail page, opens the Team Roster tab and generates a fresh
- * shared roster link. Mirrors `generateCustomerLink` above but for the
+ * From an order detail page, opens the Team order page tab and generates a
+ * fresh shared roster link. Mirrors `generateCustomerLink` above but for the
  * `/o/roster/[rosterToken]` shared link rather than the `/o/[token]` one.
  */
 export async function generateRosterLink(page: Page) {
   const origin = new URL(page.url()).origin;
-  await page.getByRole('tab', { name: 'Team Roster' }).click();
+  await page.getByRole('menuitem', { name: 'Team order page' }).click();
   // Accessible name includes the icon's own label, and reads "Regenerate link"
   // after the first link exists — match either, same as generateCustomerLink.
   await page.getByRole('button', { name: /generate link/i }).click();
@@ -93,9 +95,12 @@ export async function generateRosterLink(page: Page) {
 }
 
 export async function checkAllAcknowledgments(page: Page) {
+  // The acknowledgment set is admin-editable (AcknowledgmentPanel.tsx), not a
+  // fixed list — assert there's at least one rather than an exact count that
+  // drifts whenever the admin-configured set changes.
   const checkboxes = page.getByRole('checkbox');
   const count = await checkboxes.count();
-  expect(count).toBe(7);
+  expect(count).toBeGreaterThan(0);
   for (let i = 0; i < count; i++) {
     await checkboxes.nth(i).check();
   }
