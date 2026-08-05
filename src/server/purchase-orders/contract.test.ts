@@ -183,13 +183,23 @@ describe('schemas', () => {
     expect(parsed).not.toHaveProperty('deadlineDate');
   });
 
-  it('updatePurchaseOrderSchema accepts nulls to clear fields and drops deadlineDate', () => {
+  it('updatePurchaseOrderSchema accepts nulls to clear fields and a direct deadlineDate', () => {
+    // deadlineDate became directly settable on 2026-08-06 (David) — it still
+    // auto-imports from the order and re-syncs on order changes, last write
+    // wins, but the PATCH may set or clear it explicitly.
     const parsed = updatePurchaseOrderSchema.parse({
       expectedShipDate: null,
       notes: null,
-      deadlineDate: '2026-09-01', // not editable per PO — stripped
+      deadlineDate: '2026-09-01',
     });
-    expect(parsed).toEqual({ expectedShipDate: null, notes: null });
+    expect(parsed).toEqual({
+      expectedShipDate: null,
+      notes: null,
+      deadlineDate: '2026-09-01',
+    });
+    expect(updatePurchaseOrderSchema.parse({ deadlineDate: null })).toEqual({
+      deadlineDate: null,
+    });
   });
 
   it('issueRevisionSchema requires a non-blank reason and trims it', () => {
