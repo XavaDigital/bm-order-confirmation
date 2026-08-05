@@ -13,7 +13,7 @@
  * opens a dialog listing what blocked it, rather than a toast that vanishes
  * before it has been read.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -96,6 +96,13 @@ const URGENCY_COLOR: Record<StageUrgency, string | undefined> = {
   warn: 'warning',
   urgent: 'error',
 };
+
+/**
+ * Space between the bottom of the board and the bottom of the viewport: the
+ * shell's content margin (16) + panel padding (24) + borders. Kept as one
+ * number so the board's height calc and the shell agree.
+ */
+const BOARD_BOTTOM_OFFSET = 42;
 
 function formatAge(hours: number | null): string | null {
   if (hours === null) return null;
@@ -267,9 +274,14 @@ function Column({
         borderRadius: 8,
         padding: 8,
         transition: 'background 120ms',
+        // Columns run the full board height (David, 2026-08-06: "the rows
+        // should go all the way to the bottom"); each scrolls its own cards.
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
       }}
     >
-      <Space size={6} style={{ marginBottom: 8, width: '100%' }}>
+      <Space size={6} style={{ marginBottom: 8, width: '100%', flexShrink: 0 }}>
         {column.color && (
           <span
             aria-hidden
@@ -288,21 +300,23 @@ function Column({
         <Badge count={column.cards.length} showZero color={token.colorTextQuaternary} />
       </Space>
 
-      {column.cards.length === 0 ? (
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          Nothing here
-        </Typography.Text>
-      ) : (
-        column.cards.map((card) => (
-          <DraggableCard
-            key={card.id}
-            card={card}
-            boardKey={boardKey}
-            disabled={disabled}
-            onOpen={onOpen}
-          />
-        ))
-      )}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        {column.cards.length === 0 ? (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Nothing here
+          </Typography.Text>
+        ) : (
+          column.cards.map((card) => (
+            <DraggableCard
+              key={card.id}
+              card={card}
+              boardKey={boardKey}
+              disabled={disabled}
+              onOpen={onOpen}
+            />
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -317,6 +331,24 @@ export function WorkflowBoard({ boardKey }: Props) {
   // Suppress the focus refresh while a move is in flight, or the response can be
   // overwritten by a read that started before the write landed.
   const inFlight = useRef(0);
+
+  // The board region fills the rest of the viewport (David, 2026-08-06: columns
+  // run to the bottom of the page, and the ONE horizontal scrollbar sits at the
+  // bottom rather than mid-page). The offset above the board varies with the
+  // page header and any alerts above it, so it is measured, not hard-coded.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [boardHeight, setBoardHeight] = useState<string>();
+  useLayoutEffect(() => {
+    function measure() {
+      const el = rootRef.current;
+      if (!el) return;
+      const top = Math.max(0, Math.round(el.getBoundingClientRect().top));
+      setBoardHeight(`calc(100vh - ${top + BOARD_BOTTOM_OFFSET}px)`);
+    }
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -428,8 +460,19 @@ export function WorkflowBoard({ boardKey }: Props) {
   }
 
   return (
-    <Space direction="vertical" size={12} style={{ width: '100%' }}>
-      <Space wrap style={{ justifyContent: 'flex-end', width: '100%' }}>
+    <div
+      ref={rootRef}
+      data-testid="workflow-board-region"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        width: '100%',
+        // Until measured (first paint / jsdom) the board just sizes to content.
+        height: boardHeight,
+      }}
+    >
+      <Space wrap style={{ justifyContent: 'flex-end', width: '100%', flexShrink: 0 }}>
         <Button icon={<ReloadOutlined />} onClick={() => void load()}>
           Refresh
         </Button>
@@ -460,7 +503,21 @@ export function WorkflowBoard({ boardKey }: Props) {
             markDragged();
           }}
         >
-          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8 }}>
+          {/* The ONE horizontal scroll container: it takes all remaining board
+              height, so its scrollbar renders at the bottom of the page, and
+              the columns stretch to fill it. */}
+          <div
+            data-testid="workflow-board-scroll"
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: 'flex',
+              alignItems: 'stretch',
+              gap: 12,
+              overflowX: 'auto',
+              paddingBottom: 4,
+            }}
+          >
             {board.columns.map((column) => (
               <Column
                 key={column.slug}
@@ -496,6 +553,6 @@ export function WorkflowBoard({ boardKey }: Props) {
           </ul>
         )}
       </Modal>
-    </Space>
+    </div>
   );
 }

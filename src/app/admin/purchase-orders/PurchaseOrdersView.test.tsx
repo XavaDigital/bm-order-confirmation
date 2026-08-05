@@ -16,12 +16,15 @@ function poRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'po-1',
     poNumber: 'PO-2607-VA01-JANECOACH',
+    // Defaults keep the DISPLAY title equal to the poNumber (no ref, unsent)
+    // so the plain-row assertions stay exact; the display-title test overrides.
+    customerRef: null,
     status: 'sent',
     currentRevisionNumber: 2,
     deadlineDate: '2026-09-15',
     expectedShipDate: '2026-08-30',
     actualShipDate: null,
-    sentAt: '2026-07-20T10:00:00Z',
+    sentAt: null,
     createdAt: '2026-07-18T10:00:00Z',
     orderId: 'order-1',
     orderNumber: 'BM-1042',
@@ -85,6 +88,22 @@ describe('PurchaseOrdersView', () => {
       'href',
       '/admin/orders/order-1',
     );
+  });
+
+  it('leads with the display title and keeps the canonical poNumber beneath when they differ', async () => {
+    installMockFetch([
+      suppliersRoute,
+      posRoute([
+        poRow({ poNumber: 'VA1', customerRef: 'Jane Coach', sentAt: '2026-07-20T10:00:00Z' }),
+      ]),
+    ]);
+    renderView();
+
+    // YYMM of the send date + poNumber + normalised customer ref.
+    const title = await screen.findByText('2607-VA1-JANE-COACH');
+    expect(title.closest('a')).toHaveAttribute('href', '/admin/purchase-orders/po-1');
+    // The canonical number stays visible beneath the display title.
+    expect(screen.getByText('VA1')).toBeInTheDocument();
   });
 
   it('shows the empty message when there are no purchase orders', async () => {

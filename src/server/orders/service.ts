@@ -1337,7 +1337,13 @@ export async function importNameListFromRoster(garmentId: string, meta?: { actor
 
 export async function addMockupImage(
   garmentId: string,
-  data: { storageKey: string; thumbnailStorageKey?: string | null; caption?: string | null },
+  data: {
+    storageKey: string;
+    thumbnailStorageKey?: string | null;
+    caption?: string | null;
+    /** Team-only reference (David, 2026-08-06) — never shown to the customer. */
+    internalOnly?: boolean;
+  },
   meta?: { actorEmail?: string },
 ) {
   const garment = await loadGarmentOrThrow(garmentId);
@@ -1350,6 +1356,7 @@ export async function addMockupImage(
       storageKey: data.storageKey,
       thumbnailStorageKey: data.thumbnailStorageKey ?? null,
       caption: data.caption ?? null,
+      internalOnly: data.internalOnly ?? false,
       sortOrder,
     })
     .returning();

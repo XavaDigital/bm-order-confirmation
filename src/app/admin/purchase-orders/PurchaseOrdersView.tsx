@@ -13,6 +13,7 @@ import type { ColumnType } from 'antd/es/table';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { WorkflowBoard } from '@/components/admin/workflow/WorkflowBoard';
 import { PoStatusBadge } from '@/components/admin/purchase-orders/PoStatusBadge';
+import { poDisplayTitle } from '@/lib/po-title';
 import { PO_STATUS } from '@/lib/status';
 import { formatDate } from '@/lib/format';
 import { getJson } from '@/lib/api-fetch';
@@ -23,6 +24,8 @@ const { Text } = Typography;
 interface PoRow {
   id: string;
   poNumber: string;
+  /** Human-readable customer part of the display title (David, 2026-08-06). */
+  customerRef: string | null;
   status: string;
   currentRevisionNumber: number;
   deadlineDate: string | null;
@@ -108,13 +111,28 @@ export function PurchaseOrdersView({ initialView = 'board' }: Props = {}) {
     {
       title: 'PO #',
       dataIndex: 'poNumber',
-      render: (val: string, record: PoRow) => (
-        <Link href={`/admin/purchase-orders/${record.id}`}>
-          <Text strong style={{ fontFamily: 'monospace' }}>
-            {val}
-          </Text>
-        </Link>
-      ),
+      render: (val: string, record: PoRow) => {
+        // The DISPLAY title leads (David, 2026-08-06); the canonical poNumber
+        // stays visible beneath when the two differ, since it is what URLs,
+        // the portal and supplier emails reference.
+        const title = poDisplayTitle(record);
+        return (
+          <div>
+            <Link href={`/admin/purchase-orders/${record.id}`}>
+              <Text strong style={{ fontFamily: 'monospace' }}>
+                {title}
+              </Text>
+            </Link>
+            {title !== val && (
+              <div>
+                <Text type="secondary" style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                  {val}
+                </Text>
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: 'Order #',

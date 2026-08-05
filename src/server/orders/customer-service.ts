@@ -35,7 +35,12 @@ export async function getOrderForCustomer(rawToken: string) {
         orderBy: (g, { asc }) => [asc(g.sortOrder)],
         with: {
           sizing: { orderBy: (s, { asc }) => [asc(s.sortOrder)] },
-          images: { orderBy: (img, { asc }) => [asc(img.sortOrder)] },
+          // internalOnly images are the production team's references (David,
+          // 2026-08-06) — they never reach the customer surface.
+          images: {
+            where: (img, { eq: eqOp }) => eqOp(img.internalOnly, false),
+            orderBy: (img, { asc }) => [asc(img.sortOrder)],
+          },
           sizeChartLinks: { with: { sizeChart: true } },
           garmentType: { columns: { name: true } },
         },

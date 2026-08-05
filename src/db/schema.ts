@@ -780,6 +780,10 @@ export const mockupImages = confirmation.table(
     // where thumbnail generation failed, fall back to `storageKey`.
     thumbnailStorageKey: text('thumbnail_storage_key'),
     caption: text('caption'),
+    // Team-only reference image (David, 2026-08-06): never shown on the
+    // customer surface — it exists for the production team when the PO is
+    // prepared, and it DOES ride the PO snapshot to the factory.
+    internalOnly: boolean('internal_only').notNull().default(false),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -1173,6 +1177,11 @@ export const purchaseOrders = confirmation.table(
     // they said even if a book is later renamed.
     colorBookId: uuid('color_book_id').references(() => supplierColorBooks.id),
     colorBookName: text('color_book_name'),
+    // The human-readable customer string in the DISPLAY title (David,
+    // 2026-08-06): "2608-DY3-DAVID-BAIRD" — YYMM (stamped from sentAt, so
+    // absent until sent) + the poNumber + this. poNumber stays the canonical
+    // id everywhere (URLs, portal); this is presentation only.
+    customerRef: text('customer_ref'),
     createdBy: uuid('created_by').references(() => staffUsers.id),
 
     // Workflow stage — same shape and same nullable-no-backfill reasoning as on

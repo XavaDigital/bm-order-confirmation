@@ -277,6 +277,7 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput, meta?
           // 2026-08-05) — resolved above; defaults to the supplier's newest.
           colorBookId: colorBook?.id ?? null,
           colorBookName: colorBook?.name ?? null,
+          customerRef: input.customerRef ?? null,
           createdBy: meta?.actorStaffUserId ?? null,
         })
         .returning();
@@ -358,6 +359,20 @@ export async function getPurchaseOrder(id: string) {
     .where(and(eq(poSupplierAccess.purchaseOrderId, id), isNull(poSupplierAccess.revokedAt)));
 
   const { shipmentLinks, ...rest } = po;
+  // Sign the LATEST revision's snapshot media for the admin read (charts gain
+  // downloadUrl, mock-up images gain url/thumbnailUrl) — David, 2026-08-06:
+  // the admin PO page shows the images and links the charts. Only the latest:
+  // historical revisions render as PDF/XLSX links, never inline, so signing
+  // them would be wasted storage round-trips on every page load.
+  if (rest.revisions[0]) {
+    rest.revisions = [
+      {
+        ...rest.revisions[0],
+        snapshot: await signPoSnapshotMedia(rest.revisions[0].snapshot),
+      },
+      ...rest.revisions.slice(1),
+    ];
+  }
   return {
     ...rest,
     shipments: shipmentLinks.map((l) => l.shipment),
@@ -427,6 +442,7 @@ export async function listPurchaseOrders(opts?: {
     .select({
       id: purchaseOrders.id,
       poNumber: purchaseOrders.poNumber,
+      customerRef: purchaseOrders.customerRef,
       status: purchaseOrders.status,
       currentRevisionNumber: purchaseOrders.currentRevisionNumber,
       deadlineDate: purchaseOrders.deadlineDate,

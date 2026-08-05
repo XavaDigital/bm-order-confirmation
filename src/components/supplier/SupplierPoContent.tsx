@@ -54,6 +54,31 @@ function LabelValue({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * Underlined section heading inside a garment block (David, 2026-08-06:
+ * "a fabric section with an underlined heading and then the fabric options
+ * underneath") — Fabrics / Options / Size charts / Images / Sizing.
+ */
+function SectionHeading({ children }: { children: string }) {
+  return (
+    <Text
+      style={{
+        display: 'block',
+        color: 'rgba(255,255,255,0.65)',
+        fontSize: 12,
+        fontWeight: 600,
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        borderBottom: '1px solid rgba(255,255,255,0.15)',
+        paddingBottom: 4,
+        margin: '12px 0 8px',
+      }}
+    >
+      {children}
+    </Text>
+  );
+}
+
 function GarmentImages({ images }: { images: SignedPoImage[] }) {
   const withUrl = images.filter((img) => img.url || img.thumbnailUrl);
   if (withUrl.length === 0) return null;
@@ -107,10 +132,7 @@ function GarmentImages({ images }: { images: SignedPoImage[] }) {
 function GarmentSizeCharts({ charts }: { charts: SignedPoSizeChart[] }) {
   if (charts.length === 0) return null;
   return (
-    <div style={{ display: 'flex', gap: 12, marginBottom: 2 }}>
-      <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, width: 140, flexShrink: 0 }}>
-        Size charts
-      </Text>
+    <div style={{ marginBottom: 2 }}>
       <Space wrap size={6}>
         {charts.map((chart) =>
           chart.downloadUrl ? (
@@ -160,9 +182,17 @@ function GarmentBlock({ garment }: { garment: PoSnapshotGarment }) {
     }),
   );
 
+  const fabricEntries = optionEntries(garment.selectedFabrics);
+  const hasFabrics = fabricEntries.length > 0 || garment.fabrics.length > 0;
+  const optionEntriesList = optionEntries(garment.selectedOptions);
+  const charts = (garment.sizeCharts ?? []) as SignedPoSizeChart[];
+  const images = ((garment.images ?? []) as SignedPoImage[]).filter(
+    (img) => img.url || img.thumbnailUrl,
+  );
+
   return (
     <div style={GARMENT_BOX_STYLE}>
-      <div style={{ marginBottom: 10 }}>
+      <div style={{ marginBottom: 4 }}>
         <Text strong style={{ color: 'rgba(255,255,255,0.92)', fontSize: 15 }}>
           {garment.name}
         </Text>
@@ -176,25 +206,60 @@ function GarmentBlock({ garment }: { garment: PoSnapshotGarment }) {
         </Text>
       </div>
 
-      {/* Fabrics: labeled picks (typed garments) plus the legacy free-text list. */}
-      {optionEntries(garment.selectedFabrics).map(({ label, value }) => (
-        <LabelValue key={`fabric:${label}`} label={label} value={value} />
-      ))}
-      {garment.fabrics.length > 0 && (
-        <LabelValue label="Fabrics" value={garment.fabrics.join(', ')} />
-      )}
-
-      {/* EVERY garment option, blank or not. */}
-      {optionEntries(garment.selectedOptions).map(({ label, value }) => (
-        <LabelValue key={`option:${label}`} label={label} value={value} />
-      ))}
-
-      <GarmentSizeCharts charts={(garment.sizeCharts ?? []) as SignedPoSizeChart[]} />
-
       {garment.notes && <LabelValue label="Notes" value={garment.notes} />}
 
-      <GarmentImages images={(garment.images ?? []) as SignedPoImage[]} />
+      {/* Fabrics and Options side by side on wide screens (auto-fit collapses
+          them to a single column when the space isn't there). */}
+      {(hasFabrics || optionEntriesList.length > 0) && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: '0 24px',
+            alignItems: 'start',
+          }}
+        >
+          {hasFabrics && (
+            <div>
+              <SectionHeading>Fabrics</SectionHeading>
+              {/* Labeled picks (typed garments) plus the legacy free-text list. */}
+              {fabricEntries.map(({ label, value }) => (
+                <LabelValue key={`fabric:${label}`} label={label} value={value} />
+              ))}
+              {garment.fabrics.length > 0 && (
+                <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, display: 'block' }}>
+                  {garment.fabrics.join(', ')}
+                </Text>
+              )}
+            </div>
+          )}
+          {optionEntriesList.length > 0 && (
+            <div>
+              <SectionHeading>Options</SectionHeading>
+              {/* EVERY garment option, blank or not. */}
+              {optionEntriesList.map(({ label, value }) => (
+                <LabelValue key={`option:${label}`} label={label} value={value} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
+      {charts.length > 0 && (
+        <div>
+          <SectionHeading>Size charts</SectionHeading>
+          <GarmentSizeCharts charts={charts} />
+        </div>
+      )}
+
+      {images.length > 0 && (
+        <div>
+          <SectionHeading>Images</SectionHeading>
+          <GarmentImages images={images} />
+        </div>
+      )}
+
+      <SectionHeading>Sizing</SectionHeading>
       <Table
         dataSource={garment.lines}
         columns={columns}
@@ -202,7 +267,7 @@ function GarmentBlock({ garment }: { garment: PoSnapshotGarment }) {
         size="small"
         pagination={false}
         scroll={{ x: 'max-content' }}
-        style={{ marginTop: 10, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6 }}
+        style={{ border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6 }}
         locale={{ emptyText: 'No sizing rows in this revision' }}
       />
     </div>

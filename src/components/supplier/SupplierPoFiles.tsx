@@ -6,22 +6,27 @@
  * layout…), oldest first WITHIN a category — a later upload in the same
  * category IS the newer version, so each file carries a v1/v2 counter. Every
  * file shows who uploaded it, when, and the PO status it arrived in (the
- * progression record), a signed download link, and its own comment thread
- * ("change this, because…"). Plus upload, and everything-as-a-zip.
+ * progression record), a signed download link, plus upload and
+ * everything-as-a-zip.
  *
- * Self-contained: fetches GET /api/supplier/[code]/po/[poNumber]/files itself
- * so the PO view only has to mount it.
+ * Since the 2026-08-06 feedback this card is the STRUCTURED lens only —
+ * category/version at a glance. The chronological lens (and the per-file
+ * comment threads) lives in SupplierActivityFeed; the page owns the files
+ * data and passes it to both so a comment or upload refreshes each.
+ *
+ * Upload REQUIRES a category (server 400s without one) — the control stays
+ * disabled until one is picked or typed, and a slipped-through 400 surfaces
+ * the server's own message.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { App, AutoComplete, Button, Card, Empty, Input, Space, Spin, Tag, Typography, Upload } from 'antd';
 import {
   DownloadOutlined,
   FileZipOutlined,
   PaperClipOutlined,
-  SendOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
-import { ApiError, getJson, postForm, postJson } from '@/lib/api-fetch';
+import { postForm } from '@/lib/api-fetch';
 import { poStatusMeta } from '@/lib/status';
 import { CARD_STYLE, CARD_BODY_STYLES, FIELD_LABEL_STYLE } from '@/components/customer/customerStyles';
 import { formatCommentWhen } from './po-view-helpers';
@@ -53,68 +58,37 @@ export interface PoFileItem {
 export interface SupplierPoFilesProps {
   code: string;
   poNumber: string;
-  /** Bubble a 401 up so the page can drop back to the login card. */
-  onUnauthorized?: () => void;
+  /** The page owns the files data (shared with the activity feed). Null = loading. */
+  items: PoFileItem[] | null;
+  /** Called after a successful upload so the page can refresh the shared data. */
+  onUploaded: () => Promise<void>;
 }
 
-function commentAuthor(comment: PoFileItem['comments'][number]): string {
-  if (comment.authorKind === 'supplier') return comment.authorLabel ?? 'Supplier';
-  return comment.authorName ?? comment.authorLabel ?? 'BeastMode';
-}
-
-export function SupplierPoFiles({ code, poNumber, onUnauthorized }: SupplierPoFilesProps) {
+export function SupplierPoFiles({ code, poNumber, items, onUploaded }: SupplierPoFilesProps) {
   const { message } = App.useApp();
   const base = `/api/supplier/${encodeURIComponent(code)}/po/${encodeURIComponent(poNumber)}`;
 
-  const [items, setItems] = useState<PoFileItem[] | null>(null);
   const [category, setCategory] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [sendingFor, setSendingFor] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const data = await getJson<{ items: PoFileItem[] }>(`${base}/files`, 'Failed to load files');
-      setItems(data.items);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) onUnauthorized?.();
-      else setItems([]);
-    }
-  }, [base, onUnauthorized]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const categoryMissing = !category.trim();
 
   async function upload(file: File) {
+    if (categoryMissing) return;
     setUploading(true);
     try {
       const form = new FormData();
       form.append('file', file);
-      if (category.trim()) form.append('category', category.trim());
+      form.append('category', category.trim());
       await postForm(`${base}/files`, form, 'Failed to upload the file');
       message.success(`${file.name} uploaded`);
       setCategory('');
-      await load();
+      await onUploaded();
     } catch (err) {
+      // A 400 (missing category) or 503 (storage) carries the server's message.
       message.error(err instanceof Error ? err.message : 'Failed to upload the file');
     } finally {
       setUploading(false);
-    }
-  }
-
-  async function sendComment(fileId: string) {
-    const body = (drafts[fileId] ?? '').trim();
-    if (!body || sendingFor) return;
-    setSendingFor(fileId);
-    try {
-      await postJson(`${base}/files/${fileId}`, { body }, 'Failed to send comment');
-      setDrafts((prev) => ({ ...prev, [fileId]: '' }));
-      await load();
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : 'Failed to send comment');
-    } finally {
-      setSendingFor(null);
     }
   }
 
@@ -203,54 +177,6 @@ export function SupplierPoFiles({ code, poNumber, onUnauthorized }: SupplierPoFi
                           </Tag>
                         </Space>
                       </div>
-
-                      {file.comments.length > 0 && (
-                        <div style={{ marginTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 8 }}>
-                          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                            {file.comments.map((comment) => (
-                              <div key={comment.id}>
-                                <Space size={6} wrap>
-                                  <Text strong style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12 }}>
-                                    {commentAuthor(comment)}
-                                  </Text>
-                                  <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>
-                                    {formatCommentWhen(comment.createdAt)}
-                                  </Text>
-                                </Space>
-                                <Text
-                                  style={{
-                                    color: 'rgba(255,255,255,0.8)',
-                                    fontSize: 13,
-                                    whiteSpace: 'pre-wrap',
-                                    display: 'block',
-                                  }}
-                                >
-                                  {comment.body}
-                                </Text>
-                              </div>
-                            ))}
-                          </Space>
-                        </div>
-                      )}
-
-                      <Space.Compact style={{ width: '100%', marginTop: 8 }}>
-                        <Input
-                          size="small"
-                          maxLength={2000}
-                          placeholder="Comment on this file…"
-                          value={drafts[file.id] ?? ''}
-                          onChange={(e) => setDrafts((prev) => ({ ...prev, [file.id]: e.target.value }))}
-                          onPressEnter={() => void sendComment(file.id)}
-                          disabled={sendingFor !== null}
-                        />
-                        <Button
-                          size="small"
-                          icon={<SendOutlined />}
-                          loading={sendingFor === file.id}
-                          disabled={!(drafts[file.id] ?? '').trim()}
-                          onClick={() => void sendComment(file.id)}
-                        />
-                      </Space.Compact>
                     </div>
                   ))}
                 </Space>
@@ -270,20 +196,25 @@ export function SupplierPoFiles({ code, poNumber, onUnauthorized }: SupplierPoFi
                 style={{ width: 200 }}
                 disabled={uploading}
               >
-                <Input placeholder="Category (e.g. Layout)" maxLength={100} />
+                <Input placeholder="Category (required)" maxLength={100} />
               </AutoComplete>
               <Upload
                 showUploadList={false}
-                disabled={uploading}
+                disabled={uploading || categoryMissing}
                 customRequest={({ file }) => {
                   void upload(file as File);
                 }}
               >
-                <Button icon={<UploadOutlined />} loading={uploading}>
+                <Button icon={<UploadOutlined />} loading={uploading} disabled={categoryMissing}>
                   Choose file & upload
                 </Button>
               </Upload>
             </Space>
+            {categoryMissing && (
+              <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, display: 'block', marginTop: 4 }}>
+                Pick or type a category first — e.g. Layout, Test print.
+              </Text>
+            )}
           </div>
         </Space>
       )}

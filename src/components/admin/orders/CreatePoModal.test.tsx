@@ -163,6 +163,28 @@ describe('CreatePoModal', () => {
     expect(onCreated).toHaveBeenCalled();
   });
 
+  it('sends customerRef when a customer ref is typed (David, 2026-08-06)', async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = installMockFetch([
+      suppliersRoute(),
+      colorBooksRoute(),
+      { match: CREATE_URL, method: 'POST', status: 201, response: { id: 'po-1', poNumber: 'PO-1' } },
+    ]);
+    renderModal();
+
+    await fillAndOpenSubmit(user);
+    await user.type(
+      screen.getByLabelText('Customer ref (for the PO title)'),
+      'David Baird',
+    );
+    await user.click(screen.getByRole('button', { name: 'Create purchase order' }));
+
+    expect(await screen.findByText('Purchase order PO-1 created')).toBeInTheDocument();
+    const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+    // Sent raw — the server/display normalise to UPPERCASE-DASHED.
+    expect(JSON.parse(postCall![1]!.body as string).customerRef).toBe('David Baird');
+  });
+
   it('requires a supplier and at least one garment before POSTing', async () => {
     const user = userEvent.setup();
     const { fetchMock } = installMockFetch([suppliersRoute(), colorBooksRoute()]);

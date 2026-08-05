@@ -58,12 +58,21 @@ export const POST = defineRoute<{ code: string; poNumber: string }>({
     });
     if (upload instanceof NextResponse) return upload;
 
+    // Category is REQUIRED for supplier uploads (David, 2026-08-06) — an
+    // uncategorised factory file cannot slot into the progression record.
     const categoryField = formData.get('category');
+    const category = typeof categoryField === 'string' ? categoryField.trim() : '';
+    if (!category) {
+      return NextResponse.json(
+        { error: 'Choose a category for this file (e.g. Layout, Test print)' },
+        { status: 400 },
+      );
+    }
     const file = await addPoFile(po.id, {
       fileName: upload.file.name,
       data: upload.buffer,
       contentType: upload.file.type || null,
-      category: typeof categoryField === 'string' ? categoryField : null,
+      category,
       uploadedByKind: 'supplier',
       uploadedByLabel: `${gate.personName} (${gate.supplier.name})`,
     });

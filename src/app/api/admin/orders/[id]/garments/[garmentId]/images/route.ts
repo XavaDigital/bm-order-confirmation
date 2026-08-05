@@ -42,6 +42,9 @@ export const POST = defineRoute<{ id: string; garmentId: string }>({
     const { file, buffer } = upload;
 
     const caption = (formData.get('caption') as string | null) ?? null;
+    // Team-only reference image (David, 2026-08-06): hidden from the customer
+    // surface, still rides the PO snapshot to the factory.
+    const internalOnly = formData.get('internalOnly') === 'true';
     const ext = file.name.split('.').pop() ?? 'jpg';
     const filename = `${randomBytes(8).toString('hex')}.${ext}`;
     const key = mockupKey(orderId, garmentId, filename);
@@ -65,7 +68,7 @@ export const POST = defineRoute<{ id: string; garmentId: string }>({
 
       const image = await addMockupImage(
         garmentId,
-        { storageKey: key, thumbnailStorageKey, caption },
+        { storageKey: key, thumbnailStorageKey, caption, internalOnly },
         { actorEmail: session!.email },
       );
       const url = await getSignedUrl(key, 4 * 3600); // 4-hour signed URL for immediate admin preview

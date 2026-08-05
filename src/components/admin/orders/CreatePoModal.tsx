@@ -81,6 +81,7 @@ export function CreatePoModal({
   const [colorBookId, setColorBookId] = useState<string | null>(null);
   const [defaultBookId, setDefaultBookId] = useState<string | null>(null);
   const [garmentIds, setGarmentIds] = useState<string[]>([]);
+  const [customerRef, setCustomerRef] = useState('');
   const [expectedShipDate, setExpectedShipDate] = useState<Dayjs | null>(null);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -111,6 +112,7 @@ export function CreatePoModal({
           // server matches against the supplier's newest at create time.
           ...(colorBookId && colorBookId !== defaultBookId ? { colorBookId } : {}),
           // No deadlineDate — the server copies the customer deadline onto the PO.
+          ...(customerRef.trim() ? { customerRef: customerRef.trim() } : {}),
           expectedShipDate: expectedShipDate ? expectedShipDate.format('YYYY-MM-DD') : undefined,
           notes: notes.trim() || undefined,
         },
@@ -241,6 +243,22 @@ export function CreatePoModal({
           {garments.length === 0 && (
             <Typography.Text type="secondary">This order has no garments yet.</Typography.Text>
           )}
+        </div>
+
+        <div>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
+            Customer ref (for the PO title)
+          </Typography.Text>
+          <Input
+            maxLength={60}
+            value={customerRef}
+            onChange={(e) => setCustomerRef(e.target.value)}
+            placeholder="Optional — e.g. DAVID-BAIRD"
+            aria-label="Customer ref (for the PO title)"
+          />
+          <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+            Appears in the PO title, e.g. DAVID-BAIRD — normalised to UPPERCASE-DASHED.
+          </Typography.Text>
         </div>
 
         <div>

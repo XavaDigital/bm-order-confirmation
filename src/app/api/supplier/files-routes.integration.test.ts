@@ -111,10 +111,12 @@ function jsonRequest(url: string, body: unknown, cookie?: string | null) {
   });
 }
 
-function uploadRequest(url: string, cookie: string | null, file?: File, category?: string) {
+// Category defaults to 'Layout': supplier uploads REQUIRE one since David's
+// 2026-08-06 ruling — pass '' explicitly to exercise the rejection.
+function uploadRequest(url: string, cookie: string | null, file?: File, category = 'Layout') {
   const formData = new FormData();
   if (file) formData.set('file', file);
-  if (category !== undefined) formData.set('category', category);
+  if (category !== '') formData.set('category', category);
   const headers: Record<string, string> = {};
   if (cookie) headers.cookie = cookie;
   // Content-type is set by the runtime from the FormData boundary.
@@ -270,5 +272,19 @@ describe('GET /api/supplier/[code]/po/[poNumber]/files.zip', () => {
       withParams({ code: 'VA', poNumber: po.poNumber }),
     );
     expect(res.status).toBe(409);
+  });
+});
+
+describe('supplier upload category requirement (David, 2026-08-06)', () => {
+  it('rejects an upload with no category', async () => {
+    const supplier = await seedSupplier();
+    const { po } = await seedPo(supplier.id);
+    const res = await POST_FILE(
+      uploadRequest('/x', cookieHeaderFor(supplier), pdfFile(), ''),
+      withParams({ code: 'VA', poNumber: po.poNumber }),
+    );
+    const json = await res.json();
+    expect(res.status).toBe(400);
+    expect(json.error).toMatch(/category/i);
   });
 });

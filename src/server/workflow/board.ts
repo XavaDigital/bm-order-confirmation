@@ -10,6 +10,7 @@ import { and, desc, eq, inArray, isNotNull, ne } from 'drizzle-orm';
 import { db } from '@/db';
 import { orders, purchaseOrders, workflowTaskCompletions } from '@/db/schema';
 import type { WorkflowBoardKey } from '@/db/schema';
+import { poDisplayTitle } from '@/lib/po-title';
 import { listActiveStages, listTasksForStages, resolveStage, type StageRow } from './stages';
 
 /** How overdue a card is against its stage's thresholds. */
@@ -267,6 +268,8 @@ export async function getPurchaseOrderBoard(opts?: {
       id: true,
       orderId: true,
       poNumber: true,
+      customerRef: true,
+      sentAt: true,
       status: true,
       workflowStageSlug: true,
       stageEnteredAt: true,
@@ -292,7 +295,10 @@ export async function getPurchaseOrderBoard(opts?: {
     const { urgency, hoursInStage } = stageUrgency(stage, enteredAt, now);
     return {
       id: row.id,
-      reference: row.poNumber,
+      // The DISPLAY title (David, 2026-08-06) — composed server-side so the
+      // card shows the same "2608-DY3-DAVID-BAIRD" the list and detail pages
+      // do, without the client needing customerRef/sentAt on the card DTO.
+      reference: poDisplayTitle(row),
       title: row.supplier?.name ?? 'Unknown supplier',
       subtitle: row.order ? `${row.order.orderNumber} · ${row.order.customerName}` : null,
       status: row.status,

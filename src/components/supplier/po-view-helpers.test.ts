@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { PoSnapshotLine } from '@/db/schema';
 import {
+  buildActivityFeed,
   garmentUnits,
+  isImageFileName,
   isShipDateLocked,
   lineColumnDescriptors,
   matchesPoSearch,
@@ -113,6 +115,65 @@ describe('summarizeStatusResults', () => {
       okCount: 1,
       failures: ['PO-2: Not found', 'PO-3: Update failed'],
     });
+  });
+});
+
+describe('buildActivityFeed', () => {
+  const comment = (id: string, createdAt: string) => ({ id, createdAt });
+  const file = (id: string, createdAt: string) => ({ id, createdAt });
+  const status = (to: string, at: string) => ({ from: 'sent', to, at, by: null });
+
+  it('merges comments, files and status changes oldest-first', () => {
+    const feed = buildActivityFeed({
+      comments: [comment('c1', '2026-08-03T10:00:00Z'), comment('c2', '2026-08-01T10:00:00Z')],
+      files: [file('f1', '2026-08-02T10:00:00Z')],
+      statusChanges: [status('pre_production', '2026-08-04T10:00:00Z')],
+    });
+    expect(feed.map((e) => e.kind)).toEqual(['comment', 'file', 'comment', 'status']);
+    expect(feed[0]).toMatchObject({ kind: 'comment', comment: { id: 'c2' } });
+    expect(feed[1]).toMatchObject({ kind: 'file', file: { id: 'f1' } });
+    expect(feed[3]).toMatchObject({ kind: 'status', change: { to: 'pre_production' } });
+  });
+
+  it('breaks timestamp ties status → file → comment (the line that opened a stage reads first)', () => {
+    const at = '2026-08-05T09:00:00Z';
+    const feed = buildActivityFeed({
+      comments: [comment('c1', at)],
+      files: [file('f1', at)],
+      statusChanges: [status('test_print', at)],
+    });
+    expect(feed.map((e) => e.kind)).toEqual(['status', 'file', 'comment']);
+  });
+
+  it('keeps input order for same-kind ties (stable)', () => {
+    const at = '2026-08-05T09:00:00Z';
+    const feed = buildActivityFeed({
+      comments: [comment('c1', at), comment('c2', at)],
+    });
+    expect(feed.map((e) => (e.kind === 'comment' ? e.comment.id : ''))).toEqual(['c1', 'c2']);
+  });
+
+  it('tolerates absent files/statuses (the token surface) and bad timestamps', () => {
+    expect(buildActivityFeed({ comments: [] })).toEqual([]);
+    const feed = buildActivityFeed({
+      comments: [comment('good', '2026-08-01T10:00:00Z'), comment('bad', 'not-a-date')],
+    });
+    // Unparseable timestamps sort to the start rather than throwing.
+    expect(feed.map((e) => (e.kind === 'comment' ? e.comment.id : ''))).toEqual(['bad', 'good']);
+  });
+});
+
+describe('isImageFileName', () => {
+  it('accepts common image extensions case-insensitively', () => {
+    for (const name of ['test.png', 'PRINT.JPG', 'a.jpeg', 'b.webp', 'c.gif', 'd.svg']) {
+      expect(isImageFileName(name)).toBe(true);
+    }
+  });
+
+  it('rejects non-images and extension-less names', () => {
+    for (const name of ['layout.pdf', 'design.ai', 'archive.zip', 'noext', 'font.ttf']) {
+      expect(isImageFileName(name)).toBe(false);
+    }
   });
 });
 

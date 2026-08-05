@@ -18,10 +18,10 @@
  * 2026-08-05) is deliberately ABSENT from everything this file returns — it
  * must never reach the supplier.
  */
-import { and, eq, notInArray } from 'drizzle-orm';
+import { and, eq, notInArray, sql } from 'drizzle-orm';
 import { timingSafeEqual } from 'node:crypto';
 import { db } from '@/db';
-import { poSupplierAccess, purchaseOrders, suppliers } from '@/db/schema';
+import { auditEvents, poSupplierAccess, purchaseOrders, suppliers } from '@/db/schema';
 import type { PoSnapshot } from '@/db/schema';
 import { resolveActiveToken } from '@/server/access/tokens';
 import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
@@ -44,6 +44,11 @@ export interface SupplierPortalViewDto {
   notes: string | null;
   /** The colour book the job is matched against (David, 2026-08-05). */
   colorBookName: string | null;
+  /**
+   * Status changes with who/when (David, 2026-08-06: the supplier side gets a
+   * visible activity trail) — merged into the comments/files feed client-side.
+   */
+  statusHistory: { from: string; to: string; at: string; by: string | null }[];
   supplier: {
     name: string;
     contactPerson: string | null;
@@ -176,6 +181,28 @@ async function buildPortalView(po: PortalPo): Promise<SupplierPortalViewDto> {
   const latest = po.revisions[0]; // rev 1 always exists
   const comments = await listOrderNotes(po.orderId, 'order', { visibility: 'shared' });
 
+  // Status changes for the activity feed — from the audit trail, filtered to
+  // THIS PO. The actor label is what the audit row holds ("Ana (Dynasty)" or
+  // a staff email); supplier surfaces render it as-is.
+  const auditRows = await db.query.auditEvents.findMany({
+    where: and(
+      eq(auditEvents.aggregateId, po.orderId),
+      eq(auditEvents.eventType, 'po.status_changed'),
+      sql`${auditEvents.payload}->>'poId' = ${po.id}`,
+    ),
+    orderBy: (a, { asc }) => [asc(a.createdAt)],
+    limit: 100,
+  });
+  const statusHistory = auditRows.map((row) => {
+    const p = row.payload as { from?: string; to?: string };
+    return {
+      from: p.from ?? '',
+      to: p.to ?? '',
+      at: row.createdAt.toISOString(),
+      by: row.actorEmail,
+    };
+  });
+
   // Signed here, per request — the stored snapshot only ever keeps the
   // storageKey, so nothing durable holds a URL that can expire. Media covers
   // garment mock-up images AND size charts (David, 2026-08-05: the supplier
@@ -206,6 +233,7 @@ async function buildPortalView(po: PortalPo): Promise<SupplierPortalViewDto> {
     revisionNumber: latest.revisionNumber,
     snapshot,
     comments,
+    statusHistory,
   };
 }
 

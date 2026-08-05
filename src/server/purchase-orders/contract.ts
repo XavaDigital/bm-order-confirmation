@@ -108,16 +108,23 @@ export const createPurchaseOrderSchema = z.object({
    * reprint can pick an older one explicitly.
    */
   colorBookId: z.string().uuid().optional(),
+  /** The human-readable customer string in the display title (David, 2026-08-06). */
+  customerRef: z.string().trim().min(1).max(60).optional(),
 });
 
 export const updatePurchaseOrderSchema = z.object({
-  // deadlineDate is deliberately absent: it mirrors the order's customer
-  // deadline automatically and is not editable per PO.
+  /**
+   * Auto-imported from the order at create and re-synced when the ORDER's
+   * deadline changes — but also directly settable here (David, 2026-08-06).
+   * Last write wins between the two.
+   */
+  deadlineDate: dateString.nullable().optional(),
   expectedShipDate: dateString.nullable().optional(),
   actualShipDate: dateString.nullable().optional(),
   notes: z.string().max(2000).nullable().optional(),
   /** null clears the book (no colour matching recorded). */
   colorBookId: z.string().uuid().nullable().optional(),
+  customerRef: z.string().trim().min(1).max(60).nullable().optional(),
 });
 
 export const updatePoStatusSchema = z.object({

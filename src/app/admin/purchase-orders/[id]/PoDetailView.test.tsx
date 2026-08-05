@@ -34,13 +34,17 @@ function detail(overrides: Record<string, unknown> = {}) {
   return {
     id: PO_ID,
     poNumber: 'PO-2607-VA01-JANECOACH',
+    // Defaults keep the DISPLAY title equal to the poNumber (no ref, not yet
+    // sent) so header assertions stay unambiguous; the display-title tests
+    // override customerRef/sentAt explicitly.
+    customerRef: null,
     orderId: 'order-1',
     status: 'sent',
     currentRevisionNumber: 1,
     deadlineDate: '2026-09-15',
     expectedShipDate: null,
     actualShipDate: null,
-    sentAt: '2026-07-20T10:00:00Z',
+    sentAt: null,
     receivedAt: null,
     notes: null,
     createdAt: '2026-07-18T10:00:00Z',
@@ -457,36 +461,73 @@ describe('PoDetailView', () => {
     expect(screen.getByText('In transit')).toBeInTheDocument();
   });
 
-  it('shows the customer deadline read-only, sourced from the order', async () => {
+  it('shows the customer deadline as an editable picker seeded from the PO', async () => {
     installMockFetch(baseRoutes());
     renderView();
     await screen.findByText('PO-2607-VA01-JANECOACH');
 
     expect(screen.getByText('Customer deadline')).toBeInTheDocument();
-    // en-NZ short month renders "Sep" or "Sept" depending on ICU.
-    expect(screen.getByText(/15 Sept? 2026/)).toBeInTheDocument();
-    // The per-PO deadline picker is gone.
-    expect(screen.queryByText('Deadline')).not.toBeInTheDocument();
+    // Editable again (David, 2026-08-06) — a DatePicker, not display text.
+    const picker = screen.getByPlaceholderText('None set') as HTMLInputElement;
+    expect(picker.value).toMatch(/15 Sept? 2026/);
   });
 
-  it('saves ship dates and notes WITHOUT a deadlineDate', async () => {
+  it('Save dates PATCHes the deadline along with the ship dates and notes', async () => {
     const user = userEvent.setup();
     const { fetchMock, addRoute } = installMockFetch(baseRoutes());
     addRoute({ match: `/api/admin/purchase-orders/${PO_ID}`, method: 'PATCH', response: detail() });
     renderView();
     await screen.findByText('PO-2607-VA01-JANECOACH');
 
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Save dates' }));
 
     await vi.waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
       expect(patch?.[0]).toBe(`/api/admin/purchase-orders/${PO_ID}`);
       expect(JSON.parse(patch![1]!.body as string)).toEqual({
+        deadlineDate: '2026-09-15',
         expectedShipDate: null,
         actualShipDate: null,
         notes: null,
       });
     });
+  });
+
+  it('leads with the display title and keeps the canonical poNumber beneath when they differ', async () => {
+    installMockFetch(
+      baseRoutes(
+        detail({ poNumber: 'VA1', customerRef: 'Jane Coach', sentAt: '2026-07-20T10:00:00Z' }),
+      ),
+    );
+    renderView();
+
+    // YYMM of the send date + poNumber + normalised ref.
+    expect(await screen.findByText('2607-VA1-JANE-COACH')).toBeInTheDocument();
+    // The canonical number stays visible (it is what URLs/emails reference).
+    expect(screen.getByText('VA1')).toBeInTheDocument();
+  });
+
+  it('edits the customer ref from the header and PATCHes customerRef', async () => {
+    const user = userEvent.setup();
+    const { fetchMock, addRoute } = installMockFetch(baseRoutes());
+    addRoute({
+      match: `/api/admin/purchase-orders/${PO_ID}`,
+      method: 'PATCH',
+      response: { ok: true },
+    });
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    await user.click(screen.getByRole('button', { name: 'Edit customer ref' }));
+    await user.type(await screen.findByLabelText('Customer ref'), 'Jane Coach');
+    await user.click(screen.getByRole('button', { name: 'Save ref' }));
+
+    await vi.waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
+      expect(patch?.[0]).toBe(`/api/admin/purchase-orders/${PO_ID}`);
+      expect(JSON.parse(patch![1]!.body as string)).toEqual({ customerRef: 'Jane Coach' });
+    });
+    expect(await screen.findByText('Customer ref saved')).toBeInTheDocument();
   });
 
   it('shows Approve for a draft PO and blocks sending until approved', async () => {
@@ -537,6 +578,8 @@ describe('PoDetailView', () => {
       await screen.findByRole('button', { name: /copy link \+ password/i }),
     ).toBeInTheDocument();
     expect(screen.getByText(/Portal password: hunter22/)).toBeInTheDocument();
+    // The password itself renders big and copyable (David, 2026-08-06).
+    expect(screen.getByTestId('portal-password')).toHaveTextContent('hunter22');
     // The token generate/revoke flow is gone.
     expect(screen.queryByRole('button', { name: /generate link/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /revoke link/i })).not.toBeInTheDocument();
@@ -659,7 +702,7 @@ describe('PoDetailView', () => {
     expect(await screen.findByText('Sleeves 1cm shorter')).toBeInTheDocument();
   });
 
-  it('renders per-garment options, fabrics, size charts, images and custom sizing columns', async () => {
+  it('renders labelled garment sections with chart links, image thumbnails and custom sizing columns', async () => {
     const snap = snapshot();
     snap.garments[0] = {
       ...snap.garments[0],
@@ -667,10 +710,33 @@ describe('PoDetailView', () => {
       selectedFabrics: { Body: 'Dri-fit' },
       selectedOptions: { Collar: 'V-neck' },
       sizingColumns: [{ label: 'Initials', type: 'text' }],
-      sizeCharts: [{ id: 'sc1', name: 'Adult hoodie chart', storageKey: 'charts/x.png' }],
+      // The admin GET serves the LATEST revision signed (signPoSnapshotMedia):
+      // charts carry downloadUrl, images carry url/thumbnailUrl.
+      sizeCharts: [
+        {
+          id: 'sc1',
+          name: 'Adult hoodie chart',
+          storageKey: 'charts/x.png',
+          downloadUrl: 'https://signed.example.com/charts/x.png',
+        },
+      ],
       images: [
-        { id: 'img1', storageKey: 'mockups/a.png', thumbnailStorageKey: null, caption: 'Front' },
-        { id: 'img2', storageKey: 'mockups/b.png', thumbnailStorageKey: null, caption: null },
+        {
+          id: 'img1',
+          storageKey: 'mockups/a.png',
+          thumbnailStorageKey: 'mockups/a-thumb.png',
+          caption: 'Front',
+          url: 'https://signed.example.com/mockups/a.png',
+          thumbnailUrl: 'https://signed.example.com/mockups/a-thumb.png',
+        },
+        {
+          id: 'img2',
+          storageKey: 'mockups/b.png',
+          thumbnailStorageKey: null,
+          caption: null,
+          url: 'https://signed.example.com/mockups/b.png',
+          thumbnailUrl: null,
+        },
       ],
       lines: [
         {
@@ -701,10 +767,33 @@ describe('PoDetailView', () => {
     );
     renderView();
 
-    expect(await screen.findByText(/Body: Dri-fit/)).toBeInTheDocument();
-    expect(screen.getByText(/Collar: V-neck/)).toBeInTheDocument();
-    expect(screen.getByText('Adult hoodie chart')).toBeInTheDocument();
-    expect(screen.getByText(/2 mock-up images on the supplier PO — Front/)).toBeInTheDocument();
+    // The section labels pop out as headings (David, 2026-08-06).
+    expect(await screen.findByText('Fabrics')).toBeInTheDocument();
+    expect(screen.getByText('Options')).toBeInTheDocument();
+    expect(screen.getByText('Size charts')).toBeInTheDocument();
+    expect(screen.getByText('Images')).toBeInTheDocument();
+    expect(screen.getByText('Sizing')).toBeInTheDocument();
+
+    expect(screen.getByText('Body: Dri-fit')).toBeInTheDocument();
+    expect(screen.getByText('Collar: V-neck')).toBeInTheDocument();
+
+    // Chart names link to the signed download.
+    expect(screen.getByText('Adult hoodie chart').closest('a')).toHaveAttribute(
+      'href',
+      'https://signed.example.com/charts/x.png',
+    );
+
+    // Mock-up images render as clickable thumbnails opening the full image.
+    const front = screen.getByAltText('Front') as HTMLImageElement;
+    expect(front.src).toBe('https://signed.example.com/mockups/a-thumb.png');
+    expect(front.closest('a')).toHaveAttribute(
+      'href',
+      'https://signed.example.com/mockups/a.png',
+    );
+    // No thumbnail → the full image stands in.
+    const second = screen.getByAltText('Garment mock-up') as HTMLImageElement;
+    expect(second.src).toBe('https://signed.example.com/mockups/b.png');
+
     // The snapshot's custom sizing column drives a real table column.
     expect(screen.getByText('Initials')).toBeInTheDocument();
     expect(screen.getByText('AB')).toBeInTheDocument();

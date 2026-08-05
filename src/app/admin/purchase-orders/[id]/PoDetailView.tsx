@@ -2,11 +2,16 @@
 
 /**
  * Purchase-order detail (PO_PLAN): header actions (approve / send / PDF /
- * status machine), variance banner + revision issuing, editable ship dates and
- * notes (the customer deadline is display-only — imported from the order),
- * the always-on supplier portal link + password snippet, the supplier-shared
- * comment thread and the order's team notes, the latest-revision line tables,
- * revision + audit history, and a shipments placeholder.
+ * status machine), variance banner + revision issuing, editable dates (the
+ * customer deadline auto-imports from the order and re-syncs when the order's
+ * deadline changes — last write wins) and notes, the always-on supplier portal
+ * link + password, the latest-revision line tables with per-garment sections,
+ * revision + audit history, and shipments.
+ *
+ * Layout (David, 2026-08-06): the form column is capped at ~1100px with a
+ * sticky right rail holding the order notes and supplier comments (a checklist
+ * card will land above them later). The header leads with the DISPLAY title
+ * (poDisplayTitle) — poNumber stays the canonical identity everywhere else.
  *
  * Data: the client loads GET /api/admin/purchase-orders/[id] for the PO
  * itself, and sources VARIANCE from the parent order's production-summary
@@ -64,13 +69,26 @@ import {
   type PoVariance,
   type PoVarianceCounts,
 } from '@/server/purchase-orders/snapshot';
-import type { PoSnapshot, PoSnapshotAsset, PoSnapshotGarment, PoSnapshotLine } from '@/db/schema';
+import type {
+  PoSnapshot,
+  PoSnapshotAsset,
+  PoSnapshotGarment,
+  PoSnapshotImage,
+  PoSnapshotLine,
+  PoSnapshotSizeChart,
+} from '@/db/schema';
 import { PO_STATUS, poStatusMeta } from '@/lib/status';
 import { ASSET_KIND_COLOR, ASSET_KIND_LABEL } from '@/lib/asset-kind';
 import { formatDate } from '@/lib/format';
+import { poDisplayTitle } from '@/lib/po-title';
 import { getJson, postJson, patchJson } from '@/lib/api-fetch';
 
 const { Text } = Typography;
+
+/** Snapshot media as served by the admin GET — signed for the LATEST revision
+ *  (signPoSnapshotMedia in getPurchaseOrder); older rows never render inline. */
+type SignedSnapshotChart = PoSnapshotSizeChart & { downloadUrl?: string | null };
+type SignedSnapshotImage = PoSnapshotImage & { url?: string | null; thumbnailUrl?: string | null };
 
 interface PoRevision {
   id: string;
@@ -127,6 +145,8 @@ function noteAuthor(note: PoOrderNote): string {
 interface PoDetail {
   id: string;
   poNumber: string;
+  /** Human-readable customer part of the display title (David, 2026-08-06). */
+  customerRef: string | null;
   orderId: string;
   status: string;
   currentRevisionNumber: number;
@@ -173,6 +193,26 @@ interface ProductionSummary {
 }
 
 const dash = <Text type="secondary">—</Text>;
+
+/**
+ * Heading separator for the per-garment snapshot sections (David, 2026-08-06:
+ * "the labels don't pop out") — a small-caps label with a rule running to the
+ * card edge, so Fabrics / Options / Size charts / Images / Sizing read as
+ * distinct blocks.
+ */
+function SnapshotSectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0 6px' }}>
+      <Text
+        strong
+        style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, whiteSpace: 'nowrap' }}
+      >
+        {children}
+      </Text>
+      <div aria-hidden style={{ flex: 1, borderTop: '1px solid var(--ant-color-border-secondary, #d9d9d9)' }} />
+    </div>
+  );
+}
 
 /**
  * Line-table columns for one snapshot garment: the fixed columns plus one per
@@ -241,12 +281,19 @@ export function PoDetailView({ poId }: { poId: string }) {
   const [revisionReason, setRevisionReason] = useState('');
   const [issuingRevision, setIssuingRevision] = useState(false);
 
-  // Editable summary fields (the customer deadline is display-only — it is
-  // imported from the order server-side and never sent from here).
+  // Editable summary fields. The customer deadline is editable again (David,
+  // 2026-08-06) — it auto-imports from the order and re-syncs when the order's
+  // deadline changes; between the two, the last write wins.
+  const [deadline, setDeadline] = useState<Dayjs | null>(null);
   const [expectedShip, setExpectedShip] = useState<Dayjs | null>(null);
   const [actualShip, setActualShip] = useState<Dayjs | null>(null);
   const [notes, setNotes] = useState('');
   const [savingSummary, setSavingSummary] = useState(false);
+
+  // Customer-ref editing (the human part of the display title).
+  const [refModalOpen, setRefModalOpen] = useState(false);
+  const [refDraft, setRefDraft] = useState('');
+  const [savingRef, setSavingRef] = useState(false);
 
   // The supplier's portal password (from the supplier record): undefined =
   // still loading, null = no password set (portal closed).
@@ -295,6 +342,7 @@ export function PoDetailView({ poId }: { poId: string }) {
         'Failed to load purchase order',
       );
       setDetail(d);
+      setDeadline(d.deadlineDate ? dayjs(d.deadlineDate) : null);
       setExpectedShip(d.expectedShipDate ? dayjs(d.expectedShipDate) : null);
       setActualShip(d.actualShipDate ? dayjs(d.actualShipDate) : null);
       setNotes(d.notes ?? '');
@@ -405,8 +453,9 @@ export function PoDetailView({ poId }: { poId: string }) {
       await patchJson(
         `/api/admin/purchase-orders/${poId}`,
         {
-          // No deadlineDate — it mirrors the order's customer deadline and is
-          // not editable per PO.
+          // Directly settable again (David, 2026-08-06); the order-side re-sync
+          // still runs when the ORDER's deadline changes — last write wins.
+          deadlineDate: deadline ? deadline.format('YYYY-MM-DD') : null,
           expectedShipDate: expectedShip ? expectedShip.format('YYYY-MM-DD') : null,
           actualShipDate: actualShip ? actualShip.format('YYYY-MM-DD') : null,
           notes: notes.trim() || null,
@@ -419,6 +468,24 @@ export function PoDetailView({ poId }: { poId: string }) {
       message.error(err instanceof Error ? err.message : 'Failed to save');
     } finally {
       setSavingSummary(false);
+    }
+  }
+
+  async function saveCustomerRef() {
+    setSavingRef(true);
+    try {
+      await patchJson(
+        `/api/admin/purchase-orders/${poId}`,
+        { customerRef: refDraft.trim() || null },
+        'Failed to save the customer ref',
+      );
+      message.success('Customer ref saved');
+      setRefModalOpen(false);
+      await load();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to save the customer ref');
+    } finally {
+      setSavingRef(false);
     }
   }
 
@@ -500,18 +567,43 @@ export function PoDetailView({ poId }: { poId: string }) {
     </Button>
   );
 
+  // The DISPLAY title (David, 2026-08-06): "2608-DY3-DAVID-BAIRD" once sent,
+  // "DY3-DAVID-BAIRD" before. poNumber stays the canonical identity (URLs,
+  // portal, emails) and is shown beneath whenever the two differ.
+  const displayTitle = poDisplayTitle(detail);
+
   return (
     <div>
       <AdminPageHeader
         title={
           <Space size={12}>
-            <span style={{ fontFamily: 'monospace' }}>{detail.poNumber}</span>
+            <span style={{ fontFamily: 'monospace' }}>{displayTitle}</span>
+            <Tooltip title="Edit the customer ref in the PO title">
+              <Button
+                type="text"
+                size="small"
+                icon={<EditOutlined />}
+                aria-label="Edit customer ref"
+                onClick={() => {
+                  setRefDraft(detail.customerRef ?? '');
+                  setRefModalOpen(true);
+                }}
+              />
+            </Tooltip>
             <PoStatusBadge status={detail.status} />
             <Tag>v{detail.currentRevisionNumber}</Tag>
           </Space>
         }
         subtitle={
           <>
+            {displayTitle !== detail.poNumber && (
+              <>
+                <Text type="secondary" style={{ fontFamily: 'monospace' }}>
+                  {detail.poNumber}
+                </Text>
+                {' · '}
+              </>
+            )}
             {detail.supplier.name} · order{' '}
             <Link href={`/admin/orders/${detail.orderId}`}>{detail.order.orderNumber}</Link> (
             {detail.order.customerName})
@@ -619,6 +711,12 @@ export function PoDetailView({ poId }: { poId: string }) {
         />
       )}
 
+      {/* Two-column layout (David, 2026-08-06): the working form capped at
+          ~1100px, plus a sticky right rail carrying the reference material
+          (order notes + supplier comments) that should stay alongside while
+          scrolling the form. */}
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div style={{ flex: '1 1 640px', maxWidth: 1100, minWidth: 0 }}>
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Card title="Summary" size="small">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
@@ -673,45 +771,7 @@ export function PoDetailView({ poId }: { poId: string }) {
               )}
             </div>
             <div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                <div>
-                  <Text strong style={{ display: 'block', marginBottom: 4 }}>
-                    Customer deadline
-                  </Text>
-                  <Tooltip title="Imported from the customer order automatically; hidden from the supplier">
-                    <Text>
-                      {detail.order.deadlineDate ? (
-                        formatDate(detail.order.deadlineDate)
-                      ) : (
-                        <Text type="secondary">None set</Text>
-                      )}
-                    </Text>
-                  </Tooltip>
-                </div>
-                <div>
-                  <Text strong style={{ display: 'block', marginBottom: 4 }}>
-                    Required ship date
-                  </Text>
-                  <DatePicker
-                    style={{ width: '100%' }}
-                    format="DD MMM YYYY"
-                    value={expectedShip}
-                    onChange={setExpectedShip}
-                  />
-                </div>
-                <div>
-                  <Text strong style={{ display: 'block', marginBottom: 4 }}>
-                    Actual ship
-                  </Text>
-                  <DatePicker
-                    style={{ width: '100%' }}
-                    format="DD MMM YYYY"
-                    value={actualShip}
-                    onChange={setActualShip}
-                  />
-                </div>
-              </div>
-              <div style={{ marginTop: 12 }}>
+              <div>
                 <Text strong style={{ display: 'block', marginBottom: 4 }}>
                   Notes to supplier
                 </Text>
@@ -725,169 +785,60 @@ export function PoDetailView({ poId }: { poId: string }) {
               </div>
               <div style={{ marginTop: 12, textAlign: 'right' }}>
                 <Button type="primary" loading={savingSummary} onClick={saveSummary}>
-                  Save
+                  Save notes
                 </Button>
               </div>
             </div>
           </div>
         </Card>
 
-        <Card title="Supplier Portal" size="small">
-          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              The supplier&apos;s permanent link to this purchase order — view the latest
-              revision, push the status forward, and leave a comment. Guarded by the
-              supplier&apos;s portal password.
-            </Text>
-
-            {/* Same compact treatment as the customer link (ShareLinkPanel). */}
-            <Space wrap size={8}>
-              <Text code copyable={{ text: detail.portalUrl }} style={{ wordBreak: 'break-all' }}>
-                {detail.portalUrl}
-              </Text>
-              <Button
-                size="small"
-                icon={<ExportOutlined />}
-                href={detail.portalUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Open
-              </Button>
-            </Space>
-
-            {portalPassword === null && (
-              <Alert
-                type="warning"
-                showIcon
-                message="The supplier portal is closed"
-                description={
-                  <span>
-                    {detail.supplier.name} has no portal password, so this link won&apos;t open
-                    until an admin sets one on the{' '}
-                    <Link href="/admin/suppliers">supplier record</Link>.
-                  </span>
-                }
-              />
-            )}
-
-            {/* Link + password together, ready to paste into an email. */}
-            {portalPassword && (
-              <div
-                style={{
-                  padding: '10px 14px',
-                  background: 'var(--ant-color-fill-tertiary)',
-                  border: '1px solid var(--ant-color-border)',
-                  borderRadius: 6,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                  <Text strong>For your email</Text>
-                  <Button
-                    type="primary"
-                    size="small"
-                    icon={<CopyOutlined />}
-                    onClick={copyPortalSnippet}
-                  >
-                    Copy link + password
-                  </Button>
-                </div>
-                <Text
-                  type="secondary"
-                  style={{ fontSize: 12, whiteSpace: 'pre-wrap', display: 'block', wordBreak: 'break-all' }}
-                >
-                  {portalEmailSnippet(detail.portalUrl, portalPassword)}
-                </Text>
-              </div>
-            )}
-
-            {detail.supplierLink.lastViewedAt && (
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                Legacy emailed link last opened {formatDate(detail.supplierLink.lastViewedAt)}
-              </Text>
-            )}
-          </Space>
-        </Card>
-
-        <Card title="Comments" size="small">
-          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              The conversation shared with the supplier on their portal — their comments and
-              staff replies. Anything posted here is visible to the supplier.
-            </Text>
-            {comments.length === 0 ? (
-              <Text type="secondary">No shared comments yet.</Text>
-            ) : (
-              <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                {comments.map((note) => (
-                  <div key={note.id}>
-                    <Space size={6} wrap>
-                      <Text strong style={{ fontSize: 13 }}>
-                        {noteAuthor(note)}
-                      </Text>
-                      {note.authorKind === 'supplier' && (
-                        <Tag color="gold" style={{ marginInlineEnd: 0 }}>
-                          Supplier
-                        </Tag>
-                      )}
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {formatDate(note.createdAt)}
-                      </Text>
-                    </Space>
-                    <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{note.body}</div>
-                  </div>
-                ))}
-              </Space>
-            )}
+        {/* The dates sit together just above the line items (David, 2026-08-06:
+            "so we can copy things across as needed without scrolling"). */}
+        <Card title="Dates" size="small">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
             <div>
-              <Input.TextArea
-                rows={2}
-                maxLength={2000}
-                value={commentDraft}
-                onChange={(e) => setCommentDraft(e.target.value)}
-                placeholder="Reply to the supplier…"
-                aria-label="New supplier comment"
-              />
-              <div style={{ marginTop: 6 }}>
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<SendOutlined />}
-                  loading={postingComment}
-                  disabled={!commentDraft.trim()}
-                  onClick={postComment}
-                >
-                  Post to supplier
-                </Button>
-              </div>
+              <Text strong style={{ display: 'block', marginBottom: 4 }}>
+                Customer deadline
+              </Text>
+              <Tooltip title="Auto-imported from the customer order, and re-synced if the order's deadline changes — the last write wins. Hidden from the supplier.">
+                <DatePicker
+                  style={{ width: '100%' }}
+                  format="DD MMM YYYY"
+                  value={deadline}
+                  onChange={setDeadline}
+                  placeholder="None set"
+                  aria-label="Customer deadline"
+                />
+              </Tooltip>
             </div>
-          </Space>
-        </Card>
-
-        <Card title="Order notes (from the order)" size="small">
-          <Space direction="vertical" size={10} style={{ width: '100%' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              The team&apos;s order notes, brought through so production can check every point
-              has been dealt with. Add or edit them on the order page.
-            </Text>
-            {orderNotes.length === 0 ? (
-              <Text type="secondary">No order notes.</Text>
-            ) : (
-              orderNotes.map((note) => (
-                <div key={note.id}>
-                  <Space size={6} wrap>
-                    <Text strong style={{ fontSize: 13 }}>
-                      {noteAuthor(note)}
-                    </Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {formatDate(note.createdAt)}
-                    </Text>
-                  </Space>
-                  <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{note.body}</div>
-                </div>
-              ))
-            )}
-          </Space>
+            <div>
+              <Text strong style={{ display: 'block', marginBottom: 4 }}>
+                Required ship date
+              </Text>
+              <DatePicker
+                style={{ width: '100%' }}
+                format="DD MMM YYYY"
+                value={expectedShip}
+                onChange={setExpectedShip}
+              />
+            </div>
+            <div>
+              <Text strong style={{ display: 'block', marginBottom: 4 }}>
+                Actual ship
+              </Text>
+              <DatePicker
+                style={{ width: '100%' }}
+                format="DD MMM YYYY"
+                value={actualShip}
+                onChange={setActualShip}
+              />
+            </div>
+          </div>
+          <div style={{ marginTop: 12, textAlign: 'right' }}>
+            <Button type="primary" loading={savingSummary} onClick={saveSummary}>
+              Save dates
+            </Button>
+          </div>
         </Card>
 
         <Card
@@ -909,14 +860,17 @@ export function PoDetailView({ poId }: { poId: string }) {
                 : '';
               const fabricPairs = Object.entries(g.selectedFabrics ?? {});
               const optionPairs = Object.entries(g.selectedOptions ?? {});
-              const images = g.images ?? [];
-              const imageCaptions = images
-                .map((img) => img.caption)
-                .filter((c): c is string => Boolean(c));
+              // Signed by getPurchaseOrder for the latest revision (the only
+              // one rendered inline): charts carry downloadUrl, images carry
+              // url/thumbnailUrl.
+              const charts = (g.sizeCharts ?? []) as SignedSnapshotChart[];
+              const images = (g.images ?? []) as SignedSnapshotImage[];
               return (
                 <div key={g.garmentId}>
-                  <div style={{ marginBottom: 8 }}>
-                    <Text strong>{g.name}</Text>
+                  <div style={{ marginBottom: 4 }}>
+                    <Text strong style={{ fontSize: 15 }}>
+                      {g.name}
+                    </Text>
                     {g.garmentTypeName && (
                       <Text type="secondary" style={{ marginLeft: 8 }}>
                         {g.garmentTypeName}
@@ -924,49 +878,104 @@ export function PoDetailView({ poId }: { poId: string }) {
                     )}
                   </div>
                   {(fabricPairs.length > 0 || g.fabrics.length > 0) && (
-                    <div style={{ marginBottom: 4 }}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        Fabrics:{' '}
+                    <>
+                      <SnapshotSectionLabel>Fabrics</SnapshotSectionLabel>
+                      <Text style={{ fontSize: 13 }}>
                         {fabricPairs.length > 0
                           ? fabricPairs.map(([part, fabric]) => `${part}: ${fabric}`).join(' · ')
                           : g.fabrics.join(', ')}
                       </Text>
-                    </div>
+                    </>
                   )}
                   {optionPairs.length > 0 && (
-                    <div style={{ marginBottom: 4 }}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        Options:{' '}
+                    <>
+                      <SnapshotSectionLabel>Options</SnapshotSectionLabel>
+                      <Text style={{ fontSize: 13 }}>
                         {optionPairs.map(([label, value]) => `${label}: ${value}`).join(' · ')}
                       </Text>
-                    </div>
+                    </>
                   )}
-                  {(g.sizeCharts ?? []).length > 0 && (
-                    <div style={{ marginBottom: 4 }}>
+                  {charts.length > 0 && (
+                    <>
+                      <SnapshotSectionLabel>Size charts</SnapshotSectionLabel>
                       <Space size={4} wrap>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          Size charts:
-                        </Text>
-                        {g.sizeCharts!.map((chart) => (
-                          <Tag key={chart.id} style={{ marginInlineEnd: 0 }}>
-                            {chart.name}
-                          </Tag>
-                        ))}
+                        {charts.map((chart) =>
+                          chart.downloadUrl ? (
+                            <a
+                              key={chart.id}
+                              href={chart.downloadUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <Tag
+                                icon={<PaperClipOutlined />}
+                                style={{ marginInlineEnd: 0, cursor: 'pointer' }}
+                              >
+                                {chart.name}
+                              </Tag>
+                            </a>
+                          ) : (
+                            <Tag key={chart.id} style={{ marginInlineEnd: 0 }}>
+                              {chart.name}
+                            </Tag>
+                          ),
+                        )}
                       </Space>
-                    </div>
+                    </>
                   )}
-                  {/* The admin read serves raw storage keys for snapshot images
-                      (only PO assets are signed on this surface), so list the
-                      count and captions rather than dead thumbnails. */}
                   {images.length > 0 && (
-                    <div style={{ marginBottom: 4 }}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {images.length} mock-up image{images.length === 1 ? '' : 's'} on the
-                        supplier PO
-                        {imageCaptions.length > 0 ? ` — ${imageCaptions.join(' · ')}` : ''}
-                      </Text>
-                    </div>
+                    <>
+                      <SnapshotSectionLabel>Images</SnapshotSectionLabel>
+                      {/* Clickable thumbnails (David, 2026-08-06: "I actually
+                          want to see the image in our admin view of the PO"). */}
+                      <Space size={10} wrap align="start">
+                        {images.map((img) => {
+                          const thumb = img.thumbnailUrl ?? img.url ?? null;
+                          const body = thumb ? (
+                            // eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL; next/image cannot optimise it
+                            <img
+                              src={thumb}
+                              alt={img.caption ?? 'Garment mock-up'}
+                              style={{
+                                height: 84,
+                                maxWidth: 160,
+                                objectFit: 'contain',
+                                borderRadius: 6,
+                                border: '1px solid var(--ant-color-border-secondary, #d9d9d9)',
+                                display: 'block',
+                              }}
+                            />
+                          ) : (
+                            <Tag style={{ marginInlineEnd: 0 }}>
+                              {img.caption ?? 'Image unavailable'}
+                            </Tag>
+                          );
+                          return (
+                            <div key={img.id} style={{ textAlign: 'center' }}>
+                              {img.url ? (
+                                <a
+                                  href={img.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  aria-label={`Open mock-up${img.caption ? ` ${img.caption}` : ''}`}
+                                >
+                                  {body}
+                                </a>
+                              ) : (
+                                body
+                              )}
+                              {img.caption && (
+                                <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                                  {img.caption}
+                                </Text>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </Space>
+                    </>
                   )}
+                  <SnapshotSectionLabel>Sizing</SnapshotSectionLabel>
                   <Table
                     dataSource={g.lines}
                     columns={buildLineColumns(g)}
@@ -1033,6 +1042,118 @@ export function PoDetailView({ poId }: { poId: string }) {
           </Card>
         )}
 
+        <Card title="Shipments" size="small">
+          {detail.shipments.length > 0 ? (
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              {detail.shipments.map((s) => (
+                <Space key={s.id} size={12}>
+                  <Text strong>{s.nickname ?? s.trackingNumber ?? 'Shipment'}</Text>
+                  {s.carrier && <Text type="secondary">{s.carrier}</Text>}
+                  <ShipmentStatusBadge status={s.status} />
+                </Space>
+              ))}
+            </Space>
+          ) : (
+            <Text type="secondary">
+              No shipments attached yet. Shipment management arrives with the Shipments page.
+            </Text>
+          )}
+        </Card>
+
+        <Card title="Supplier Portal" size="small">
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              The supplier&apos;s permanent link to this purchase order — view the latest
+              revision, push the status forward, and leave a comment. Guarded by the
+              supplier&apos;s portal password.
+            </Text>
+
+            {/* Same compact treatment as the customer link (ShareLinkPanel). */}
+            <Space wrap size={8}>
+              <Text code copyable={{ text: detail.portalUrl }} style={{ wordBreak: 'break-all' }}>
+                {detail.portalUrl}
+              </Text>
+              <Button
+                size="small"
+                icon={<ExportOutlined />}
+                href={detail.portalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open
+              </Button>
+            </Space>
+
+            {portalPassword === null && (
+              <Alert
+                type="warning"
+                showIcon
+                message="The supplier portal is closed"
+                description={
+                  <span>
+                    {detail.supplier.name} has no portal password, so this link won&apos;t open
+                    until an admin sets one on the{' '}
+                    <Link href="/admin/suppliers">supplier record</Link>.
+                  </span>
+                }
+              />
+            )}
+
+            {/* The password itself, big enough to spot (David, 2026-08-06). */}
+            {portalPassword && (
+              <div>
+                <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                  Portal password
+                </Text>
+                <Text
+                  strong
+                  copyable
+                  data-testid="portal-password"
+                  style={{ fontSize: 17, fontFamily: 'monospace' }}
+                >
+                  {portalPassword}
+                </Text>
+              </div>
+            )}
+
+            {/* Link + password together, ready to paste into an email. */}
+            {portalPassword && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  background: 'var(--ant-color-fill-tertiary)',
+                  border: '1px solid var(--ant-color-border)',
+                  borderRadius: 6,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <Text strong>For your email</Text>
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<CopyOutlined />}
+                    onClick={copyPortalSnippet}
+                  >
+                    Copy link + password
+                  </Button>
+                </div>
+                <Text
+                  type="secondary"
+                  style={{ fontSize: 12, whiteSpace: 'pre-wrap', display: 'block', wordBreak: 'break-all' }}
+                >
+                  {portalEmailSnippet(detail.portalUrl, portalPassword)}
+                </Text>
+              </div>
+            )}
+
+            {detail.supplierLink.lastViewedAt && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Legacy emailed link last opened {formatDate(detail.supplierLink.lastViewedAt)}
+              </Text>
+            )}
+          </Space>
+        </Card>
+
         <Card title="Revision history" size="small">
           <Timeline
             items={detail.revisions.map((r) => ({
@@ -1094,24 +1215,110 @@ export function PoDetailView({ poId }: { poId: string }) {
           )}
         </Card>
 
-        <Card title="Shipments" size="small">
-          {detail.shipments.length > 0 ? (
-            <Space direction="vertical" size={8} style={{ width: '100%' }}>
-              {detail.shipments.map((s) => (
-                <Space key={s.id} size={12}>
-                  <Text strong>{s.nickname ?? s.trackingNumber ?? 'Shipment'}</Text>
-                  {s.carrier && <Text type="secondary">{s.carrier}</Text>}
-                  <ShipmentStatusBadge status={s.status} />
-                </Space>
-              ))}
-            </Space>
-          ) : (
-            <Text type="secondary">
-              No shipments attached yet. Shipment management arrives with the Shipments page.
-            </Text>
-          )}
-        </Card>
       </Space>
+      </div>
+
+      {/* The right rail: reference material that stays alongside the form
+          while it scrolls. Sticky below the fixed shell header. */}
+      <div
+        style={{
+          flex: '1 1 360px',
+          maxWidth: 400,
+          minWidth: 320,
+          position: 'sticky',
+          top: 80,
+          alignSelf: 'flex-start',
+          maxHeight: 'calc(100vh - 96px)',
+          overflowY: 'auto',
+        }}
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {/* INSERTION POINT: the PO checklist card lands HERE, above the
+              notes, when the workflow checklist reaches this page. */}
+
+          <Card title="Order notes (from the order)" size="small">
+            <Space direction="vertical" size={10} style={{ width: '100%' }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                The team&apos;s order notes, brought through so production can check every point
+                has been dealt with. Add or edit them on the order page.
+              </Text>
+              {orderNotes.length === 0 ? (
+                <Text type="secondary">No order notes.</Text>
+              ) : (
+                orderNotes.map((note) => (
+                  <div key={note.id}>
+                    <Space size={6} wrap>
+                      <Text strong style={{ fontSize: 13 }}>
+                        {noteAuthor(note)}
+                      </Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {formatDate(note.createdAt)}
+                      </Text>
+                    </Space>
+                    <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{note.body}</div>
+                  </div>
+                ))
+              )}
+            </Space>
+          </Card>
+
+          <Card title="Comments" size="small">
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                The conversation shared with the supplier on their portal — their comments and
+                staff replies. Anything posted here is visible to the supplier.
+              </Text>
+              {comments.length === 0 ? (
+                <Text type="secondary">No shared comments yet.</Text>
+              ) : (
+                <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                  {comments.map((note) => (
+                    <div key={note.id}>
+                      <Space size={6} wrap>
+                        <Text strong style={{ fontSize: 13 }}>
+                          {noteAuthor(note)}
+                        </Text>
+                        {note.authorKind === 'supplier' && (
+                          <Tag color="gold" style={{ marginInlineEnd: 0 }}>
+                            Supplier
+                          </Tag>
+                        )}
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {formatDate(note.createdAt)}
+                        </Text>
+                      </Space>
+                      <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{note.body}</div>
+                    </div>
+                  ))}
+                </Space>
+              )}
+              <div>
+                <Input.TextArea
+                  rows={2}
+                  maxLength={2000}
+                  value={commentDraft}
+                  onChange={(e) => setCommentDraft(e.target.value)}
+                  placeholder="Reply to the supplier…"
+                  aria-label="New supplier comment"
+                />
+                <div style={{ marginTop: 6 }}>
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<SendOutlined />}
+                    loading={postingComment}
+                    disabled={!commentDraft.trim()}
+                    onClick={postComment}
+                  >
+                    Post to supplier
+                  </Button>
+                </div>
+              </div>
+            </Space>
+          </Card>
+        </Space>
+      </div>
+      </div>
 
       <Modal
         title="Issue revision"
@@ -1131,6 +1338,27 @@ export function PoDetailView({ poId }: { poId: string }) {
           placeholder="Why is this revision being issued? (required)"
           value={revisionReason}
           onChange={(e) => setRevisionReason(e.target.value)}
+        />
+      </Modal>
+
+      <Modal
+        title="Customer ref (for the PO title)"
+        open={refModalOpen}
+        onOk={saveCustomerRef}
+        onCancel={() => setRefModalOpen(false)}
+        confirmLoading={savingRef}
+        okText="Save ref"
+      >
+        <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+          Appears in the PO title, e.g. DAVID-BAIRD — normalised to UPPERCASE-DASHED. Leave
+          empty to drop it from the title. The canonical PO number never changes.
+        </Text>
+        <Input
+          maxLength={60}
+          value={refDraft}
+          onChange={(e) => setRefDraft(e.target.value)}
+          placeholder="e.g. DAVID-BAIRD"
+          aria-label="Customer ref"
         />
       </Modal>
     </div>

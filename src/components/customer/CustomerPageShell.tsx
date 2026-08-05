@@ -17,6 +17,11 @@ export interface CustomerPageShellProps {
   subtitle?: ReactNode;
   /** Subtitle text color — the order view uses a slightly dimmer tone. */
   subtitleColor?: string;
+  /**
+   * Content column width. Default 860 (the customer surface); the supplier PO
+   * pages pass a wider column for their two-column static/feed layout.
+   */
+  maxWidth?: number;
   children: ReactNode;
 }
 
@@ -31,6 +36,7 @@ export function CustomerPageShell({
   title,
   subtitle,
   subtitleColor = 'rgba(255,255,255,0.6)',
+  maxWidth = 860,
   children,
 }: CustomerPageShellProps) {
   return (
@@ -43,7 +49,7 @@ export function CustomerPageShell({
             padding: '24px',
           }}
         >
-          <div style={{ maxWidth: 860, margin: '0 auto' }}>
+          <div style={{ maxWidth, margin: '0 auto' }}>
             <div
               style={{
                 display: 'flex',
@@ -96,7 +102,7 @@ export function CustomerPageShell({
           </div>
         </header>
 
-        <main style={{ maxWidth: 860, margin: '0 auto', padding: '32px 24px 80px' }}>
+        <main style={{ maxWidth, margin: '0 auto', padding: '32px 24px 80px' }}>
           {children}
         </main>
       </div>

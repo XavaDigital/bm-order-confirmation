@@ -70,6 +70,13 @@ function snapshot(overrides: Partial<PoSnapshot> = {}): PoSnapshot {
 }
 
 describe('SupplierPoContent', () => {
+  it('sections each garment under underlined headings (David, 2026-08-06)', () => {
+    render(<SupplierPoContent snapshot={snapshot()} />);
+    for (const heading of ['Fabrics', 'Options', 'Size charts', 'Images', 'Sizing']) {
+      expect(screen.getByText(heading)).toBeInTheDocument();
+    }
+  });
+
   it('renders every sizing column header even when its values are blank', () => {
     render(<SupplierPoContent snapshot={snapshot()} />);
     for (const header of ['Size', 'Player Name', 'Number', 'Qty', 'Colour', 'Notes']) {
@@ -135,5 +142,10 @@ describe('SupplierPoContent', () => {
     expect(screen.getByText('Old Shorts')).toBeInTheDocument();
     expect(screen.getByText('No sizing rows in this revision')).toBeInTheDocument();
     expect(screen.queryByText('Design & font files')).not.toBeInTheDocument();
+    // Empty sections render no heading at all — only Sizing always shows.
+    for (const heading of ['Fabrics', 'Options', 'Size charts', 'Images']) {
+      expect(screen.queryByText(heading)).not.toBeInTheDocument();
+    }
+    expect(screen.getByText('Sizing')).toBeInTheDocument();
   });
 });

@@ -1,0 +1,2 @@
+ALTER TABLE "confirmation"."mockup_images" ADD COLUMN "internal_only" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "confirmation"."purchase_orders" ADD COLUMN "customer_ref" text;

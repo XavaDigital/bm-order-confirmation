@@ -211,6 +211,29 @@ describe('WorkflowBoard — rendering', () => {
     expect(await screen.findByText(/no stages configured/i)).toBeInTheDocument();
   });
 
+  /**
+   * Height behaviour (David, 2026-08-06): the board region takes the rest of
+   * the viewport so the columns run to the bottom and the ONE horizontal
+   * scrollbar sits at the bottom of the page. jsdom has no layout, so the
+   * measured top is 0 — the assertion is that a viewport-derived height is
+   * applied at all, and that a single overflow-x container holds the columns.
+   */
+  it('sizes the board region to the viewport and scrolls columns in one container', async () => {
+    renderBoard();
+    await screen.findByRole('group', { name: 'Artwork (1)' });
+
+    expect(screen.getByTestId('workflow-board-region').style.height).toMatch(
+      /^calc\(100vh - \d+px\)$/,
+    );
+    const scroll = screen.getByTestId('workflow-board-scroll');
+    expect(scroll.style.overflowX).toBe('auto');
+    expect(scroll.style.flexGrow).toBe('1');
+    // The columns live INSIDE the one scroll container.
+    expect(
+      scroll.contains(screen.getByRole('group', { name: 'Artwork (1)' })),
+    ).toBe(true);
+  });
+
   it('re-reads on demand', async () => {
     const user = userEvent.setup();
     renderBoard();
