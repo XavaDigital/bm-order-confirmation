@@ -35,7 +35,11 @@ import { generateAccessCode, hashAccessCode } from '@/lib/access-code';
 import { STALE_THRESHOLD_DAYS } from '@/lib/config';
 import { env } from '@/lib/env';
 import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
-import { resolveVisibleOptions, typeOptionDefaults } from '@/server/garment-types/visibility';
+import {
+  missingRequiredOptions,
+  resolveVisibleOptions,
+  typeOptionDefaults,
+} from '@/server/garment-types/visibility';
 import { canTransitionOrder, explainOrderTransition } from './status-machine';
 import type { OrderStatus } from '@/lib/status';
 import type { CreateOrderInput } from './contract';
@@ -423,6 +427,18 @@ export async function createOrder(
       const selectedOptions = preset
         ? resolveVisibleOptions(preset.orderOptions, mergedOptions)
         : mergedOptions;
+      // Required options (David, 2026-08-06) — enforced for STAFF creates
+      // only. A platform/relay create must never bounce on a preset question
+      // the email app cannot answer; those garments get finished by staff,
+      // whose next save of the garment enforces the rule.
+      if (preset && input.source !== 'platform') {
+        const missing = missingRequiredOptions(preset.orderOptions, selectedOptions);
+        if (missing.length > 0) {
+          throw new ConflictError(
+            `Garment "${g.name}" — required options not set: ${missing.join(', ')}`,
+          );
+        }
+      }
       const chartIds = [...new Set([...(g.sizeChartIds ?? []), ...(preset?.chartIds ?? [])])];
 
       await insertGarmentTree(tx, orderId, {
@@ -973,6 +989,17 @@ export async function addGarment(
       ? resolveVisibleOptions(preset.orderOptions, mergedOptions)
       : mergedOptions;
 
+    // Required options (David, 2026-08-06): a garment cannot be saved while a
+    // visible required option is unanswered — the cord colour question does
+    // not get to slide. Admin path only; platform/relay creates never carry
+    // a preset with unanswered requireds because they don't pick types.
+    if (preset) {
+      const missing = missingRequiredOptions(preset.orderOptions, selectedOptions);
+      if (missing.length > 0) {
+        throw new ConflictError(`Required options not set: ${missing.join(', ')}`);
+      }
+    }
+
     const sortOrder =
       data.sortOrder ?? (await nextSortOrder(tx, garments, eq(garments.orderId, orderId)));
 
@@ -1021,11 +1048,30 @@ export async function updateGarment(
   const { selectedOptions: incomingOptions, selectedFabrics, sizeChartIds: _ignored, ...rest } = data;
 
   let selectedOptions = incomingOptions;
-  if (incomingOptions !== undefined && !clearingType) {
-    const effectiveTypeId = data.garmentTypeId !== undefined ? data.garmentTypeId : garment.garmentTypeId;
-    if (effectiveTypeId) {
-      const type = await db.query.garmentTypes.findFirst({ where: eq(garmentTypes.id, effectiveTypeId) });
-      if (type) selectedOptions = resolveVisibleOptions(type.orderOptions ?? [], incomingOptions);
+  if (!clearingType) {
+    const effectiveTypeId =
+      data.garmentTypeId !== undefined ? data.garmentTypeId : garment.garmentTypeId;
+    const touchingOptionsOrType = incomingOptions !== undefined || data.garmentTypeId !== undefined;
+    if (effectiveTypeId && touchingOptionsOrType) {
+      const type = await db.query.garmentTypes.findFirst({
+        where: eq(garmentTypes.id, effectiveTypeId),
+      });
+      if (type) {
+        if (incomingOptions !== undefined) {
+          selectedOptions = resolveVisibleOptions(type.orderOptions ?? [], incomingOptions);
+        }
+        // Required options (David, 2026-08-06): checked on any write that
+        // touches the options OR the type, against what the garment will hold
+        // after this write. Unrelated edits (a rename) stay unblocked.
+        const effective =
+          selectedOptions !== undefined
+            ? selectedOptions
+            : ((garment.selectedOptions ?? null) as Record<string, string> | null);
+        const missing = missingRequiredOptions(type.orderOptions ?? [], effective);
+        if (missing.length > 0) {
+          throw new ConflictError(`Required options not set: ${missing.join(', ')}`);
+        }
+      }
     }
   }
 

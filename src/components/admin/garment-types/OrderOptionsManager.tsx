@@ -42,6 +42,8 @@ interface OptionFormValues {
   defaultOption?: string;
   defaultValue?: string;
   defaultChecked?: boolean;
+  /** select/text only — a checkbox has no `required` because unchecked IS an answer. */
+  required?: boolean;
   showWhenParentLabel?: string;
   showWhenChecked?: 'true' | 'false';
   showWhenValues?: string[];
@@ -96,6 +98,7 @@ export function OrderOptionsManager({ value = [], onChange, disabled = false }: 
         defaultOption: editing.type === 'select' ? editing.defaultOption : undefined,
         defaultValue: editing.type === 'text' ? editing.defaultValue : undefined,
         defaultChecked: editing.type === 'checkbox' ? (editing.defaultValue ?? false) : undefined,
+        required: editing.type === 'checkbox' ? undefined : (editing.required ?? false),
         showWhenParentLabel: parentStillEligible ? editing.showWhen!.parentLabel : undefined,
         showWhenChecked:
           parentStillEligible && parent?.type === 'checkbox'
@@ -184,6 +187,7 @@ export function OrderOptionsManager({ value = [], onChange, disabled = false }: 
         label: values.label.trim(),
         type: 'text',
         ...(values.defaultValue?.trim() && { defaultValue: values.defaultValue.trim() }),
+        ...(values.required && { required: true }),
         ...(showWhen && { showWhen }),
       };
     } else if (values.type === 'checkbox') {
@@ -207,6 +211,7 @@ export function OrderOptionsManager({ value = [], onChange, disabled = false }: 
         type: 'select',
         options: [...optionValues],
         ...(values.defaultOption && { defaultOption: values.defaultOption }),
+        ...(values.required && { required: true }),
         ...(showWhen && { showWhen }),
       };
     }
@@ -232,7 +237,12 @@ export function OrderOptionsManager({ value = [], onChange, disabled = false }: 
       title: 'Label',
       dataIndex: 'label',
       key: 'label',
-      render: (text: string) => <Text strong>{text}</Text>,
+      render: (text: string, record: GarmentTypeOption) => (
+        <Space size={6}>
+          <Text strong>{text}</Text>
+          {record.type !== 'checkbox' && record.required && <Tag color="red">Required</Tag>}
+        </Space>
+      ),
     },
     {
       title: 'Values',
@@ -399,6 +409,13 @@ export function OrderOptionsManager({ value = [], onChange, disabled = false }: 
           ) : (
             <Form.Item label="Default text" name="defaultValue" help="Optional pre-filled text">
               <Input placeholder="Optional default" />
+            </Form.Item>
+          )}
+
+          {/* A checkbox has no "required" — unchecked IS an answer (David, 2026-08-06). */}
+          {optionType !== 'checkbox' && (
+            <Form.Item name="required" valuePropName="checked" style={{ marginBottom: 8 }}>
+              <Checkbox>Required — staff must answer this while it is visible</Checkbox>
             </Form.Item>
           )}
 

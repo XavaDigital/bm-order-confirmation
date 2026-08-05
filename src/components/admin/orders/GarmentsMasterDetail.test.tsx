@@ -16,6 +16,7 @@ vi.mock('@/lib/api-fetch', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api-fetch')>();
   return { ...actual, getJson: vi.fn().mockResolvedValue([]) };
 });
+import { getJson } from '@/lib/api-fetch';
 
 vi.mock('./MockupUploader', () => ({ MockupUploader: () => <div data-testid="mockup-uploader" /> }));
 vi.mock('./SizingTable', () => ({ SizingTable: () => <div data-testid="sizing-table" /> }));
@@ -225,5 +226,84 @@ describe('GarmentsMasterDetail', () => {
 
     expect(await screen.findByText(/garment removed/i)).toBeInTheDocument();
     expect(screen.getByDisplayValue('Away Jersey')).toBeInTheDocument();
+  });
+});
+
+// Required options (David, 2026-08-06): "the sales person MUST choose a colour
+// for the cord of the shorts" — required + visible + empty blocks the save.
+describe('GarmentsMasterDetail required options', () => {
+  const SHORTS_TYPE = {
+    id: 'type-1',
+    name: 'Shorts',
+    category: null,
+    fabricFields: [],
+    orderOptions: [
+      { label: 'Cord Color', type: 'text', required: true },
+      { label: 'Zip Type', type: 'select', options: ['full-zip', 'pullover'] },
+    ],
+    sizeChartIds: [],
+    isActive: true,
+  };
+
+  function typedGarment(selectedOptions: Record<string, string>) {
+    return garment({ garmentTypeId: 'type-1', selectedOptions });
+  }
+
+  it('marks a required option with the antd required asterisk, non-required not', async () => {
+    vi.mocked(getJson).mockResolvedValueOnce([SHORTS_TYPE]);
+    renderView([typedGarment({ 'Cord Color': 'Black' })]);
+
+    expect(await screen.findByText('Cord Color')).toHaveClass('ant-form-item-required');
+    expect(screen.getByText('Zip Type')).not.toHaveClass('ant-form-item-required');
+  });
+
+  it('blocks the save client-side, naming the option, when a visible required option is emptied', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getJson).mockResolvedValueOnce([SHORTS_TYPE]);
+    renderView([typedGarment({ 'Cord Color': 'Black' })]);
+
+    await user.clear(await screen.findByDisplayValue('Black'));
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    expect(await screen.findByText('Required options not set: Cord Color')).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('saves normally once the required option has a value', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getJson).mockResolvedValueOnce([SHORTS_TYPE]);
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response);
+    renderView([typedGarment({ 'Cord Color': 'Black' })]);
+
+    const cordInput = await screen.findByDisplayValue('Black');
+    await user.clear(cordInput);
+    await user.type(cordInput, 'White');
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    expect(await screen.findByText(/garment saved/i)).toBeInTheDocument();
+    const patchCall = vi.mocked(fetch).mock.calls[0];
+    expect(JSON.parse(patchCall[1]!.body as string).selectedOptions).toEqual({
+      'Cord Color': 'White',
+    });
+  });
+
+  it("surfaces the server's 409 message when a save slips past the client check", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getJson).mockResolvedValueOnce([SHORTS_TYPE]);
+    // A rename does not touch options/type, so the client check is skipped —
+    // the server may still 409 (e.g. the required flag was added after the
+    // garment was configured).
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'Required options not set: Cord Color' }),
+    } as Response);
+    renderView([typedGarment({ 'Cord Color': '' })]);
+
+    const nameInput = await screen.findByDisplayValue('Home Jersey');
+    await user.type(nameInput, ' V2');
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    expect(await screen.findByText('Required options not set: Cord Color')).toBeInTheDocument();
   });
 });

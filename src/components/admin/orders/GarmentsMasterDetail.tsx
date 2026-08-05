@@ -31,9 +31,14 @@ import { SizingTable } from './SizingTable';
 import { NameListTable } from './NameListTable';
 import { MockupUploader, type MockupImage } from './MockupUploader';
 import { SizeChartLinker } from './SizeChartLinker';
-import { postJson, patchJson, deleteJson, getJson } from '@/lib/api-fetch';
+import { ApiError, postJson, patchJson, deleteJson, getJson } from '@/lib/api-fetch';
 import { unionChartSizes } from '@/lib/sizes';
-import { resolveVisibleOptions, visibleOptionLabels, typeOptionDefaults } from '@/server/garment-types/visibility';
+import {
+  missingRequiredOptions,
+  resolveVisibleOptions,
+  visibleOptionLabels,
+  typeOptionDefaults,
+} from '@/server/garment-types/visibility';
 
 interface SizingRow {
   id?: string;
@@ -179,6 +184,25 @@ export function GarmentsMasterDetail({
     const edits = localEdits[garment.id] ?? {};
     if (Object.keys(edits).length === 0) return;
 
+    // Required options (David, 2026-08-06): mirror the server's rule — a save
+    // that touches the options or the type is blocked while a VISIBLE required
+    // option is unanswered. Unrelated edits (a rename) stay unblocked, same as
+    // the service.
+    const touchesOptionsOrType =
+      edits.selectedOptions !== undefined || edits.garmentTypeId !== undefined;
+    const effectiveTypeId =
+      edits.garmentTypeId !== undefined ? edits.garmentTypeId : garment.garmentTypeId;
+    const effectiveType = effectiveTypeId ? types.find((t) => t.id === effectiveTypeId) : null;
+    if (touchesOptionsOrType && effectiveType) {
+      const effectiveOptions =
+        edits.selectedOptions !== undefined ? edits.selectedOptions : garment.selectedOptions;
+      const missing = missingRequiredOptions(effectiveType.orderOptions, effectiveOptions);
+      if (missing.length > 0) {
+        message.error(`Required options not set: ${missing.join(', ')}`);
+        return;
+      }
+    }
+
     setSavingId(garment.id);
     try {
       await patchJson(
@@ -208,8 +232,10 @@ export function GarmentsMasterDetail({
       });
       message.success('Garment saved');
       onGarmentsChanged?.();
-    } catch {
-      message.error('Failed to save garment');
+    } catch (err) {
+      // A 409 (e.g. the server's required-options check) carries the message
+      // staff need to see — only fall back to the generic line otherwise.
+      message.error(err instanceof ApiError ? err.message : 'Failed to save garment');
     } finally {
       setSavingId(null);
     }
@@ -269,8 +295,10 @@ export function GarmentsMasterDetail({
       setDraft(null);
       message.success('Garment added');
       onGarmentsChanged?.();
-    } catch {
-      message.error('Failed to add garment');
+    } catch (err) {
+      // addGarment 409s when the picked type has a required option no default
+      // fills — surface which one rather than a generic failure.
+      message.error(err instanceof ApiError ? err.message : 'Failed to add garment');
     } finally {
       setAddingLoading(false);
     }
@@ -567,7 +595,13 @@ export function GarmentsMasterDetail({
                     <SectionTitle style={{ marginBottom: 8 }}>Options</SectionTitle>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
                       {visibleOpts.map((opt) => (
-                        <Form.Item key={opt.label} label={opt.label}>
+                        <Form.Item
+                          key={opt.label}
+                          label={opt.label}
+                          // Renders antd's red asterisk; a checkbox is never
+                          // required (unchecked is an answer).
+                          required={opt.type !== 'checkbox' && opt.required === true}
+                        >
                           {opt.type === 'select' ? (
                             <Select
                               value={currentOptions[opt.label] || undefined}

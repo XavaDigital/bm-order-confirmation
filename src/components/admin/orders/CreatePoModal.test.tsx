@@ -203,6 +203,33 @@ describe('CreatePoModal', () => {
     expect(onCreated).not.toHaveBeenCalled();
   });
 
+  // The createPurchaseOrder required-options backstop (David, 2026-08-06) is a
+  // 409 whose message lists the per-garment gaps — it must reach the staff eye
+  // verbatim, or "create failed" gives them nothing to fix.
+  it('surfaces the required-options 409 message listing the per-garment gaps', async () => {
+    const user = userEvent.setup();
+    const onCreated = vi.fn();
+    installMockFetch([
+      suppliersRoute(),
+      colorBooksRoute(),
+      {
+        match: CREATE_URL,
+        method: 'POST',
+        status: 409,
+        response: { error: 'Required options not set — Shorts: Cord Color' },
+      },
+    ]);
+    renderModal({ onCreated });
+
+    await fillAndOpenSubmit(user);
+    await user.click(screen.getByRole('button', { name: 'Create purchase order' }));
+
+    expect(
+      await screen.findByText('Required options not set — Shorts: Cord Color'),
+    ).toBeInTheDocument();
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+
   it('shows the customer deadline beside the ship date instead of a deadline picker', async () => {
     installMockFetch([suppliersRoute(), colorBooksRoute()]);
     renderModal({ deadlineDate: '2026-09-15' });

@@ -38,6 +38,7 @@ import { syncOrderProductionStatus } from './hub-sync';
 import { loadPoAssets } from '@/server/orders/assets-service';
 import { assertGateOpen } from '@/server/workflow/gates';
 import { supplierCodeOrFallback } from '@/server/suppliers/service';
+import { missingRequiredOptions } from '@/server/garment-types/visibility';
 import { buildPoWorkbook } from './xlsx';
 import {
   canTransition,
@@ -115,7 +116,10 @@ async function loadOrderGarments(orderId: string) {
     orderBy: (g, { asc }) => [asc(g.sortOrder), asc(g.createdAt)],
     with: {
       sizing: { orderBy: (s, { asc }) => [asc(s.sortOrder), asc(s.createdAt)] },
-      garmentType: { columns: { name: true } },
+      // orderOptions ride along for the required-options check at PO create
+      // (David, 2026-08-06) — an unanswered required option must not reach
+      // the factory document.
+      garmentType: { columns: { name: true, orderOptions: true } },
       // The reference charts the factory cuts to — captured into the revision
       // snapshot, and compared by variance so a re-linked chart flags the PO.
       sizeChartLinks: {
@@ -216,6 +220,27 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput, meta?
   }
   if (selected.every((g) => g.sizing.length === 0)) {
     throw new ConflictError('Selected garments have no sizing rows');
+  }
+
+  // Required options (David, 2026-08-06): the PO snapshot is the factory's
+  // document of record — it must not be cut while a visible required option
+  // is unanswered. Backstop to the garment-save enforcement (a required flag
+  // added AFTER a garment was configured is caught here).
+  const requiredGaps = selected
+    .map((g) => ({
+      name: g.name,
+      missing: missingRequiredOptions(
+        g.garmentType?.orderOptions ?? [],
+        (g.selectedOptions ?? null) as Record<string, string> | null,
+      ),
+    }))
+    .filter((g) => g.missing.length > 0);
+  if (requiredGaps.length > 0) {
+    throw new ConflictError(
+      `Required options not set — ${requiredGaps
+        .map((g) => `${g.name}: ${g.missing.join(', ')}`)
+        .join('; ')}`,
+    );
   }
 
   const snapshot = buildPoSnapshot(

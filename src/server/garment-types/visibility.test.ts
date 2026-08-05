@@ -5,6 +5,7 @@ import {
   isOptionVisible,
   resolveVisibleOptions,
   typeOptionDefaults,
+  missingRequiredOptions,
 } from './visibility';
 
 const numbersChain: GarmentTypeOption[] = [
@@ -151,5 +152,66 @@ describe('typeOptionDefaults', () => {
       },
     ];
     expect(typeOptionDefaults(chain)).toEqual({ 'Numbers?': 'true', 'Numbers Front': 'true' });
+  });
+});
+
+describe('missingRequiredOptions', () => {
+  const cordOptions: GarmentTypeOption[] = [
+    { label: 'Cord Color', type: 'select', options: ['black', 'white'], required: true },
+    { label: 'Waist Label', type: 'text', required: true },
+    { label: 'Zip Type', type: 'select', options: ['full-zip', 'pullover'] },
+  ];
+
+  it('reports a required visible option with no answer', () => {
+    expect(missingRequiredOptions(cordOptions, {})).toEqual(['Cord Color', 'Waist Label']);
+  });
+
+  it('treats a whitespace-only answer as missing, and null selections as all-empty', () => {
+    expect(missingRequiredOptions(cordOptions, { 'Cord Color': '   ' })).toEqual([
+      'Cord Color',
+      'Waist Label',
+    ]);
+    expect(missingRequiredOptions(cordOptions, null)).toEqual(['Cord Color', 'Waist Label']);
+    expect(missingRequiredOptions(cordOptions, undefined)).toEqual(['Cord Color', 'Waist Label']);
+  });
+
+  it('does not report a required option that has an answer', () => {
+    expect(
+      missingRequiredOptions(cordOptions, { 'Cord Color': 'black', 'Waist Label': 'BM' }),
+    ).toEqual([]);
+  });
+
+  it('never reports a HIDDEN required option — an unmet showWhen chain means no answer is needed', () => {
+    const chained: GarmentTypeOption[] = [
+      { label: 'Cords?', type: 'checkbox' },
+      {
+        label: 'Cord Color',
+        type: 'select',
+        options: ['black'],
+        required: true,
+        showWhen: { parentLabel: 'Cords?', equals: ['true'] },
+      },
+    ];
+    expect(missingRequiredOptions(chained, { 'Cords?': 'false' })).toEqual([]);
+    expect(missingRequiredOptions(chained, {})).toEqual([]);
+    // ...but visible-and-empty IS missing.
+    expect(missingRequiredOptions(chained, { 'Cords?': 'true' })).toEqual(['Cord Color']);
+  });
+
+  it('never reports a checkbox, even if a stray required flag reaches it', () => {
+    const withCheckbox = [
+      // Cast: the checkbox variant has no `required` in the type — simulate a
+      // legacy/foreign row carrying one anyway.
+      { label: 'Numbers?', type: 'checkbox', required: true } as unknown as GarmentTypeOption,
+    ];
+    expect(missingRequiredOptions(withCheckbox, {})).toEqual([]);
+  });
+
+  it('returns [] when no option is required', () => {
+    const none: GarmentTypeOption[] = [
+      { label: 'Zip Type', type: 'select', options: ['full-zip'] },
+      { label: 'Notes', type: 'text' },
+    ];
+    expect(missingRequiredOptions(none, {})).toEqual([]);
   });
 });

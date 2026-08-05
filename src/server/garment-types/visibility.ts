@@ -81,3 +81,27 @@ export function typeOptionDefaults(orderOptions: GarmentTypeOption[]): Record<st
   }
   return resolveVisibleOptions(orderOptions, raw) ?? {};
 }
+
+/**
+ * Labels of REQUIRED options that are currently visible but unanswered
+ * (David, 2026-08-06: "the sales person MUST choose a colour for the cord").
+ * Hidden options are never missing — a `showWhen` chain that hides the cord
+ * question means the cord needs no answer. Checkboxes carry no `required`
+ * (unchecked is an answer), so only select/text participate.
+ */
+export function missingRequiredOptions(
+  orderOptions: GarmentTypeOption[],
+  selectedOptions: Record<string, string> | null | undefined,
+): string[] {
+  const selected = selectedOptions ?? {};
+  const visible = visibleOptionLabels(orderOptions, selected);
+  return orderOptions
+    .filter(
+      (opt) =>
+        opt.type !== 'checkbox' &&
+        opt.required === true &&
+        visible.has(opt.label) &&
+        !(selected[opt.label] ?? '').trim(),
+    )
+    .map((opt) => opt.label);
+}

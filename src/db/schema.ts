@@ -586,10 +586,17 @@ export interface ConditionalRule {
   equals: string[]; // checkbox parent: ['true'] / ['false']; select parent: one or more of its option values
 }
 
-/** One configurable option on a garment type: a constrained pick-list, a free-text field, or a checkbox — optionally shown only when a preceding option (`showWhen`) matches. */
+/**
+ * One configurable option on a garment type: a constrained pick-list, a
+ * free-text field, or a checkbox — optionally shown only when a preceding
+ * option (`showWhen`) matches. `required` (David, 2026-08-06: "the sales
+ * person MUST choose a colour for the cord") blocks saving a garment while a
+ * VISIBLE required option is unanswered; a checkbox has no `required` because
+ * unchecked IS an answer.
+ */
 export type GarmentTypeOption =
-  | { label: string; type: 'select'; options: string[]; defaultOption?: string; showWhen?: ConditionalRule }
-  | { label: string; type: 'text'; defaultValue?: string; showWhen?: ConditionalRule }
+  | { label: string; type: 'select'; options: string[]; defaultOption?: string; required?: boolean; showWhen?: ConditionalRule }
+  | { label: string; type: 'text'; defaultValue?: string; required?: boolean; showWhen?: ConditionalRule }
   | { label: string; type: 'checkbox'; defaultValue?: boolean; showWhen?: ConditionalRule };
 
 /** A labeled fabric slot on a garment type (e.g. "Outer Fabric", "Hood Lining") — staff pick ONE per field. */

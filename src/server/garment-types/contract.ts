@@ -20,6 +20,8 @@ const selectOptionSchema = z.object({
   type: z.literal('select'),
   options: z.array(z.string().trim().min(1).max(120)).min(1).max(50),
   defaultOption: z.string().trim().min(1).max(120).optional(),
+  /** The sales person MUST answer this while it is visible (David, 2026-08-06). */
+  required: z.boolean().optional(),
   showWhen: showWhenSchema.optional(),
 });
 
@@ -27,6 +29,7 @@ const textOptionSchema = z.object({
   label: z.string().trim().min(1).max(80),
   type: z.literal('text'),
   defaultValue: z.string().trim().max(300).optional(),
+  required: z.boolean().optional(),
   showWhen: showWhenSchema.optional(),
 });
 

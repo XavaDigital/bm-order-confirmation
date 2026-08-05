@@ -67,6 +67,48 @@ describe('garmentTypeOptionSchema', () => {
     expect(parsed).toEqual({ label: 'Numbers?', type: 'checkbox', defaultValue: true });
   });
 
+  it('parses required: true on a select option and round-trips it', () => {
+    const parsed = garmentTypeOptionSchema.parse({
+      label: 'Cord Color',
+      type: 'select',
+      options: ['black', 'white'],
+      required: true,
+    });
+    expect(parsed).toEqual({
+      label: 'Cord Color',
+      type: 'select',
+      options: ['black', 'white'],
+      required: true,
+    });
+  });
+
+  it('parses required: true on a text option and round-trips it', () => {
+    const parsed = garmentTypeOptionSchema.parse({
+      label: 'Waist Label',
+      type: 'text',
+      required: true,
+    });
+    expect(parsed).toEqual({ label: 'Waist Label', type: 'text', required: true });
+  });
+
+  it('an omitted required stays omitted (not defaulted to false)', () => {
+    const parsed = garmentTypeOptionSchema.parse({
+      label: 'Zip Type',
+      type: 'select',
+      options: ['full-zip'],
+    });
+    expect('required' in parsed).toBe(false);
+  });
+
+  it('strips required from a checkbox option — unchecked is an answer', () => {
+    const parsed = garmentTypeOptionSchema.parse({
+      label: 'Numbers?',
+      type: 'checkbox',
+      required: true,
+    });
+    expect(parsed).toEqual({ label: 'Numbers?', type: 'checkbox' });
+  });
+
   it('parses an option with a showWhen rule', () => {
     const parsed = garmentTypeOptionSchema.parse({
       label: 'Numbers Front',
