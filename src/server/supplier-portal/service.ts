@@ -42,6 +42,8 @@ export interface SupplierPortalViewDto {
   actualShipDate: string | null;
   sentAt: string | null;
   notes: string | null;
+  /** The colour book the job is matched against (David, 2026-08-05). */
+  colorBookName: string | null;
   supplier: {
     name: string;
     contactPerson: string | null;
@@ -194,6 +196,7 @@ async function buildPortalView(po: PortalPo): Promise<SupplierPortalViewDto> {
     actualShipDate: po.actualShipDate,
     sentAt: po.sentAt ? po.sentAt.toISOString() : null,
     notes: po.notes,
+    colorBookName: po.colorBookName,
     supplier: {
       name: po.supplier.name,
       contactPerson: po.supplier.contactPerson,

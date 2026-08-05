@@ -106,6 +106,27 @@ describe('buildPoWorkbook', () => {
     expect(rows(sheet).some((r) => r[0] === 'Pack by player name.')).toBe(true);
   });
 
+  it('writes a Colour book row when the PO carries one', async () => {
+    const wb = await load(await buildPoWorkbook(props({ colorBookName: 'Pantone 2026' })));
+    const sheet = wb.getWorksheet('Purchase Order')!;
+
+    expect(findRow(sheet, 'Colour book')?.[1]).toBe('Pantone 2026');
+  });
+
+  it('omits the Colour book row when the PO has none', async () => {
+    const wb = await load(await buildPoWorkbook(props()));
+    const sheet = wb.getWorksheet('Purchase Order')!;
+
+    expect(findRow(sheet, 'Colour book')).toBeUndefined();
+  });
+
+  it('neutralizes a formula-shaped colour book name', async () => {
+    const wb = await load(await buildPoWorkbook(props({ colorBookName: '=HYPERLINK("x")' })));
+    const sheet = wb.getWorksheet('Purchase Order')!;
+
+    expect(findRow(sheet, 'Colour book')?.[1]).toBe(`'=HYPERLINK("x")`);
+  });
+
   it('marks an amendment in the title and records the reason', async () => {
     const wb = await load(
       await buildPoWorkbook(props({ revisionNumber: 3, revisionReason: 'Two sizes changed' })),

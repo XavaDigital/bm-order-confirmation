@@ -5,9 +5,9 @@
  * orders on old orders keep pointing at retired suppliers, so there is no
  * delete here — only an isActive toggle via update.
  */
-import { eq, asc } from 'drizzle-orm';
+import { eq, asc, desc } from 'drizzle-orm';
 import { db } from '@/db';
-import { suppliers } from '@/db/schema';
+import { supplierColorBooks, suppliers } from '@/db/schema';
 import { NotFoundError, ConflictError } from '@/server/orders/service';
 import { isUniqueViolation } from '@/lib/db-errors';
 import { pickDefined } from '@/lib/patch';
@@ -97,5 +97,47 @@ export async function updateSupplier(id: string, patch: UpdateSupplierInput) {
     return row;
   } catch (err) {
     rethrowCodeConflict(err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Colour books (David, 2026-08-05)
+// ---------------------------------------------------------------------------
+
+/**
+ * A supplier's colour books, newest first — index 0 IS the default (adding a
+ * book makes it the default by construction; no flag to forget to move).
+ * Older books stay selectable: a reprint matches the book the original job
+ * was coloured against.
+ */
+export async function listColorBooks(supplierId: string) {
+  await getSupplier(supplierId);
+  return db.query.supplierColorBooks.findMany({
+    where: eq(supplierColorBooks.supplierId, supplierId),
+    orderBy: [desc(supplierColorBooks.createdAt)],
+  });
+}
+
+export async function createColorBook(
+  supplierId: string,
+  name: string,
+  meta?: { actorStaffUserId?: string | null },
+) {
+  await getSupplier(supplierId);
+  try {
+    const [row] = await db
+      .insert(supplierColorBooks)
+      .values({
+        supplierId,
+        name: name.trim(),
+        createdBy: meta?.actorStaffUserId ?? null,
+      })
+      .returning();
+    return row;
+  } catch (err) {
+    if (isUniqueViolation(err, 'supplier_color_books_supplier_name_uq')) {
+      throw new ConflictError('This supplier already has a colour book with that name');
+    }
+    throw err;
   }
 }

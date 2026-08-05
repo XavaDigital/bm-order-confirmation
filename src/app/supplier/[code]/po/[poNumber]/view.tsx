@@ -31,6 +31,7 @@ import { CustomerPageShell } from '@/components/customer/CustomerPageShell';
 import { CARD_STYLE, CARD_BODY_STYLES, FIELD_LABEL_STYLE } from '@/components/customer/customerStyles';
 import { SupplierLoginCard } from '@/components/supplier/SupplierLoginCard';
 import { SupplierPoContent } from '@/components/supplier/SupplierPoContent';
+import { SupplierPoFiles } from '@/components/supplier/SupplierPoFiles';
 import { SupplierComments, type SupplierComment } from '@/components/supplier/SupplierComments';
 import { isShipDateLocked } from '@/components/supplier/po-view-helpers';
 
@@ -188,6 +189,12 @@ export function SupplierPoDetailView({ code, poNumber }: { code: string; poNumbe
             <Text style={FIELD_LABEL_STYLE}>Our order</Text>
             <Text style={{ color: 'rgba(255,255,255,0.9)' }}>{view.snapshot.orderNumber}</Text>
           </div>
+          {view.colorBookName && (
+            <div>
+              <Text style={FIELD_LABEL_STYLE}>Colour book</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.9)' }}>{view.colorBookName}</Text>
+            </div>
+          )}
           {view.actualShipDate && (
             <div>
               <Text style={FIELD_LABEL_STYLE}>Shipped</Text>
@@ -261,6 +268,8 @@ export function SupplierPoDetailView({ code, poNumber }: { code: string; poNumbe
       </Card>
 
       <SupplierPoContent snapshot={view.snapshot} />
+
+      <SupplierPoFiles code={code} poNumber={poNumber} onUnauthorized={() => setPhase('login')} />
 
       <SupplierComments
         comments={view.comments}

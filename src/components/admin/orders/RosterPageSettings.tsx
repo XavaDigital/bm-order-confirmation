@@ -17,6 +17,8 @@ interface Settings {
   url: string;
   /** The club admin (order's customer email) has chosen their password. */
   adminPasswordSet: boolean;
+  /** Names save in CAPITALS; turning it on also converts what's already saved. */
+  namesUppercase: boolean;
 }
 
 export function RosterPageSettings({
@@ -60,7 +62,12 @@ export function RosterPageSettings({
       .catch(() => {});
   }, [orderId]);
 
-  async function patch(body: { enabled?: boolean; password?: string | null; resetAdminPassword?: boolean }) {
+  async function patch(body: {
+    enabled?: boolean;
+    password?: string | null;
+    resetAdminPassword?: boolean;
+    namesUppercase?: boolean;
+  }) {
     setSaving(true);
     try {
       const next = await patchJson<Settings>(
@@ -80,7 +87,8 @@ export function RosterPageSettings({
   if (!settings) return null;
 
   return (
-    <Alert
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      <Alert
       type="info"
       icon={<TeamOutlined />}
       showIcon
@@ -217,6 +225,23 @@ export function RosterPageSettings({
           </Typography.Text>
         )
       }
-    />
+      />
+      {/* Applies to every name store on the order (David, 2026-08-05) — shown
+          here because the team page is where members type their own names. */}
+      <Space size={10} align="start">
+        <Switch
+          checked={settings.namesUppercase}
+          loading={saving}
+          onChange={(checked) => void patch({ namesUppercase: checked })}
+          aria-label="Print names in CAPITALS"
+        />
+        <div>
+          <Typography.Text>Print names in CAPITALS</Typography.Text>
+          <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+            Check with the customer first. Turning this on converts names already entered.
+          </Typography.Text>
+        </div>
+      </Space>
+    </Space>
   );
 }

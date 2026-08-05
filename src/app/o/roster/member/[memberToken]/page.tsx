@@ -36,6 +36,7 @@ export default async function CustomerRosterMemberPage({ params }: Props) {
         orderNumber: roster.order.orderNumber,
         clubName: roster.order.clubName,
         locked: roster.order.locked,
+        namesUppercase: roster.order.namesUppercase,
         garments,
         member: {
           ...roster.member,

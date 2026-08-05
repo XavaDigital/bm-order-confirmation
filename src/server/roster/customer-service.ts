@@ -14,6 +14,7 @@ import {
   type SizeChartSize,
 } from '@/db/schema';
 import { resolveActiveToken } from '@/server/access/tokens';
+import { applyNameCase } from '@/lib/names';
 import { unionChartSizes } from '@/lib/sizes';
 import { assertGarmentBelongsToOrder } from '@/server/orders/guards';
 import {
@@ -122,6 +123,7 @@ async function getRosterOrderOrThrow(rawToken: string) {
       orderNumber: true,
       clubName: true,
       rosterLockedAt: true,
+      namesUppercase: true,
     },
   });
   if (!order) invalidToken();
@@ -145,6 +147,7 @@ export async function getRosterForMember(rawToken: string) {
       orderNumber: true,
       clubName: true,
       rosterLockedAt: true,
+      namesUppercase: true,
     },
     with: {
       garments: {
@@ -203,6 +206,7 @@ export async function getRosterForMember(rawToken: string) {
       orderNumber: order.orderNumber,
       clubName: order.clubName ?? null,
       locked: order.rosterLockedAt !== null,
+      namesUppercase: order.namesUppercase,
       garments: order.garments.map(toRosterGarment),
     },
     members: order.rosterMembers.map(toPublicMember),
@@ -227,7 +231,7 @@ export async function addSelf(rawToken: string, data: AddRosterMemberInput): Pro
     .insert(rosterMembers)
     .values({
       orderId: order.id,
-      name: data.name,
+      name: applyNameCase(order.namesUppercase, data.name),
       playerNumber: data.playerNumber ?? null,
       email: data.email ?? null,
       sortOrder: Number(maxSort) + 1,
@@ -260,7 +264,7 @@ export async function submitMemberSizes(
   });
   if (!member) throw new Error('member_not_found');
 
-  return writeMemberSizes(order.id, member, input);
+  return writeMemberSizes(order.id, member, input, order.namesUppercase);
 }
 
 // ---------------------------------------------------------------------------
@@ -355,6 +359,7 @@ export async function getRosterForMemberByMemberToken(rawToken: string) {
       orderNumber: true,
       clubName: true,
       rosterLockedAt: true,
+      namesUppercase: true,
     },
     with: {
       garments: {
@@ -382,6 +387,7 @@ export async function getRosterForMemberByMemberToken(rawToken: string) {
       orderNumber: order.orderNumber,
       clubName: order.clubName ?? null,
       locked: order.rosterLockedAt !== null,
+      namesUppercase: order.namesUppercase,
       garments: order.garments.map(toRosterGarment),
     },
     member: toPublicMember(member),
@@ -403,18 +409,19 @@ export async function submitMemberSizesByMemberToken(
 
   const order = await db.query.orders.findFirst({
     where: eq(orders.id, member.orderId),
-    columns: { id: true, rosterLockedAt: true },
+    columns: { id: true, rosterLockedAt: true, namesUppercase: true },
   });
   if (!order) invalidToken();
   if (order.rosterLockedAt) rosterLocked();
 
-  return writeMemberSizes(order.id, member, input);
+  return writeMemberSizes(order.id, member, input, order.namesUppercase);
 }
 
 async function writeMemberSizes(
   orderId: string,
   member: { id: string; name: string; playerNumber: string | null },
   input: SubmitMemberSizesInput,
+  namesUppercase: boolean,
 ): Promise<PublicMember> {
   // "Got Your Back" name-list garments (GOT_YOUR_BACK_PLAN.md) are excluded —
   // they carry no size, and members never submit against them individually;
@@ -454,7 +461,9 @@ async function writeMemberSizes(
   // Batched writes: instead of one UPDATE (or SELECT max + INSERT) per garment
   // in a loop, group the rows up-front and issue set-based statements.
   const memberFields = {
-    playerName: member.name,
+    // Member names are already cased at their own write; re-applying keeps
+    // this writer safe against rows that predate the flag (src/lib/names.ts).
+    playerName: applyNameCase(namesUppercase, member.name),
     playerNumber: member.playerNumber ?? null,
     notes: null,
   };

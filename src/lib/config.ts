@@ -36,6 +36,22 @@ export const TOTP_ISSUER = `${APP_NAME} Portal`;
 export const PDF_FOOTER_TEXT = `${APP_NAME} — ${APP_DOMAIN}`;
 
 /**
+ * The sender block on printed address labels (David, 2026-08-05 — replaces
+ * the Word-document label). Also the fleet's shared label spec:
+ * FLEET_COORDINATION/2026-08-05-address-label-spec.md. Change the address
+ * here, not in the component.
+ */
+export const RETURN_ADDRESS = {
+  name: `${APP_NAME} Sports`,
+  lines: ['11/8 Dakota Cres', 'Wigram, Christchurch 8042', 'New Zealand'],
+  phone: '022 1929 746',
+  website: APP_DOMAIN,
+} as const;
+
+/** Label stock size in millimetres (David: "roughly 174 by 100"). */
+export const ADDRESS_LABEL_MM = { width: 174, height: 100 } as const;
+
+/**
  * "Needs Follow-up" dashboard widget (FEATURE_PROPOSALS.md #1) — days an
  * order can sit in each status before it's surfaced as stale. 'sent' (never
  * opened) gets a shorter fuse than 'viewed' (opened but went quiet).

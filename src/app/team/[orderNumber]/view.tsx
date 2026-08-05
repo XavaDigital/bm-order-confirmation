@@ -99,7 +99,14 @@ interface RosterMember {
 }
 
 interface RosterState {
-  order: { orderNumber: string; clubName: string | null; name: string | null; locked: boolean };
+  order: {
+    orderNumber: string;
+    clubName: string | null;
+    name: string | null;
+    locked: boolean;
+    /** Names print in CAPITALS — saved values are uppercased server-side. */
+    namesUppercase: boolean;
+  };
   guest: { id: string; email: string; name: string | null; isAdmin: boolean };
   garments: RosterGarment[];
   members: RosterMember[];
@@ -302,6 +309,12 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
   const editable = Boolean(
     state && !state.order.locked && (selectedId === 'new' || selectedMember?.canEdit),
   );
+
+  // Preview-only styling — the SAVED value is uppercased server-side, the
+  // input just shows what will print. Never transform the data client-side.
+  const nameCaseStyle = state?.order.namesUppercase
+    ? ({ textTransform: 'uppercase' } as const)
+    : undefined;
 
   // First-visit tour for the club admin (David, 2026-08-03).
   const tourKey = `bm-roster-tour-${orderNumber}`;
@@ -659,7 +672,7 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
             placeholder="Player name"
             value={draftName}
             onChange={(e) => setDraftName(e.target.value)}
-            style={{ width: 220 }}
+            style={{ width: 220, ...nameCaseStyle }}
             maxLength={120}
           />
           <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>
@@ -740,7 +753,7 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
                           [g.id]: { ...prev[g.id], playerName: e.target.value },
                         }))
                       }
-                      style={{ maxWidth: 260 }}
+                      style={{ maxWidth: 260, ...nameCaseStyle }}
                       maxLength={120}
                     />
                   ) : (
@@ -900,6 +913,22 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
             />
           )}
 
+          {/* Name-printing notice (David, 2026-08-05): what is saved IS what
+              prints — loud when casing matters, subtle when CAPITALS is on. */}
+          {state && !state.order.namesUppercase && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="Names will be printed exactly as entered — please check spelling and capitalisation."
+            />
+          )}
+          {state?.order.namesUppercase && (
+            <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, display: 'block', marginBottom: 16 }}>
+              Names will be printed in CAPITALS.
+            </Text>
+          )}
+
           {loadError ? (
             <Alert type="error" showIcon message={loadError} />
           ) : !state ? (
@@ -969,7 +998,7 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
                             placeholder="Name"
                             value={entry.name}
                             disabled={state.order.locked}
-                            style={{ width: 200 }}
+                            style={{ width: 200, ...nameCaseStyle }}
                             onChange={(e) => {
                               const next = [...draft.entries];
                               next[i] = { ...next[i], name: e.target.value };

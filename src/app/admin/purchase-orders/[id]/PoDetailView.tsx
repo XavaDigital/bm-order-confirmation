@@ -41,6 +41,7 @@ import {
   CopyOutlined,
   DownOutlined,
   DownloadOutlined,
+  EditOutlined,
   ExportOutlined,
   FileExcelOutlined,
   LinkOutlined,
@@ -52,6 +53,8 @@ import Link from 'next/link';
 import dayjs, { type Dayjs } from 'dayjs';
 import type { ColumnType } from 'antd/es/table';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { ColorBookSelect } from '@/components/admin/purchase-orders/ColorBookSelect';
+import { PoFilesCard } from '@/components/admin/purchase-orders/PoFilesCard';
 import { PoStatusBadge } from '@/components/admin/purchase-orders/PoStatusBadge';
 import { ShipmentStatusBadge } from '@/components/admin/purchase-orders/ShipmentStatusBadge';
 import { VarianceDiff } from '@/components/admin/purchase-orders/VarianceDiff';
@@ -134,6 +137,9 @@ interface PoDetail {
   receivedAt: string | null;
   notes: string | null;
   createdAt: string;
+  /** The supplier colour book this job is matched against (null = none). */
+  colorBookId: string | null;
+  colorBookName: string | null;
   supplier: {
     id: string;
     name: string;
@@ -245,6 +251,10 @@ export function PoDetailView({ poId }: { poId: string }) {
   // The supplier's portal password (from the supplier record): undefined =
   // still loading, null = no password set (portal closed).
   const [portalPassword, setPortalPassword] = useState<string | null | undefined>(undefined);
+
+  // Colour book editing (David, 2026-08-05): the display is "Colour book: X";
+  // Edit swaps in the supplier's book list.
+  const [editingColorBook, setEditingColorBook] = useState(false);
 
   // The parent order's threads: supplier-shared comments + team order notes.
   const [comments, setComments] = useState<PoOrderNote[]>([]);
@@ -409,6 +419,21 @@ export function PoDetailView({ poId }: { poId: string }) {
       message.error(err instanceof Error ? err.message : 'Failed to save');
     } finally {
       setSavingSummary(false);
+    }
+  }
+
+  async function changeColorBook(colorBookId: string | null) {
+    try {
+      await patchJson(
+        `/api/admin/purchase-orders/${poId}`,
+        { colorBookId },
+        'Failed to update the colour book',
+      );
+      message.success(colorBookId ? 'Colour book updated' : 'Colour book cleared');
+      setEditingColorBook(false);
+      await load();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to update the colour book');
     }
   }
 
@@ -612,6 +637,34 @@ export function PoDetailView({ poId }: { poId: string }) {
               <div style={{ marginTop: 12 }}>
                 <Text type="secondary">Order: </Text>
                 <Link href={`/admin/orders/${detail.orderId}`}>{detail.order.orderNumber}</Link>
+              </div>
+              {/* The supplier colour book the job is matched against (David,
+                  2026-08-05) — the factory-relevant edition, printed on the
+                  PDF/XLSX. Edit offers the supplier's books, newest = default. */}
+              <div style={{ marginTop: 4 }}>
+                <Text type="secondary">Colour book: </Text>
+                <Text strong>
+                  {detail.colorBookName ?? <Text type="secondary">None</Text>}
+                </Text>
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => setEditingColorBook((v) => !v)}
+                  aria-label="Edit colour book"
+                >
+                  Edit
+                </Button>
+                {editingColorBook && (
+                  <div style={{ marginTop: 6 }}>
+                    <ColorBookSelect
+                      supplierId={detail.supplier.id}
+                      value={detail.colorBookId}
+                      onChange={(id) => void changeColorBook(id)}
+                      allowClear
+                    />
+                  </div>
+                )}
               </div>
               {detail.sentAt && (
                 <div style={{ marginTop: 4 }}>
@@ -934,6 +987,10 @@ export function PoDetailView({ poId }: { poId: string }) {
             })}
           </Space>
         </Card>
+
+        {/* Production files: layouts / test prints / production layouts,
+            shared both ways with the supplier (David, 2026-08-05). */}
+        <PoFilesCard poId={poId} />
 
         {(latest.snapshot.assets ?? []).length > 0 && (
           <Card title="Design files" size="small">

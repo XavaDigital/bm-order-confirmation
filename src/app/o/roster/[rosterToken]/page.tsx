@@ -36,6 +36,7 @@ export default async function CustomerRosterPage({ params }: Props) {
         orderNumber: roster.order.orderNumber,
         clubName: roster.order.clubName,
         locked: roster.order.locked,
+        namesUppercase: roster.order.namesUppercase,
         garments,
         members: roster.members.map((member) => ({
           ...member,

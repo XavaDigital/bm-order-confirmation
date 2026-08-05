@@ -115,6 +115,11 @@ export type DomainEventType =
   // from what to what. Recorded by both the staff PATCH and the supplier
   // portal; no notification hangs off it.
   | 'po.ship_date_changed'
+  // Production files (David, 2026-08-05): a supplier or staff member uploaded
+  // a working file (layout, test print…). Outbox so notifications can hang
+  // off supplier uploads later; file_removed is audit-only.
+  | 'po.file_uploaded'
+  | 'po.file_removed'
   | 'supplier_link.generated'
   | 'supplier_link.revoked';
 

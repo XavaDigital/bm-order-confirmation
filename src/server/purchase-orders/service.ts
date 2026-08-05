@@ -18,6 +18,7 @@ import {
   poSupplierAccess,
   purchaseOrderRevisions,
   purchaseOrders,
+  supplierColorBooks,
   suppliers,
   workflowStages,
   workflowStageTasks,
@@ -128,6 +129,34 @@ async function loadOrderGarments(orderId: string) {
 }
 
 /**
+ * Resolve the colour book a PO records (David, 2026-08-05). An explicit id
+ * must belong to THIS supplier (a book id from another supplier is a 409, not
+ * a silent cross-link); omitted picks the supplier's newest book — "we
+ * typically use the latest one" — or none when the supplier has no books yet.
+ */
+async function resolveColorBook(
+  supplierId: string,
+  colorBookId: string | undefined | null,
+): Promise<{ id: string; name: string } | null> {
+  if (colorBookId === null) return null;
+  if (colorBookId) {
+    const book = await db.query.supplierColorBooks.findFirst({
+      where: eq(supplierColorBooks.id, colorBookId),
+    });
+    if (!book || book.supplierId !== supplierId) {
+      throw new ConflictError('That colour book does not belong to this supplier');
+    }
+    return { id: book.id, name: book.name };
+  }
+  const [latest] = await db.query.supplierColorBooks.findMany({
+    where: eq(supplierColorBooks.supplierId, supplierId),
+    orderBy: (b, { desc: d }) => [d(b.createdAt)],
+    limit: 1,
+  });
+  return latest ? { id: latest.id, name: latest.name } : null;
+}
+
+/**
  * Build the next PO number: `{CODE}{seq}` (David, 2026-08-05 — DY123,
  * GOAL123; each supplier counts alone, and the number doubles as the portal
  * URL path `/supplier/{CODE}/po/{poNumber}`).
@@ -173,6 +202,8 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput, meta?
   if (!supplier) throw new NotFoundError('Supplier');
   if (!supplier.isActive) throw new ConflictError('Supplier is inactive');
 
+  const colorBook = await resolveColorBook(supplier.id, input.colorBookId);
+
   const liveGarments = await loadOrderGarments(order.id);
   const liveById = new Map(liveGarments.map((g) => [g.id, g]));
   const uniqueIds = [...new Set(input.garmentIds)];
@@ -217,6 +248,10 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput, meta?
           deadlineDate: order.deadlineDate ?? null,
           expectedShipDate: input.expectedShipDate ?? null,
           notes: input.notes ?? null,
+          // The supplier's colour book this job is matched against (David,
+          // 2026-08-05) — resolved above; defaults to the supplier's newest.
+          colorBookId: colorBook?.id ?? null,
+          colorBookName: colorBook?.name ?? null,
           createdBy: meta?.actorStaffUserId ?? null,
         })
         .returning();
@@ -469,7 +504,18 @@ export async function updatePurchaseOrder(
 ) {
   const po = await loadPoOrThrow(id);
 
-  const defined = pickDefined(patch);
+  // colorBookId is resolved, not written raw: it must belong to the PO's
+  // supplier, and the denormalized name travels with it (or clears with it).
+  const { colorBookId, ...plainPatch } = patch;
+  const colorBookFields =
+    colorBookId === undefined
+      ? {}
+      : await resolveColorBook(po.supplierId, colorBookId).then((book) => ({
+          colorBookId: book?.id ?? null,
+          colorBookName: book?.name ?? null,
+        }));
+
+  const defined = { ...pickDefined(plainPatch), ...colorBookFields };
   if (Object.keys(defined).length > 0) {
     await db
       .update(purchaseOrders)
@@ -619,6 +665,8 @@ export interface RenderPoPdfProps {
   // No deadlineDate: the PO's deadline is the CUSTOMER deadline (2026-08-05)
   // and the PDF is a supplier-facing document — it must never render it.
   expectedShipDate: string | null;
+  /** The supplier's colour book the job is matched against — factory-relevant. */
+  colorBookName: string | null;
   notes: string | null;
   supplier: {
     name: string;
@@ -794,6 +842,7 @@ export async function sendPurchaseOrder(
     revisionReason: latest.reason,
     createdAt: latest.createdAt.toISOString(),
     expectedShipDate: po.expectedShipDate,
+    colorBookName: po.colorBookName,
     notes: po.notes,
     supplier: {
       name: po.supplier.name,

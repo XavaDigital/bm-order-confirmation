@@ -37,6 +37,7 @@ export const GET = defineRoute<{ id: string }>({
       revisionReason: revision.reason,
       createdAt: revision.createdAt.toISOString(),
       expectedShipDate: po.expectedShipDate,
+      colorBookName: po.colorBookName,
       notes: po.notes,
       supplier: {
         name: po.supplier.name,

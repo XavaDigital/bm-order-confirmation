@@ -16,6 +16,11 @@ const patchSchema = z.object({
   password: z.string().trim().min(4).max(64).nullable().optional(),
   /** Clear the club admin's password — they choose a new one on next visit. */
   resetAdminPassword: z.boolean().optional(),
+  /**
+   * Print names in CAPITALS (David, 2026-08-05) — set after checking with the
+   * customer. Turning it ON also converts every name already saved.
+   */
+  namesUppercase: z.boolean().optional(),
 });
 
 export const PATCH = defineRoute<{ id: string }, typeof patchSchema._type>({

@@ -102,6 +102,12 @@ export const createPurchaseOrderSchema = z.object({
   // must never render on the supplier portal, the PO PDF, or the XLSX.
   expectedShipDate: dateString.optional(),
   notes: z.string().max(2000).optional(),
+  /**
+   * Which of the supplier's colour books the job is matched against (David,
+   * 2026-08-05). Omitted = the supplier's newest book (the default); a
+   * reprint can pick an older one explicitly.
+   */
+  colorBookId: z.string().uuid().optional(),
 });
 
 export const updatePurchaseOrderSchema = z.object({
@@ -110,6 +116,8 @@ export const updatePurchaseOrderSchema = z.object({
   expectedShipDate: dateString.nullable().optional(),
   actualShipDate: dateString.nullable().optional(),
   notes: z.string().max(2000).nullable().optional(),
+  /** null clears the book (no colour matching recorded). */
+  colorBookId: z.string().uuid().nullable().optional(),
 });
 
 export const updatePoStatusSchema = z.object({

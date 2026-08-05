@@ -164,3 +164,12 @@ export function sizeChartKey(filename: string): string {
 export function orderAssetKey(orderId: string, filename: string): string {
   return `assets/${orderId}/${filename}`;
 }
+
+/**
+ * Production files on a PO (David, 2026-08-05) — supplier layouts, test
+ * prints, production layouts. Kept "for essentially eternity": nothing ever
+ * deletes objects under this prefix.
+ */
+export function poFileKey(poId: string, filename: string): string {
+  return `po-files/${poId}/${filename}`;
+}

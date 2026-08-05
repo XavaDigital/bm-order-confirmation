@@ -39,6 +39,8 @@ export interface SupplierPortalViewProps {
     actualShipDate: string | null;
     sentAt: string | null;
     notes: string | null;
+    /** The colour book the job is matched against (David, 2026-08-05). */
+    colorBookName: string | null;
     supplier: { name: string; contactPerson: string | null; email: string | null; phone: string | null };
     revisionNumber: number;
     snapshot: PoSnapshot;
@@ -86,6 +88,12 @@ export function SupplierPortalView({ token, view }: SupplierPortalViewProps) {
               {view.expectedShipDate ? formatDate(view.expectedShipDate) : '—'}
             </Text>
           </div>
+          {view.colorBookName && (
+            <div>
+              <Text style={FIELD_LABEL_STYLE}>Colour book</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.9)' }}>{view.colorBookName}</Text>
+            </div>
+          )}
           {view.actualShipDate && (
             <div>
               <Text style={FIELD_LABEL_STYLE}>Shipped</Text>

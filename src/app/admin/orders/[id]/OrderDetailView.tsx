@@ -26,6 +26,7 @@ import {
   DeleteOutlined,
   SaveOutlined,
   FilePdfOutlined,
+  PrinterOutlined,
   LockOutlined,
   CopyOutlined,
   StopOutlined,
@@ -102,6 +103,12 @@ export interface AdminOrderData {
   generalNotes: string | null;
   internalNotes: string | null;
   shippingMode: 'prefilled' | 'customer_entered' | 'later';
+  /**
+   * Whether the order has any shipping-address line to print — drives the
+   * address-label button (the label route 409s on an empty address, and a
+   * link that downloads an error JSON is not acceptable UI).
+   */
+  hasShippingAddress: boolean;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -762,6 +769,31 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
                 Download PDF
               </Button>
             )}
+            {/* The admin UI has no address fields of its own (the customer
+                enters the address on their page), so the label lives with the
+                header actions. Disabled — not a dead link to an error JSON —
+                when there is nothing to print. */}
+            <Tooltip
+              title={
+                order.hasShippingAddress
+                  ? '174×100mm label PDF — print at 100%'
+                  : 'This order has no shipping address to print'
+              }
+            >
+              {order.hasShippingAddress ? (
+                <Button
+                  icon={<PrinterOutlined />}
+                  href={`/api/admin/orders/${order.id}/address-label`}
+                  target="_blank"
+                >
+                  Print address label
+                </Button>
+              ) : (
+                <Button icon={<PrinterOutlined />} disabled>
+                  Print address label
+                </Button>
+              )}
+            </Tooltip>
             <Tooltip title="Creates a new draft order pre-filled with this order's customer, garments, sizing, size charts and design files (mock-ups are not copied)">
               <Button
                 icon={<CopyOutlined />}

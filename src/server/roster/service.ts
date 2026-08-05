@@ -14,6 +14,7 @@ import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { orders, rosterMembers, rosterAccess, rosterMemberAccess } from '@/db/schema';
 import { generateToken, hashToken, buildRosterUrl, buildMemberRosterUrl } from '@/lib/tokens';
+import { applyNameCase } from '@/lib/names';
 import { NotFoundError } from '@/server/orders/service';
 import { mintToken, revokeActiveTokens } from '@/server/access/tokens';
 import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
@@ -85,7 +86,7 @@ export async function addRosterMember(orderId: string, data: AddRosterMemberInpu
     .insert(rosterMembers)
     .values({
       orderId,
-      name: data.name,
+      name: applyNameCase(order.namesUppercase, data.name),
       playerNumber: data.playerNumber ?? null,
       email: data.email ?? null,
       sortOrder: Number(maxSort) + 1,
@@ -115,8 +116,19 @@ export async function updateRosterMember(
   const existing = await db.query.rosterMembers.findFirst({ where: eq(rosterMembers.id, memberId) });
   if (!existing) throw new NotFoundError('Roster member');
 
+  // Name-case rule (src/lib/names.ts) — read only when a name is written.
+  const order =
+    patch.name !== undefined
+      ? await db.query.orders.findFirst({
+          where: eq(orders.id, existing.orderId),
+          columns: { namesUppercase: true },
+        })
+      : null;
+
   await db.update(rosterMembers).set({
-    ...(patch.name !== undefined && { name: patch.name }),
+    ...(patch.name !== undefined && {
+      name: applyNameCase(order?.namesUppercase ?? false, patch.name),
+    }),
     ...(patch.playerNumber !== undefined && { playerNumber: patch.playerNumber }),
     ...(patch.email !== undefined && { email: patch.email }),
   }).where(eq(rosterMembers.id, memberId));
@@ -291,7 +303,7 @@ export async function importRosterMembers(
   let sortOrder = Number(maxSort) + 1;
   const toInsert: (typeof rosterMembers.$inferInsert)[] = accepted.map(({ name, entry }) => ({
     orderId,
-    name,
+    name: applyNameCase(order.namesUppercase, name),
     playerNumber: entry.playerNumber,
     email: entry.email,
     sortOrder: sortOrder++,

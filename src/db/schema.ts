@@ -181,6 +181,15 @@ export const orders = confirmation.table(
     shippingMode: shippingMode('shipping_mode').notNull().default('prefilled'),
     shippingAddress: jsonb('shipping_address').$type<Record<string, unknown>>(),
 
+    // Print names in CAPITALS (David, 2026-08-05) — a per-order choice made
+    // WITH the customer. True: every player name is uppercased at write, in
+    // every writer (roster, name lists, sizing, CSV import), and existing
+    // names are converted when the flag is turned on. False (default): names
+    // are printed exactly as entered, and the team roster page says so —
+    // as-typed is the default because silent conversion is the lossy
+    // direction.
+    namesUppercase: boolean('names_uppercase').notNull().default(false),
+
     status: orderStatus('status').notNull().default('draft'),
     createdBy: uuid('created_by').references(() => staffUsers.id),
 
@@ -334,6 +343,11 @@ export const orderNotes = confirmation.table(
     // Null = a note on the order as a whole. Set = a note on this garment,
     // which is the "notes on the specific garments" thread.
     garmentId: uuid('garment_id').references(() => garments.id, { onDelete: 'cascade' }),
+    // Set = a comment ON a production file (David, 2026-08-05) — the file's
+    // own thread, where change requests and their reasons live. Rides this
+    // table (not a new one) so supplier attribution, sanitisation, soft
+    // delete and the portal's shared-visibility model all come for free.
+    poFileId: uuid('po_file_id').references(() => poFiles.id, { onDelete: 'cascade' }),
     body: text('body').notNull(),
     bodyHtml: text('body_html'),
     // Two species share this table (David, 2026-08-04): 'comment' — the
@@ -366,6 +380,10 @@ export const orderNotes = confirmation.table(
     index('order_notes_garment_idx')
       .on(t.garmentId, t.createdAt)
       .where(sql`${t.garmentId} is not null`),
+    // The per-file thread reads by file; partial for the same reason.
+    index('order_notes_po_file_idx')
+      .on(t.poFileId, t.createdAt)
+      .where(sql`${t.poFileId} is not null`),
   ],
 );
 
@@ -992,6 +1010,30 @@ export const suppliers = confirmation.table(
   ],
 );
 
+/**
+ * A supplier's colour books (David, 2026-08-05): "each supplier has a list of
+ * color books and we typically use the latest one". The DEFAULT is simply the
+ * newest row per supplier — adding a book makes it the default with no flag
+ * to keep in sync; older books stay selectable (reprints match the book the
+ * original job used). Never deleted, only added.
+ */
+export const supplierColorBooks = confirmation.table(
+  'supplier_color_books',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    supplierId: uuid('supplier_id')
+      .notNull()
+      .references(() => suppliers.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    createdBy: uuid('created_by').references(() => staffUsers.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('supplier_color_books_supplier_idx').on(t.supplierId, t.createdAt),
+    uniqueIndex('supplier_color_books_supplier_name_uq').on(t.supplierId, t.name),
+  ],
+);
+
 // --- purchase orders ---------------------------------------------------------
 // One sizing-row line in a PO revision snapshot, keyed by the garment_sizing
 // row UUID (stable across staff saves — see upsertSizingRows). Variance and
@@ -1118,6 +1160,12 @@ export const purchaseOrders = confirmation.table(
     sentAt: timestamp('sent_at', { withTimezone: true }),
     receivedAt: timestamp('received_at', { withTimezone: true }),
     notes: text('notes'),
+    // Which of the supplier's colour books this job is matched against
+    // (David, 2026-08-05). Id references the book row; the name is
+    // denormalized so PO documents render without a join and keep saying what
+    // they said even if a book is later renamed.
+    colorBookId: uuid('color_book_id').references(() => supplierColorBooks.id),
+    colorBookName: text('color_book_name'),
     createdBy: uuid('created_by').references(() => staffUsers.id),
 
     // Workflow stage — same shape and same nullable-no-backfill reasoning as on
@@ -1158,6 +1206,39 @@ export const purchaseOrderRevisions = confirmation.table(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [uniqueIndex('po_revisions_po_rev_uq').on(t.poId, t.revisionNumber)],
+);
+
+/**
+ * Production files on a PO (David, 2026-08-05): suppliers upload their layout
+ * file before test print, the production layout, the test print photo, etc.;
+ * staff can upload too. Each file anchors its own comment thread
+ * (order_notes.poFileId), which is where "change this, because…" lives — the
+ * per-category sequence of files plus those threads IS the progression record
+ * David asked to see. `statusAtUpload` stamps where in the flow the file
+ * arrived. Stored in S3 "for essentially eternity": no hard delete; deletedAt
+ * hides a mistaken upload but the object stays.
+ */
+export const poFiles = confirmation.table(
+  'po_files',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    poId: uuid('po_id')
+      .notNull()
+      .references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+    fileName: text('file_name').notNull(),
+    storageKey: text('storage_key').notNull(),
+    contentType: text('content_type'),
+    sizeBytes: integer('size_bytes'),
+    /** Free grouping label — "Layout", "Test print", "Production layout"… */
+    category: text('category'),
+    uploadedByKind: text('uploaded_by_kind').notNull().$type<'staff' | 'supplier'>(),
+    /** "Ana (Dynasty)" or the staff email — snapshot at write. */
+    uploadedByLabel: text('uploaded_by_label'),
+    statusAtUpload: text('status_at_upload').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (t) => [index('po_files_po_idx').on(t.poId, t.createdAt)],
 );
 
 // --- supplier portal access (magic link, SUPPLIER_PORTAL_PLAN.md) -----------
@@ -1602,6 +1683,14 @@ export const confirmationsRelations = relations(confirmations, ({ one }) => ({
 export const suppliersRelations = relations(suppliers, ({ many }) => ({
   purchaseOrders: many(purchaseOrders),
   shipments: many(shipments),
+  colorBooks: many(supplierColorBooks),
+}));
+
+export const supplierColorBooksRelations = relations(supplierColorBooks, ({ one }) => ({
+  supplier: one(suppliers, {
+    fields: [supplierColorBooks.supplierId],
+    references: [suppliers.id],
+  }),
 }));
 
 export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many }) => ({
@@ -1610,10 +1699,23 @@ export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many })
   revisions: many(purchaseOrderRevisions),
   shipmentLinks: many(shipmentPurchaseOrders),
   supplierAccess: many(poSupplierAccess),
+  files: many(poFiles),
+  colorBook: one(supplierColorBooks, {
+    fields: [purchaseOrders.colorBookId],
+    references: [supplierColorBooks.id],
+  }),
   createdByUser: one(staffUsers, {
     fields: [purchaseOrders.createdBy],
     references: [staffUsers.id],
   }),
+}));
+
+export const poFilesRelations = relations(poFiles, ({ one, many }) => ({
+  purchaseOrder: one(purchaseOrders, {
+    fields: [poFiles.poId],
+    references: [purchaseOrders.id],
+  }),
+  comments: many(orderNotes),
 }));
 
 export const poSupplierAccessRelations = relations(poSupplierAccess, ({ one }) => ({
@@ -1714,6 +1816,7 @@ export const orderAssetsRelations = relations(orderAssets, ({ one }) => ({
 export const orderNotesRelations = relations(orderNotes, ({ one }) => ({
   order: one(orders, { fields: [orderNotes.orderId], references: [orders.id] }),
   garment: one(garments, { fields: [orderNotes.garmentId], references: [garments.id] }),
+  poFile: one(poFiles, { fields: [orderNotes.poFileId], references: [poFiles.id] }),
   author: one(staffUsers, {
     fields: [orderNotes.authorStaffUserId],
     references: [staffUsers.id],

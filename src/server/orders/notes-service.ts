@@ -27,13 +27,15 @@ type ActorMeta = {
 };
 
 /** Which thread to read. */
-export type NoteScope = 'order' | 'all' | { garmentId: string };
+export type NoteScope = 'order' | 'all' | { garmentId: string } | { poFileId: string };
 
 export interface OrderNoteDto {
   id: string;
   orderId: string;
   garmentId: string | null;
   garmentName: string | null;
+  /** Set = a comment on a production file's thread. */
+  poFileId: string | null;
   /** Sanitised HTML when the note came from the editor, else null. */
   bodyHtml: string | null;
   /** Plain text — always present, and what to show if `bodyHtml` is null. */
@@ -74,6 +76,7 @@ function toNoteDto(row: NoteRow): OrderNoteDto {
     orderId: row.orderId,
     garmentId: row.garmentId ?? null,
     garmentName: row.garment?.name ?? null,
+    poFileId: row.poFileId ?? null,
     bodyHtml: deleted ? null : (row.bodyHtml ?? null),
     body: deleted ? '' : row.body,
     kind: row.kind,
@@ -95,7 +98,10 @@ function toNoteDto(row: NoteRow): OrderNoteDto {
 function scopeFilter(orderId: string, scope: NoteScope) {
   const onOrder = eq(orderNotes.orderId, orderId);
   if (scope === 'all') return onOrder;
-  if (scope === 'order') return and(onOrder, isNull(orderNotes.garmentId));
+  // 'order' = the order-wide thread: excludes garment threads AND the
+  // per-production-file threads (those render under their files).
+  if (scope === 'order') return and(onOrder, isNull(orderNotes.garmentId), isNull(orderNotes.poFileId));
+  if ('poFileId' in scope) return and(onOrder, eq(orderNotes.poFileId, scope.poFileId));
   return and(onOrder, eq(orderNotes.garmentId, scope.garmentId));
 }
 
@@ -178,6 +184,8 @@ export async function addOrderNote(
     visibility?: 'internal' | 'shared';
     /** 'note' = an order note (finalisation point); defaults to a thread comment. */
     kind?: 'comment' | 'note';
+    /** Set = a comment on a production file's thread (David, 2026-08-05). */
+    poFileId?: string | null;
   },
   meta?: ActorMeta,
 ): Promise<OrderNoteDto> {
@@ -198,6 +206,7 @@ export async function addOrderNote(
       .values({
         orderId,
         garmentId: data.garmentId ?? null,
+        poFileId: data.poFileId ?? null,
         body,
         bodyHtml,
         kind: data.kind ?? 'comment',

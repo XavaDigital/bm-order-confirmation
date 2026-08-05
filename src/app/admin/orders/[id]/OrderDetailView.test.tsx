@@ -84,6 +84,7 @@ function baseOrder(overrides: Partial<AdminOrderData> = {}): AdminOrderData {
     generalNotes: null,
     internalNotes: null,
     shippingMode: 'later',
+    hasShippingAddress: false,
     status: 'sent',
     createdAt: '2026-06-01T10:00:00Z',
     updatedAt: '2026-06-01T10:00:00Z',
@@ -345,6 +346,22 @@ describe('OrderDetailView', () => {
       'href',
       '/api/admin/orders/order-1/pdf',
     );
+  });
+
+  it('links Print address label to the label PDF when the order has an address', () => {
+    renderView(baseOrder({ hasShippingAddress: true }));
+
+    const link = screen.getByRole('link', { name: /print address label/i });
+    expect(link).toHaveAttribute('href', '/api/admin/orders/order-1/address-label');
+    expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  it('disables Print address label when the order has no shipping address', () => {
+    renderView(baseOrder({ hasShippingAddress: false }));
+
+    // A disabled button, never a live link that would download the 409 JSON.
+    expect(screen.getByRole('button', { name: /print address label/i })).toBeDisabled();
+    expect(screen.queryByRole('link', { name: /print address label/i })).not.toBeInTheDocument();
   });
 
   it('duplicating as a reprint POSTs the reprint flag and navigates', async () => {

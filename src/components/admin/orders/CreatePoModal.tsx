@@ -24,6 +24,7 @@ import type { Dayjs } from 'dayjs';
 import { ApiError, postJson } from '@/lib/api-fetch';
 import { formatDate } from '@/lib/format';
 import { useAdminResource } from '@/lib/use-admin-resource';
+import { ColorBookSelect } from '@/components/admin/purchase-orders/ColorBookSelect';
 
 export interface PoModalGarment {
   id: string;
@@ -74,6 +75,11 @@ export function CreatePoModal({
     { errorMessage: 'Failed to load suppliers' },
   );
   const [supplierId, setSupplierId] = useState<string | undefined>(undefined);
+  // The colour book to match against (David, 2026-08-05): defaults to the
+  // supplier's newest; the DEFAULT is omitted from the POST so the server
+  // resolves it (createPurchaseOrderSchema: omitted = supplier's newest).
+  const [colorBookId, setColorBookId] = useState<string | null>(null);
+  const [defaultBookId, setDefaultBookId] = useState<string | null>(null);
   const [garmentIds, setGarmentIds] = useState<string[]>([]);
   const [expectedShipDate, setExpectedShipDate] = useState<Dayjs | null>(null);
   const [notes, setNotes] = useState('');
@@ -101,6 +107,9 @@ export function CreatePoModal({
           orderId,
           supplierId,
           garmentIds,
+          // Only sent when staff picked a NON-default book — omitted means the
+          // server matches against the supplier's newest at create time.
+          ...(colorBookId && colorBookId !== defaultBookId ? { colorBookId } : {}),
           // No deadlineDate — the server copies the customer deadline onto the PO.
           expectedShipDate: expectedShipDate ? expectedShipDate.format('YYYY-MM-DD') : undefined,
           notes: notes.trim() || undefined,
@@ -175,12 +184,37 @@ export function CreatePoModal({
             placeholder="Select an active supplier"
             loading={suppliersLoading}
             value={supplierId}
-            onChange={setSupplierId}
+            onChange={(id) => {
+              setSupplierId(id);
+              // Books belong to a supplier — a new pick invalidates the old one.
+              setColorBookId(null);
+              setDefaultBookId(null);
+            }}
             showSearch
             optionFilterProp="label"
             options={(suppliers ?? []).map((s) => ({ value: s.id, label: s.name }))}
           />
         </div>
+
+        {supplierId && (
+          <div>
+            <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
+              Colour book
+            </Typography.Text>
+            <ColorBookSelect
+              key={supplierId}
+              supplierId={supplierId}
+              value={colorBookId}
+              onChange={setColorBookId}
+              autoSelectDefault
+              onBooksLoaded={(books) => setDefaultBookId(books[0]?.id ?? null)}
+            />
+            <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+              The supplier&apos;s newest book is the default — pick an older edition only when
+              the job was colour-matched against it.
+            </Typography.Text>
+          </div>
+        )}
 
         <div>
           <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>

@@ -27,6 +27,7 @@ import {
 import type { Transaction } from '@/db';
 import type { GarmentTypeOption } from '@/db/schema';
 import { generateToken, buildConfirmationUrl } from '@/lib/tokens';
+import { applyNameCase } from '@/lib/names';
 import { isUniqueViolation } from '@/lib/db-errors';
 import { pickDefined } from '@/lib/patch';
 import { insertToken, mintToken, resolveActiveToken, revokeActiveTokens } from '@/server/access/tokens';
@@ -111,6 +112,18 @@ async function loadGarmentOrThrow(id: string) {
   const garment = await db.query.garments.findFirst({ where: eq(garments.id, id) });
   if (!garment) throw new NotFoundError('Garment');
   return garment;
+}
+
+/**
+ * The order's names-in-CAPITALS flag (see src/lib/names.ts) — every writer of
+ * a player/member name reads this first so what is saved IS what prints.
+ */
+async function orderNamesUppercase(orderId: string): Promise<boolean> {
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, orderId),
+    columns: { namesUppercase: true },
+  });
+  return order?.namesUppercase ?? false;
 }
 
 /** Next free sortOrder within a scope (0 for the first row). */
@@ -1061,6 +1074,7 @@ export async function upsertSizingRows(
   meta?: { actorEmail?: string },
 ) {
   const garment = await loadGarmentOrThrow(garmentId);
+  const uppercase = await orderNamesUppercase(garment.orderId);
 
   await db.transaction(async (tx) => {
     // Reconciling upsert — NOT delete-all + reinsert. Row UUIDs are stable
@@ -1081,7 +1095,7 @@ export async function upsertSizingRows(
     for (const [i, row] of rows.entries()) {
       const values = {
         size: row.size ?? null,
-        playerName: row.playerName ?? null,
+        playerName: applyNameCase(uppercase, row.playerName ?? null),
         playerNumber: row.playerNumber ?? null,
         quantity: row.quantity ?? 1,
         notes: row.notes ?? null,
@@ -1153,6 +1167,7 @@ export async function upsertNameListEntries(
 ) {
   const garment = await loadGarmentOrThrow(garmentId);
   if (entries.length > MAX_NAME_LIST_ENTRIES) throw new NameListFullError();
+  const uppercase = await orderNamesUppercase(garment.orderId);
 
   await db.transaction(async (tx) => {
     // Same reconciling upsert as upsertSizingRows — NOT delete-all + reinsert,
@@ -1168,7 +1183,7 @@ export async function upsertNameListEntries(
 
     for (const [i, entry] of entries.entries()) {
       const values = {
-        name: entry.name,
+        name: applyNameCase(uppercase, entry.name),
         playerNumber: entry.playerNumber || null,
         sortOrder: entry.sortOrder ?? i,
       };
@@ -1217,6 +1232,7 @@ export async function upsertNameListEntries(
  */
 export async function importNameListFromRoster(garmentId: string, meta?: { actorEmail?: string }) {
   const garment = await loadGarmentOrThrow(garmentId);
+  const uppercase = await orderNamesUppercase(garment.orderId);
 
   const [members, existing] = await Promise.all([
     db.query.rosterMembers.findMany({
@@ -1251,7 +1267,9 @@ export async function importNameListFromRoster(garmentId: string, meta?: { actor
   await db.insert(garmentNameListEntries).values(
     toAdd.map((m) => ({
       garmentId,
-      name: m.name,
+      // Roster members are already cased at their own write; re-applying here
+      // keeps this writer safe against rows that predate the flag.
+      name: applyNameCase(uppercase, m.name),
       playerNumber: m.playerNumber,
       sortOrder: sortOrder++,
     })),
@@ -1576,9 +1594,21 @@ function rosterPageUrl(orderNumber: string): string {
 
 export async function setRosterPage(
   orderId: string,
-  input: { enabled?: boolean; password?: string | null; resetAdminPassword?: boolean },
+  input: {
+    enabled?: boolean;
+    password?: string | null;
+    resetAdminPassword?: boolean;
+    /** Print names in CAPITALS (David, 2026-08-05) — see applyNameCase. */
+    namesUppercase?: boolean;
+  },
   meta?: { actorEmail?: string },
-): Promise<{ enabled: boolean; password: string | null; url: string; adminPasswordSet: boolean }> {
+): Promise<{
+  enabled: boolean;
+  password: string | null;
+  url: string;
+  adminPasswordSet: boolean;
+  namesUppercase: boolean;
+}> {
   const existing = await db.query.orders.findFirst({
     where: eq(orders.id, orderId),
     columns: {
@@ -1587,6 +1617,7 @@ export async function setRosterPage(
       rosterEnabledAt: true,
       rosterPassword: true,
       rosterAdminPasswordHash: true,
+      namesUppercase: true,
     },
   });
   if (!existing) throw new NotFoundError('Order');
@@ -1602,22 +1633,62 @@ export async function setRosterPage(
   // and their outstanding sessions die (the hash is in the cookie signature).
   const resetAdmin = input.resetAdminPassword === true;
 
+  const namesUppercase = input.namesUppercase ?? existing.namesUppercase;
+  const turningCapsOn = namesUppercase && !existing.namesUppercase;
+
   await db.transaction(async (tx) => {
     await tx
       .update(orders)
       .set({
         rosterEnabledAt: enabled ? (existing.rosterEnabledAt ?? new Date()) : null,
         rosterPassword: password,
+        namesUppercase,
         ...(resetAdmin && { rosterAdminPasswordHash: null }),
         updatedAt: new Date(),
       })
       .where(eq(orders.id, orderId));
 
+    // Turning CAPITALS on converts what is already saved (David: "no matter
+    // whether you type lowercase or not … it will always … be saved as
+    // capitals") — every name store for this order, in the same transaction.
+    // Turning it OFF converts nothing back: the original casing is gone, and
+    // inventing one would be worse than leaving capitals standing.
+    if (turningCapsOn) {
+      await tx
+        .update(garmentSizing)
+        .set({ playerName: sql`upper(${garmentSizing.playerName})` })
+        .where(
+          inArray(
+            garmentSizing.garmentId,
+            tx.select({ id: garments.id }).from(garments).where(eq(garments.orderId, orderId)),
+          ),
+        );
+      await tx
+        .update(garmentNameListEntries)
+        .set({ name: sql`upper(${garmentNameListEntries.name})` })
+        .where(
+          inArray(
+            garmentNameListEntries.garmentId,
+            tx.select({ id: garments.id }).from(garments).where(eq(garments.orderId, orderId)),
+          ),
+        );
+      await tx
+        .update(rosterMembers)
+        .set({ name: sql`upper(${rosterMembers.name})` })
+        .where(eq(rosterMembers.orderId, orderId));
+    }
+
     await recordAuditEvent(
       {
         aggregateId: orderId,
         eventType: 'roster.page_updated',
-        payload: { enabled, hasPassword: password !== null, resetAdminPassword: resetAdmin },
+        payload: {
+          enabled,
+          hasPassword: password !== null,
+          resetAdminPassword: resetAdmin,
+          namesUppercase,
+          ...(turningCapsOn && { convertedExistingNames: true }),
+        },
         actorEmail: meta?.actorEmail ?? null,
       },
       tx,
@@ -1629,13 +1700,18 @@ export async function setRosterPage(
     password,
     url: rosterPageUrl(existing.orderNumber),
     adminPasswordSet: resetAdmin ? false : existing.rosterAdminPasswordHash !== null,
+    namesUppercase,
   };
 }
 
 /** Current roster-page settings for the admin panel. */
-export async function getRosterPageSettings(
-  orderId: string,
-): Promise<{ enabled: boolean; password: string | null; url: string; adminPasswordSet: boolean }> {
+export async function getRosterPageSettings(orderId: string): Promise<{
+  enabled: boolean;
+  password: string | null;
+  url: string;
+  adminPasswordSet: boolean;
+  namesUppercase: boolean;
+}> {
   const existing = await db.query.orders.findFirst({
     where: eq(orders.id, orderId),
     columns: {
@@ -1643,6 +1719,7 @@ export async function getRosterPageSettings(
       rosterEnabledAt: true,
       rosterPassword: true,
       rosterAdminPasswordHash: true,
+      namesUppercase: true,
     },
   });
   if (!existing) throw new NotFoundError('Order');
@@ -1651,6 +1728,7 @@ export async function getRosterPageSettings(
     password: existing.rosterPassword,
     url: rosterPageUrl(existing.orderNumber),
     adminPasswordSet: existing.rosterAdminPasswordHash !== null,
+    namesUppercase: existing.namesUppercase,
   };
 }
 

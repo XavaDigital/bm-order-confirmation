@@ -8,6 +8,18 @@ import { OrderDetailView, type AdminOrderData } from './OrderDetailView';
 
 type Props = { params: Promise<{ id: string }> };
 
+// Same key order the address-label route prints — "has an address" here must
+// agree with what /api/admin/orders/[id]/address-label 409s on.
+const ADDRESS_KEYS = ['line1', 'line2', 'city', 'region', 'postcode', 'country'] as const;
+
+function hasPrintableAddress(shippingAddress: Record<string, unknown> | null): boolean {
+  const address = shippingAddress ?? {};
+  return ADDRESS_KEYS.some((k) => {
+    const v = address[k];
+    return typeof v === 'string' && v.trim() !== '';
+  });
+}
+
 /** Tab title: "OrderFlow - OC-10023 · Winter hoodies" (root layout template). */
 export async function generateMetadata({ params }: Props) {
   const { id } = await params;
@@ -57,6 +69,9 @@ export default async function OrderDetailPage({ params }: Props) {
     generalNotes: order.generalNotes ?? null,
     internalNotes: order.internalNotes ?? null,
     shippingMode: order.shippingMode,
+    // The address itself stays server-side; the view only needs to know
+    // whether the label button has anything to print (disabled otherwise).
+    hasShippingAddress: hasPrintableAddress(order.shippingAddress ?? null),
     status: order.status,
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),

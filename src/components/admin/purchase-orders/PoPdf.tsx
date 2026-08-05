@@ -232,6 +232,12 @@ export interface PoPdfProps {
   // No deadlineDate: the PO deadline is the CUSTOMER deadline (2026-08-05)
   // and this PDF goes to the factory — it must never render it.
   expectedShipDate: string | null;
+  /**
+   * The supplier's colour book the job is matched against — factory-relevant,
+   * so it prints in the Reference block when set. Optional so untouched
+   * callers (legacy supplier routes) keep compiling; they just omit the row.
+   */
+  colorBookName?: string | null;
   notes: string | null;
   supplier: {
     name: string;
@@ -248,6 +254,7 @@ export function PoPdf({
   revisionReason,
   createdAt,
   expectedShipDate,
+  colorBookName,
   notes,
   supplier,
   snapshot,
@@ -300,6 +307,9 @@ export function PoPdf({
             />
             {expectedShipDate && (
               <LabelValueRow label="Required ship date" value={expectedShipDate} />
+            )}
+            {colorBookName && (
+              <LabelValueRow label="Colour book" value={colorBookName} />
             )}
             {snapshot.preparedByEmail && (
               <LabelValueRow label="Prepared by" value={snapshot.preparedByEmail} />

@@ -33,6 +33,11 @@ export interface RosterMemberViewProps {
     orderNumber: string;
     clubName: string | null;
     locked: boolean;
+    /**
+     * Names print in CAPITALS (David, 2026-08-05). Optional so older
+     * callers/fixtures render without a notice rather than a wrong one.
+     */
+    namesUppercase?: boolean;
     garments: RosterGarment[];
     member: RosterMemberDto;
   };
@@ -123,6 +128,21 @@ export function RosterMemberView({ memberToken, roster }: RosterMemberViewProps)
       </Card>
 
       {locked && <LockedRosterAlert />}
+
+      {/* Name-printing notice (David, 2026-08-05): what is saved IS what prints. */}
+      {roster.namesUppercase === false && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Names will be printed exactly as entered — please check spelling and capitalisation."
+        />
+      )}
+      {roster.namesUppercase === true && (
+        <Paragraph style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 16 }}>
+          Names will be printed in CAPITALS.
+        </Paragraph>
+      )}
 
       <Card style={CARD_STYLE} styles={CARD_BODY_STYLES}>
         <SectionHeading>Enter Your Sizes</SectionHeading>

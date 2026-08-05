@@ -32,6 +32,12 @@ export interface PoXlsxProps {
   // No deadlineDate: the PO deadline is the CUSTOMER deadline (2026-08-05)
   // and this workbook goes to the factory — it must never carry it.
   expectedShipDate: string | null;
+  /**
+   * The supplier's colour book the job is matched against — printed as a
+   * summary row when set (same treatment as the PDF). Optional so untouched
+   * callers (legacy supplier routes) keep compiling; they just omit the row.
+   */
+  colorBookName?: string | null;
   notes: string | null;
   supplier: {
     name: string;
@@ -119,6 +125,9 @@ function buildSummarySheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
   }
   labelCell(sheet, row++, 'PO issued', props.createdAt.slice(0, 10));
   if (props.expectedShipDate) labelCell(sheet, row++, 'Required ship date', props.expectedShipDate);
+  if (props.colorBookName) {
+    labelCell(sheet, row++, 'Colour book', neutralizeFormula(props.colorBookName));
+  }
 
   row++;
   sectionTitle(sheet, row++, 'Supplier');

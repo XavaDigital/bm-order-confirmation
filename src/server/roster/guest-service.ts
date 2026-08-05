@@ -29,6 +29,7 @@ import {
   type SizeChartSize,
 } from '@/db/schema';
 import { resolveActiveToken } from '@/server/access/tokens';
+import { applyNameCase } from '@/lib/names';
 import { unionChartSizes } from '@/lib/sizes';
 import { signImageRefs, signChartRefs } from '@/lib/signed-urls';
 import {
@@ -68,6 +69,8 @@ export interface RosterPageOrder {
   rosterPassword: string | null;
   rosterAdminPasswordHash: string | null;
   rosterLockedAt: Date | null;
+  /** Names print in CAPITALS — applied at every name write (src/lib/names.ts). */
+  namesUppercase: boolean;
 }
 
 /**
@@ -90,6 +93,7 @@ export async function getRosterPageOrder(slug: string): Promise<RosterPageOrder 
       rosterAdminPasswordHash: true,
       rosterLockedAt: true,
       rosterEnabledAt: true,
+      namesUppercase: true,
     },
   });
   if (!order || !order.rosterEnabledAt) return null;
@@ -214,7 +218,14 @@ export interface RosterStateGarment {
 }
 
 export interface RosterState {
-  order: { orderNumber: string; clubName: string | null; name: string | null; locked: boolean };
+  order: {
+    orderNumber: string;
+    clubName: string | null;
+    name: string | null;
+    locked: boolean;
+    /** Drives the "printed in CAPITALS" / "printed as entered" notice. */
+    namesUppercase: boolean;
+  };
   guest: { id: string; email: string; name: string | null; isAdmin: boolean };
   garments: RosterStateGarment[];
   members: RosterStateMember[];
@@ -296,6 +307,7 @@ export async function getRosterState(
       clubName: order.clubName,
       name: order.name,
       locked: order.rosterLockedAt !== null,
+      namesUppercase: order.namesUppercase,
     },
     guest: { id: guest.id, email: guest.email, name: guest.name, isAdmin },
     garments: stateGarments,
@@ -388,14 +400,14 @@ export async function addGuestMember(
     .insert(rosterMembers)
     .values({
       orderId: order.id,
-      name: input.name.trim(),
+      name: applyNameCase(order.namesUppercase, input.name.trim()),
       playerNumber: input.playerNumber?.trim() || null,
       guestId,
       sortOrder: Number(maxSort) + 1,
     })
     .returning({ id: rosterMembers.id, name: rosterMembers.name, playerNumber: rosterMembers.playerNumber });
 
-  await writeGuestMemberSizes(order.id, member, input.sizes);
+  await writeGuestMemberSizes(order.id, member, input.sizes, order.namesUppercase);
   return { memberId: member.id };
 }
 
@@ -421,7 +433,9 @@ export async function updateGuestMember(
   // edit anyone's sizes; everyone else only their own).
   if (!isAdmin && member.guestId !== guestId) forbidden();
 
-  const name = input.name?.trim();
+  const name = input.name?.trim()
+    ? applyNameCase(order.namesUppercase, input.name.trim())
+    : undefined;
   const playerNumber = input.playerNumber === undefined ? undefined : input.playerNumber?.trim() || null;
   if (name || playerNumber !== undefined) {
     await db
@@ -434,6 +448,7 @@ export async function updateGuestMember(
     order.id,
     { id: member.id, name: name || member.name, playerNumber: playerNumber === undefined ? member.playerNumber : playerNumber },
     input.sizes,
+    order.namesUppercase,
   );
 }
 
@@ -471,6 +486,7 @@ async function writeGuestMemberSizes(
   orderId: string,
   member: { id: string; name: string; playerNumber: string | null },
   sizes: GuestMemberSizesInput['sizes'],
+  namesUppercase: boolean,
 ): Promise<void> {
   // "Got Your Back" name-list garments (GOT_YOUR_BACK_PLAN.md) are excluded —
   // they carry no size, and no per-member submission applies to them; the
@@ -504,7 +520,7 @@ async function writeGuestMemberSizes(
     size: row.size.trim(),
     // Per-garment name/number (David, 2026-08-04); the member's own name is
     // the default when a garment doesn't override it.
-    playerName: row.playerName?.trim() || member.name,
+    playerName: applyNameCase(namesUppercase, row.playerName?.trim() || member.name),
     playerNumber: row.playerNumber?.trim() || null,
     customValues: sanitizeCustomValues(
       row.customValues,

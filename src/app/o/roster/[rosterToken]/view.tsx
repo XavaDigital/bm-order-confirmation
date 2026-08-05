@@ -38,6 +38,12 @@ export interface RosterCustomerViewProps {
     orderNumber: string;
     clubName: string | null;
     locked: boolean;
+    /**
+     * Names print in CAPITALS (David, 2026-08-05) — saved values are
+     * uppercased server-side; the UI only previews. Optional so older
+     * callers/fixtures render without a notice rather than a wrong one.
+     */
+    namesUppercase?: boolean;
     garments: RosterGarment[];
     members: RosterMemberDto[];
   };
@@ -76,6 +82,10 @@ export function RosterCustomerView({ rosterToken, roster }: RosterCustomerViewPr
   );
   const [savingSizes, setSavingSizes] = useState(false);
   const [chartPreview, setChartPreview] = useState<SizeChartLink | null>(null);
+
+  // Preview-only styling — the SAVED value is uppercased server-side; never
+  // transform the data client-side.
+  const nameCaseStyle = roster.namesUppercase ? ({ textTransform: 'uppercase' } as const) : undefined;
 
   const selectedMember = members.find((member) => member.id === selectedMemberId) ?? null;
   const submittedCount = members.filter((member) => member.submittedAt !== null).length;
@@ -277,6 +287,22 @@ export function RosterCustomerView({ rosterToken, roster }: RosterCustomerViewPr
 
       {locked && <LockedRosterAlert />}
 
+      {/* Name-printing notice (David, 2026-08-05): what is saved IS what
+          prints — loud when casing matters, subtle when CAPITALS is on. */}
+      {roster.namesUppercase === false && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Names will be printed exactly as entered — please check spelling and capitalisation."
+        />
+      )}
+      {roster.namesUppercase === true && (
+        <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, display: 'block', marginBottom: 16 }}>
+          Names will be printed in CAPITALS.
+        </Text>
+      )}
+
       <Card style={CARD_STYLE} styles={CARD_BODY_STYLES}>
         <SectionHeading>1. Choose Your Name</SectionHeading>
 
@@ -350,7 +376,7 @@ export function RosterCustomerView({ rosterToken, roster }: RosterCustomerViewPr
                 placeholder="Your name"
                 value={addSelfDraft.name}
                 onChange={(e) => setAddSelfDraft((draft) => ({ ...draft, name: e.target.value }))}
-                style={{ width: 180 }}
+                style={{ width: 180, ...nameCaseStyle }}
               />
               <Input
                 placeholder="Player number (optional)"
@@ -491,7 +517,7 @@ export function RosterCustomerView({ rosterToken, roster }: RosterCustomerViewPr
                     placeholder="Name"
                     value={entry.name}
                     disabled={locked}
-                    style={{ width: 200 }}
+                    style={{ width: 200, ...nameCaseStyle }}
                     onChange={(e) => {
                       const next = [...draft.entries];
                       next[i] = { ...next[i], name: e.target.value };

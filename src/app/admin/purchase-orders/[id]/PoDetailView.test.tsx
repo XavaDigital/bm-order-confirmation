@@ -44,6 +44,8 @@ function detail(overrides: Record<string, unknown> = {}) {
     receivedAt: null,
     notes: null,
     createdAt: '2026-07-18T10:00:00Z',
+    colorBookId: null,
+    colorBookName: null,
     supplier: {
       id: 'sup-1',
       name: 'Vast Apparel',
@@ -129,6 +131,12 @@ function baseRoutes(
 ): MockRoute[] {
   return [
     { match: `/api/admin/purchase-orders/${PO_ID}`, method: 'GET', response: d },
+    // The production-files card fetches on mount.
+    {
+      match: `/api/admin/purchase-orders/${PO_ID}/files`,
+      method: 'GET',
+      response: { items: [] },
+    },
     { match: /\/api\/admin\/orders\/order-1\/purchase-orders/, method: 'GET', response: summary },
     {
       match: '/api/admin/suppliers/sup-1',
@@ -701,5 +709,95 @@ describe('PoDetailView', () => {
     expect(screen.getByText('Initials')).toBeInTheDocument();
     expect(screen.getByText('AB')).toBeInTheDocument();
     expect(screen.getByText('Qty')).toBeInTheDocument();
+  });
+
+  it('shows "Colour book: None" with an Edit affordance when no book is set', async () => {
+    installMockFetch(baseRoutes());
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    expect(screen.getByText('Colour book:')).toBeInTheDocument();
+    expect(screen.getByText('None')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit colour book' })).toBeInTheDocument();
+  });
+
+  it('shows the PO colour book name in the summary', async () => {
+    installMockFetch(
+      baseRoutes(detail({ colorBookId: 'cb-old', colorBookName: 'Pantone 2024' })),
+    );
+    renderView();
+
+    expect(await screen.findByText('Pantone 2024')).toBeInTheDocument();
+    expect(screen.queryByText('None')).not.toBeInTheDocument();
+  });
+
+  it('edits the colour book from the supplier book list and PATCHes colorBookId', async () => {
+    const user = userEvent.setup();
+    const { fetchMock, addRoute } = installMockFetch(
+      baseRoutes(detail({ colorBookId: 'cb-old', colorBookName: 'Pantone 2024' })),
+    );
+    addRoute({
+      match: '/api/admin/suppliers/sup-1/color-books',
+      method: 'GET',
+      response: {
+        items: [
+          { id: 'cb-new', name: 'Pantone 2026', createdAt: '2026-08-01T00:00:00Z' },
+          { id: 'cb-old', name: 'Pantone 2024', createdAt: '2024-08-01T00:00:00Z' },
+        ],
+      },
+    });
+    addRoute({
+      match: `/api/admin/purchase-orders/${PO_ID}`,
+      method: 'PATCH',
+      response: { ok: true },
+    });
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    await user.click(screen.getByRole('button', { name: 'Edit colour book' }));
+    await user.click(await screen.findByRole('combobox', { name: 'Colour book' }));
+    // Newest first — the first option is flagged as the latest/default.
+    await user.click(await screen.findByText('Pantone 2026 (latest)'));
+
+    await vi.waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
+      expect(patch?.[0]).toBe(`/api/admin/purchase-orders/${PO_ID}`);
+      expect(JSON.parse(patch![1]!.body as string)).toEqual({ colorBookId: 'cb-new' });
+    });
+    expect(await screen.findByText('Colour book updated')).toBeInTheDocument();
+  });
+
+  it('renders the production files card with its files', async () => {
+    const { addRoute } = installMockFetch(baseRoutes());
+    // Registered after baseRoutes' empty files route, so it wins.
+    addRoute({
+      match: `/api/admin/purchase-orders/${PO_ID}/files`,
+      method: 'GET',
+      response: {
+        items: [
+          {
+            id: 'file-1',
+            fileName: 'layout-v1.pdf',
+            contentType: 'application/pdf',
+            sizeBytes: 1000,
+            category: 'Test print',
+            uploadedByKind: 'staff',
+            uploadedByLabel: 'dana@example.com',
+            statusAtUpload: 'test_print',
+            createdAt: '2026-07-19T10:00:00Z',
+            downloadUrl: 'https://signed.example.com/layout-v1.pdf',
+            comments: [],
+          },
+        ],
+      },
+    });
+    renderView();
+
+    expect(await screen.findByText('Production files')).toBeInTheDocument();
+    expect(await screen.findByText('layout-v1.pdf')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /download all as zip/i }).closest('a')).toHaveAttribute(
+      'href',
+      `/api/admin/purchase-orders/${PO_ID}/files.zip`,
+    );
   });
 });
