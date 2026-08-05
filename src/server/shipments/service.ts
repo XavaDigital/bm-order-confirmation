@@ -142,11 +142,16 @@ export async function createShipment(input: CreateShipmentInput, meta?: ActorMet
       })
       .returning();
 
-    await tx
-      .insert(shipmentPurchaseOrders)
-      .values(pos.map((po) => ({ shipmentId: row.id, purchaseOrderId: po.id })));
+    await tx.insert(shipmentPurchaseOrders).values(
+      pos.map((po) => ({
+        shipmentId: row.id,
+        purchaseOrderId: po.id,
+        contentsNote: input.poContents?.[po.id]?.trim() || null,
+      })),
+    );
 
     for (const po of pos) {
+      const contentsNote = input.poContents?.[po.id]?.trim() || null;
       await emitOrderEvent(tx, {
         aggregateId: po.order.id,
         eventType: 'shipment.created',
@@ -156,13 +161,20 @@ export async function createShipment(input: CreateShipmentInput, meta?: ActorMet
           carrier: row.carrier,
           poId: po.id,
           poNumber: po.poNumber,
+          contentsNote,
         },
       });
       await recordAuditEvent(
         {
           aggregateId: po.order.id,
           eventType: 'shipment.created',
-          payload: { shipmentId: row.id, nickname: row.nickname, poId: po.id, poNumber: po.poNumber },
+          payload: {
+            shipmentId: row.id,
+            nickname: row.nickname,
+            poId: po.id,
+            poNumber: po.poNumber,
+            contentsNote,
+          },
           actorEmail: meta?.actorEmail ?? null,
         },
         tx,
@@ -199,7 +211,11 @@ export async function getShipment(id: string) {
   const { purchaseOrderLinks, ...rest } = shipment;
   return {
     ...rest,
-    purchaseOrders: purchaseOrderLinks.map((l) => toPoSummary(l.purchaseOrder)),
+    purchaseOrders: purchaseOrderLinks.map((l) => ({
+      ...toPoSummary(l.purchaseOrder),
+      // What of the PO is IN this shipment — null = the whole PO.
+      contentsNote: l.contentsNote ?? null,
+    })),
   };
 }
 
@@ -342,7 +358,13 @@ export async function setShipmentStatus(id: string, next: ShipmentStatus, meta?:
 // Attach / detach purchase orders
 // ---------------------------------------------------------------------------
 
-export async function attachPurchaseOrders(id: string, poIds: string[], meta?: ActorMeta) {
+export async function attachPurchaseOrders(
+  id: string,
+  poIds: string[],
+  meta?: ActorMeta,
+  /** Per-PO "what's included" notes, keyed by PO id (partial shipments). */
+  poContents?: Record<string, string>,
+) {
   const shipment = await loadShipmentOrThrow(id);
   const pos = await loadPosForSupplier(poIds, shipment.supplierId);
 
@@ -356,16 +378,26 @@ export async function attachPurchaseOrders(id: string, poIds: string[], meta?: A
   }
 
   await db.transaction(async (tx) => {
-    await tx
-      .insert(shipmentPurchaseOrders)
-      .values(pos.map((po) => ({ shipmentId: id, purchaseOrderId: po.id })));
+    await tx.insert(shipmentPurchaseOrders).values(
+      pos.map((po) => ({
+        shipmentId: id,
+        purchaseOrderId: po.id,
+        contentsNote: poContents?.[po.id]?.trim() || null,
+      })),
+    );
 
     for (const po of pos) {
       await recordAuditEvent(
         {
           aggregateId: po.order.id,
           eventType: 'shipment.updated',
-          payload: { shipmentId: id, action: 'po_attached', poId: po.id, poNumber: po.poNumber },
+          payload: {
+            shipmentId: id,
+            action: 'po_attached',
+            poId: po.id,
+            poNumber: po.poNumber,
+            contentsNote: poContents?.[po.id]?.trim() || null,
+          },
           actorEmail: meta?.actorEmail ?? null,
         },
         tx,

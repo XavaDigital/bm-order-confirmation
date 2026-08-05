@@ -189,7 +189,12 @@ describe('PROTECTED_STAGE_SLUGS', () => {
   });
 
   it('covers every purchase-order status', () => {
-    expect(PROTECTED_STAGE_SLUGS.purchase_order).toHaveLength(10);
+    // 10 from 0020 + approved/test_print/prod_layout/quality_control from
+    // 0038 (David's 2026-08-05 production vocabulary).
+    expect(PROTECTED_STAGE_SLUGS.purchase_order).toHaveLength(14);
+    expect(PROTECTED_STAGE_SLUGS.purchase_order).toEqual(
+      expect.arrayContaining(['approved', 'test_print', 'prod_layout', 'quality_control']),
+    );
   });
 
   it('identifies protected and unprotected slugs per board', () => {

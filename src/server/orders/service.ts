@@ -21,6 +21,7 @@ import {
   orderAssets,
   orderNotes,
   domainEvents,
+  purchaseOrders,
   rosterMembers,
 } from '@/db/schema';
 import type { Transaction } from '@/db';
@@ -884,6 +885,17 @@ export async function updateOrder(
       }),
       updatedAt: new Date(),
     }).where(eq(orders.id, id));
+
+    // The PO's deadline mirrors the CUSTOMER deadline (David, 2026-08-05) —
+    // it is stamped from the order at PO create and re-synced here, so
+    // production staff never plan against a stale date. Every PO of the
+    // order gets the new value; the column is not per-PO editable.
+    if (patch.deadlineDate !== undefined && patch.deadlineDate !== existing.deadlineDate) {
+      await tx
+        .update(purchaseOrders)
+        .set({ deadlineDate: patch.deadlineDate ?? null, updatedAt: new Date() })
+        .where(eq(purchaseOrders.orderId, id));
+    }
 
     await recordAuditEvent(
       {

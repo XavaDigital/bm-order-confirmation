@@ -8,10 +8,11 @@
  * (in-transaction) and records an audit row, so the order timeline shows the
  * full production history.
  */
-import { and, desc, count, eq, ilike, isNull, like, or } from 'drizzle-orm';
+import { and, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import type { Transaction } from '@/db';
 import {
+  auditEvents,
   garments,
   orders,
   poSupplierAccess,
@@ -26,10 +27,10 @@ import type { PoSnapshot } from '@/db/schema';
 import { isUniqueViolation } from '@/lib/db-errors';
 import { sendSupplierPoEmail } from '@/lib/email';
 import { getFileBuffer } from '@/lib/storage';
+import { signPoSnapshotMedia } from '@/lib/signed-urls';
 import { logger } from '@/lib/logger';
 import { pickDefined } from '@/lib/patch';
-import { generateToken, buildSupplierPortalUrl } from '@/lib/tokens';
-import { mintToken, revokeActiveTokens } from '@/server/access/tokens';
+import { buildSupplierPoUrl } from '@/lib/tokens';
 import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
 import { ConflictError, NotFoundError } from '@/server/orders/service';
 import { syncOrderProductionStatus } from './hub-sync';
@@ -118,40 +119,39 @@ async function loadOrderGarments(orderId: string) {
       sizeChartLinks: {
         with: { sizeChart: { columns: { id: true, name: true, storageKey: true } } },
       },
+      // Mock-up images ride the snapshot too (David, 2026-08-05: the supplier
+      // PO must show the garment images).
+      images: { orderBy: (i, { asc }) => [asc(i.sortOrder), asc(i.createdAt)] },
     },
   });
 }
 
 /**
- * Build the next PO number: `PO-{YY}{MM}-{CODE}{NN}-{CUSTOMER}`.
+ * Build the next PO number: `{CODE}{seq}` (David, 2026-08-05 — DY123,
+ * GOAL123; each supplier counts alone, and the number doubles as the portal
+ * URL path `/supplier/po/{poNumber}`).
  *
- * NN is the count of existing POs sharing the `PO-{YYMM}-{CODE}` prefix + 1
- * (zero-padded to 2), computed inside the caller's transaction. Two
- * concurrent creates can still race to the same NN — callers retry once on
- * the po_number unique violation (see createPurchaseOrder).
+ * The sequence is the supplier row's `po_seq` counter, incremented HERE with
+ * an UPDATE inside the caller's transaction — the row lock serializes two
+ * concurrent creates for the same supplier, so unlike the old prefix-count
+ * scheme there is no race to the same number. The unique-violation retry in
+ * createPurchaseOrder stays as a belt-and-braces backstop (e.g. a manually
+ * renumbered row colliding with the counter).
+ *
+ * POs predating the format keep their `PO-{YYMM}-…` numbers; both formats are
+ * opaque strings everywhere downstream.
  */
 export async function generatePoNumber(
   tx: Transaction,
-  supplier: { name: string; supplierCode: string | null },
-  customerName: string,
-  now: Date,
+  supplier: { id: string; name: string; supplierCode: string | null },
 ): Promise<string> {
-  const yy = String(now.getFullYear() % 100).padStart(2, '0');
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
   const code = supplierCodeOrFallback(supplier);
-  const prefix = `PO-${yy}${mm}-${code}`;
-
-  const [{ existing }] = await tx
-    .select({ existing: count() })
-    .from(purchaseOrders)
-    .where(like(purchaseOrders.poNumber, `${prefix}%`));
-  const nn = String(Number(existing) + 1).padStart(2, '0');
-
-  const customer = customerName
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
-    .slice(0, 10);
-  return `${prefix}${nn}-${customer}`;
+  const [{ seq }] = await tx
+    .update(suppliers)
+    .set({ poSeq: sql`${suppliers.poSeq} + 1` })
+    .where(eq(suppliers.id, supplier.id))
+    .returning({ seq: suppliers.poSeq });
+  return `${code}${seq}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput, meta?
 
   const create = () =>
     db.transaction(async (tx) => {
-      const poNumber = await generatePoNumber(tx, supplier, order.customerName, new Date());
+      const poNumber = await generatePoNumber(tx, supplier);
 
       const [po] = await tx
         .insert(purchaseOrders)
@@ -209,7 +209,11 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput, meta?
           supplierId: supplier.id,
           status: 'draft',
           currentRevisionNumber: 1,
-          deadlineDate: input.deadlineDate ?? null,
+          // The CUSTOMER deadline, copied from the order (David, 2026-08-05):
+          // it exists so production staff can spot POs cutting it fine, is
+          // re-synced when the order's deadline changes, and must NEVER reach
+          // the supplier (portal, PDF and XLSX all omit it).
+          deadlineDate: order.deadlineDate ?? null,
           expectedShipDate: input.expectedShipDate ?? null,
           notes: input.notes ?? null,
           createdBy: meta?.actorStaffUserId ?? null,
@@ -275,6 +279,10 @@ export async function getPurchaseOrder(id: string) {
           customerName: true,
           status: true,
           colorSampleRequestedAt: true,
+          // The customer deadline — displayed on the admin PO page (the PO's
+          // own deadlineDate mirrors it, but serving the order's live value
+          // means the display can never be stale).
+          deadlineDate: true,
         },
       },
       revisions: { orderBy: (r, { desc }) => [desc(r.revisionNumber)] },
@@ -295,7 +303,35 @@ export async function getPurchaseOrder(id: string) {
     supplierLink: activeSupplierLink
       ? { active: true as const, lastViewedAt: activeSupplierLink.lastViewedAt }
       : { active: false as const, lastViewedAt: null },
+    portalUrl: buildSupplierPoUrl(po.poNumber),
+    history: await listPoHistory(po.orderId, id),
   };
+}
+
+/**
+ * The PO's who/when record (David, 2026-08-05): status changes, ship-date
+ * moves, sends and supplier updates, newest first — read from the audit
+ * trail, filtered to THIS PO by the poId every PO audit payload carries.
+ */
+export async function listPoHistory(orderId: string, poId: string) {
+  const rows = await db
+    .select({
+      id: auditEvents.id,
+      eventType: auditEvents.eventType,
+      actorEmail: auditEvents.actorEmail,
+      payload: auditEvents.payload,
+      createdAt: auditEvents.createdAt,
+    })
+    .from(auditEvents)
+    .where(
+      and(
+        eq(auditEvents.aggregateId, orderId),
+        sql`${auditEvents.payload}->>'poId' = ${poId}`,
+      ),
+    )
+    .orderBy(desc(auditEvents.createdAt))
+    .limit(100);
+  return rows;
 }
 
 export async function listRevisions(id: string) {
@@ -447,6 +483,27 @@ export async function updatePurchaseOrder(
     actorEmail: meta?.actorEmail ?? null,
   });
 
+  // A ship-date move gets its own from→to audit row (David, 2026-08-05: the
+  // PO must record who changed the expected ship date and when) — the generic
+  // po.updated row above only names the field, which cannot answer "what did
+  // it slip from". Same event the supplier-portal ship-date path records.
+  if (
+    patch.expectedShipDate !== undefined &&
+    (patch.expectedShipDate ?? null) !== po.expectedShipDate
+  ) {
+    await recordAuditEvent({
+      aggregateId: po.orderId,
+      eventType: 'po.ship_date_changed',
+      payload: {
+        poId: id,
+        poNumber: po.poNumber,
+        from: po.expectedShipDate,
+        to: patch.expectedShipDate ?? null,
+      },
+      actorEmail: meta?.actorEmail ?? null,
+    });
+  }
+
   return (await db.query.purchaseOrders.findFirst({ where: eq(purchaseOrders.id, id) }))!;
 }
 
@@ -536,70 +593,12 @@ export async function updatePurchaseOrderStatus(
 // Supplier portal link (SUPPLIER_PORTAL_PLAN.md)
 // ---------------------------------------------------------------------------
 
-/**
- * Mint (or rotate) the token-gated supplier portal link for this PO — same
- * revoke-then-insert pattern `generateAccessToken`/`generateRosterToken` use,
- * via the shared `mintToken` helper. One active link per PO, enforced at the
- * DB level (`po_supplier_access_one_active_uq`).
- *
- * Called both from the manual "Generate/Regenerate link" admin action AND
- * automatically from `sendPurchaseOrder` on every send — a resend always
- * carries a fresh working link, at the cost of invalidating one shared
- * earlier (the same tradeoff TEAM_ROSTER_PLAN.md's roster-reminder "Regenerate
- * link" already accepts).
- */
-export async function generateSupplierPortalLink(id: string, meta?: ActorMeta): Promise<string> {
-  const po = await loadPoOrThrow(id);
-  const rawToken = generateToken();
-
-  await db.transaction(async (tx) => {
-    await mintToken(
-      tx,
-      poSupplierAccess,
-      rawToken,
-      eq(poSupplierAccess.purchaseOrderId, id),
-      { purchaseOrderId: id },
-    );
-    await emitOrderEvent(tx, {
-      aggregateId: po.orderId,
-      eventType: 'supplier_link.generated',
-      payload: { poId: id, poNumber: po.poNumber },
-    });
-    await recordAuditEvent(
-      {
-        aggregateId: po.orderId,
-        eventType: 'supplier_link.generated',
-        payload: { poId: id, poNumber: po.poNumber },
-        actorEmail: meta?.actorEmail ?? null,
-      },
-      tx,
-    );
-  });
-
-  return buildSupplierPortalUrl(rawToken);
-}
-
-export async function revokeSupplierPortalLink(id: string, meta?: ActorMeta): Promise<void> {
-  const po = await loadPoOrThrow(id);
-
-  await db.transaction(async (tx) => {
-    await revokeActiveTokens(tx, poSupplierAccess, eq(poSupplierAccess.purchaseOrderId, id));
-    await emitOrderEvent(tx, {
-      aggregateId: po.orderId,
-      eventType: 'supplier_link.revoked',
-      payload: { poId: id, poNumber: po.poNumber },
-    });
-    await recordAuditEvent(
-      {
-        aggregateId: po.orderId,
-        eventType: 'supplier_link.revoked',
-        payload: { poId: id, poNumber: po.poNumber },
-        actorEmail: meta?.actorEmail ?? null,
-      },
-      tx,
-    );
-  });
-}
+// The manual generate/revoke supplier-link actions are GONE (David,
+// 2026-08-05): the pretty per-PO URL is deterministic from the PO number and
+// gated by the supplier's portal password, so there is nothing to mint.
+// Legacy per-PO tokens already in supplier inboxes keep resolving via
+// /s/[token] (resolveActiveToken is untouched); they are just never minted
+// again.
 
 // ---------------------------------------------------------------------------
 // Send to supplier
@@ -616,7 +615,8 @@ export interface RenderPoPdfProps {
   revisionNumber: number;
   revisionReason: string | null;
   createdAt: string;
-  deadlineDate: string | null;
+  // No deadlineDate: the PO's deadline is the CUSTOMER deadline (2026-08-05)
+  // and the PDF is a supplier-facing document — it must never render it.
   expectedShipDate: string | null;
   notes: string | null;
   supplier: {
@@ -697,7 +697,13 @@ export async function sendPurchaseOrder(
     },
   });
   if (!po) throw new NotFoundError('Purchase order');
-  if (po.status !== 'draft' && po.status !== 'sent') {
+  // APPROVED gates the send (David, 2026-08-05): a draft must be internally
+  // signed off before it can go to the factory. Resending an already-sent PO
+  // (or one further along) after a revision stays legal.
+  if (po.status === 'draft') {
+    throw new ConflictError('Approve the purchase order before sending it');
+  }
+  if (po.status === 'cancelled' || po.status === 'completed' || po.status === 'received') {
     throw new ConflictError(`Cannot send a ${po.status} purchase order`);
   }
   const supplierEmail = po.supplier.email;
@@ -723,7 +729,6 @@ export async function sendPurchaseOrder(
     revisionNumber: latest.revisionNumber,
     revisionReason: latest.reason,
     createdAt: latest.createdAt.toISOString(),
-    deadlineDate: po.deadlineDate,
     expectedShipDate: po.expectedShipDate,
     notes: po.notes,
     supplier: {
@@ -732,13 +737,16 @@ export async function sendPurchaseOrder(
       email: po.supplier.email,
       phone: po.supplier.phone,
     },
-    snapshot: latest.snapshot,
+    // Signed so the PDF can EMBED the garment mock-up images (the bytes land
+    // in the document at render time — no expiring URL survives in the email).
+    // On a storage hiccup URLs come back null and PoPdf skips those images.
+    snapshot: await signPoSnapshotMedia(latest.snapshot),
   });
 
-  // Mint a fresh supplier portal link on every send (see generateSupplierPortalLink
-  // doc comment for the "always rotate" tradeoff) so the email always carries a
-  // working link, whether this is the first send or a resend after a revision.
-  const portalUrl = await generateSupplierPortalLink(id, meta);
+  // The pretty per-PO portal URL (David, 2026-08-05): deterministic from the
+  // PO number, gated by the supplier's portal password — no token to mint,
+  // and the link in an old email never stops working.
+  const portalUrl = buildSupplierPoUrl(po.poNumber);
 
   await sendSupplierPoEmail({
     to: supplierEmail,
@@ -752,9 +760,9 @@ export async function sendPurchaseOrder(
     extraAttachments: await collectSnapshotAttachments(latest.snapshot),
   });
 
-  // First send moves draft → sent via the normal status machine (sentAt stamp
-  // + status_changed event). A resend leaves the status untouched.
-  if (po.status === 'draft') {
+  // First send moves approved → sent via the normal status machine (sentAt
+  // stamp + status_changed event). A resend leaves the status untouched.
+  if (po.status === 'approved') {
     await updatePurchaseOrderStatus(id, 'sent', meta);
   }
 

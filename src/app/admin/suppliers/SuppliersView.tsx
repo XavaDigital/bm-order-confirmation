@@ -33,6 +33,8 @@ export interface SupplierRow {
   id: string;
   name: string;
   supplierCode: string | null;
+  /** Readable portal password — set means the /supplier/{CODE} portal is open. */
+  portalPassword: string | null;
   contactPerson: string | null;
   email: string | null;
   phone: string | null;
@@ -48,6 +50,7 @@ export interface SupplierRow {
 interface FormValues {
   name: string;
   supplierCode?: string;
+  portalPassword?: string;
   contactPerson?: string;
   email?: string;
   phone?: string;
@@ -98,6 +101,7 @@ export function SuppliersView({ role }: Props) {
     form.setFieldsValue({
       name: row.name,
       supplierCode: row.supplierCode ?? undefined,
+      portalPassword: row.portalPassword ?? undefined,
       contactPerson: row.contactPerson ?? undefined,
       email: row.email ?? undefined,
       phone: row.phone ?? undefined,
@@ -149,6 +153,9 @@ export function SuppliersView({ role }: Props) {
     const body: Record<string, unknown> = {
       name: values.name,
       supplierCode: trimmedOrNull(values.supplierCode),
+      // null clears the password, which closes the portal and signs the
+      // supplier out (the PATCH contract takes portalPassword nullable).
+      portalPassword: trimmedOrNull(values.portalPassword),
       contactPerson: trimmedOrNull(values.contactPerson),
       email: trimmedOrNull(values.email),
       phone: trimmedOrNull(values.phone),
@@ -253,6 +260,18 @@ export function SuppliersView({ role }: Props) {
         ),
     },
     {
+      title: 'Portal',
+      key: 'portal',
+      width: 90,
+      // The supplier portal needs BOTH a code (it's the URL) and a password.
+      render: (_: unknown, row: SupplierRow) =>
+        row.portalPassword && row.supplierCode ? (
+          <Tag color="green">Enabled</Tag>
+        ) : (
+          <Text type="secondary">Off</Text>
+        ),
+    },
+    {
       title: 'MOQ',
       dataIndex: 'minimumOrderQuantity',
       key: 'moq',
@@ -345,6 +364,15 @@ export function SuppliersView({ role }: Props) {
               <Switch />
             </Form.Item>
           </div>
+
+          <Form.Item
+            label="Portal password"
+            name="portalPassword"
+            help="Sets the /supplier/{CODE} portal password; clearing it closes the portal and signs the supplier out."
+            rules={[{ min: 6, max: 64, message: '6-64 characters' }]}
+          >
+            <Input placeholder="Leave blank to keep the portal closed" maxLength={64} />
+          </Form.Item>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
             <Form.Item label="Contact person" name="contactPerson">

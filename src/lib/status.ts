@@ -40,24 +40,38 @@ export function orderStatusMeta(status: string): StatusMeta {
 
 export type PoStatus =
   | 'draft'
+  | 'approved'
   | 'sent'
   | 'confirmed'
   | 'pre_production'
+  | 'test_print'
+  | 'prod_layout'
   | 'in_production'
+  | 'quality_control'
   | 'in_transit'
   | 'received'
   | 'completed'
   | 'remake'
   | 'cancelled';
 
-/** Colors follow the legacy bm-quote map — what production staff recognize. */
+/**
+ * Labels are David's 2026-08-05 production vocabulary; several VALUE names
+ * differ from their labels because pg enum values cannot be renamed (sent =
+ * Unconfirmed, pre_production = Design prep, in_production = Production,
+ * in_transit = Shipping). Colors keep the legacy bm-quote hues where a value
+ * survived — what production staff recognize.
+ */
 export const PO_STATUS: Record<PoStatus, StatusMeta> = {
   draft: { label: 'Draft', tag: 'default', hex: '#8c8c8c' },
-  sent: { label: 'Sent', tag: 'blue', hex: '#1677ff' },
-  confirmed: { label: 'Confirmed', tag: 'cyan', hex: '#13c2c2' },
-  pre_production: { label: 'Pre-production', tag: 'purple', hex: '#722ed1' },
-  in_production: { label: 'In production', tag: 'geekblue', hex: '#2f54eb' },
-  in_transit: { label: 'In transit', tag: 'orange', hex: '#fa8c16' },
+  approved: { label: 'Approved', tag: 'cyan', hex: '#13c2c2' },
+  sent: { label: 'Unconfirmed', tag: 'blue', hex: '#1677ff' },
+  confirmed: { label: 'Confirmed', tag: 'cyan', hex: '#13c2c2' }, // legacy rows only
+  pre_production: { label: 'Design prep', tag: 'purple', hex: '#722ed1' },
+  test_print: { label: 'Test print', tag: 'magenta', hex: '#eb2f96' },
+  prod_layout: { label: 'Prod layout', tag: 'gold', hex: '#faad14' },
+  in_production: { label: 'Production', tag: 'geekblue', hex: '#2f54eb' },
+  quality_control: { label: 'Quality control', tag: 'lime', hex: '#a0d911' },
+  in_transit: { label: 'Shipping', tag: 'orange', hex: '#fa8c16' },
   received: { label: 'Received', tag: 'green', hex: '#52c41a' },
   completed: { label: 'Completed', tag: 'success', hex: '#52c41a' },
   remake: { label: 'Remake', tag: 'red', hex: '#ff4d4f' },

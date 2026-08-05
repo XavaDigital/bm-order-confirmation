@@ -4,6 +4,7 @@ import { getPurchaseOrder } from '@/server/purchase-orders/service';
 import { PoPdf } from '@/components/admin/purchase-orders/PoPdf';
 import { notFound } from '@/lib/api-responses';
 import { defineRoute } from '@/lib/route-handler';
+import { signPoSnapshotMedia } from '@/lib/signed-urls';
 
 /**
  * Render the PO PDF for the supplier. Defaults to the LATEST revision;
@@ -29,6 +30,11 @@ export const GET = defineRoute<{ id: string }>({
       revision = found;
     }
 
+    // Sign the garment mock-up images so the PDF can embed them — the stored
+    // snapshot only carries storage keys (images whose URL fails to sign are
+    // skipped by PoPdf).
+    const snapshot = await signPoSnapshotMedia(revision.snapshot);
+
     const buffer = await renderToBuffer(
       (
         <PoPdf
@@ -36,7 +42,6 @@ export const GET = defineRoute<{ id: string }>({
           revisionNumber={revision.revisionNumber}
           revisionReason={revision.reason}
           createdAt={revision.createdAt.toISOString()}
-          deadlineDate={po.deadlineDate}
           expectedShipDate={po.expectedShipDate}
           notes={po.notes}
           supplier={{
@@ -45,7 +50,7 @@ export const GET = defineRoute<{ id: string }>({
             email: po.supplier.email,
             phone: po.supplier.phone,
           }}
-          snapshot={revision.snapshot}
+          snapshot={snapshot}
         />
       ) as Parameters<typeof renderToBuffer>[0],
     );

@@ -29,7 +29,8 @@ export interface PoXlsxProps {
   revisionNumber: number;
   revisionReason?: string | null;
   createdAt: string;
-  deadlineDate: string | null;
+  // No deadlineDate: the PO deadline is the CUSTOMER deadline (2026-08-05)
+  // and this workbook goes to the factory — it must never carry it.
   expectedShipDate: string | null;
   notes: string | null;
   supplier: {
@@ -41,13 +42,32 @@ export interface PoXlsxProps {
   snapshot: PoSnapshot;
 }
 
-/** "Label: value; Label2: value2" — flattens a selected-options map for one cell. */
+/**
+ * "Label: value; Label2: value2" — flattens an options map for one cell,
+ * keeping EVERY key (David, 2026-08-05: all garment options must always be
+ * displayed, relevant or blank — a blank value renders as a dash).
+ */
 function flattenMap(map: Record<string, string> | null): string {
   if (!map) return '';
   return Object.entries(map)
-    .filter(([, v]) => v)
-    .map(([label, value]) => `${label}: ${value}`)
+    .map(([label, value]) => `${label}: ${value?.trim() ? value : '—'}`)
     .join('; ');
+}
+
+/**
+ * The fabrics cell: labeled picks when the garment is typed ("Outer Fabric:
+ * Poly 300"), else the legacy free-text list — labels preserved, unlike
+ * effectiveFabrics which flattens to bare values.
+ */
+function fabricSummary(garment: {
+  fabrics: string[];
+  selectedFabrics: Record<string, string> | null;
+}): string {
+  const labeled = Object.entries(garment.selectedFabrics ?? {})
+    .filter(([, v]) => v)
+    .map(([label, value]) => `${label}: ${value}`);
+  if (labeled.length > 0) return labeled.join('; ');
+  return effectiveFabrics(garment).join(', ');
 }
 
 function labelCell(sheet: ExcelJS.Worksheet, row: number, label: string, value: string) {
@@ -98,8 +118,7 @@ function buildSummarySheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
     labelCell(sheet, row++, 'Reprint of', props.snapshot.reprintOfOrderNumber);
   }
   labelCell(sheet, row++, 'PO issued', props.createdAt.slice(0, 10));
-  if (props.deadlineDate) labelCell(sheet, row++, 'Deadline', props.deadlineDate);
-  if (props.expectedShipDate) labelCell(sheet, row++, 'Expected ship', props.expectedShipDate);
+  if (props.expectedShipDate) labelCell(sheet, row++, 'Required ship date', props.expectedShipDate);
 
   row++;
   sectionTitle(sheet, row++, 'Supplier');
@@ -144,8 +163,43 @@ function buildSummarySheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
     }
   }
 
-  // Flat Garment/Size/Quantity table — pivots and sums directly in Excel.
+  // Per-garment specs (David, 2026-08-05: fabrics, options, size charts and
+  // images must all reach the factory in the spreadsheet too). Fabrics and
+  // Options rows always render — a blank shows as a dash, never disappears.
+  // Images are listed by caption/filename only, never embedded.
   row++;
+  sectionTitle(sheet, row++, 'Garment details');
+  for (const garment of props.snapshot.garments) {
+    const titleCell = sheet.getCell(`A${row++}`);
+    titleCell.value = neutralizeFormula(
+      garment.garmentTypeName ? `${garment.name} — ${garment.garmentTypeName}` : garment.name,
+    );
+    titleCell.font = { bold: true, size: 10 };
+
+    labelCell(sheet, row++, 'Fabrics', neutralizeFormula(fabricSummary(garment)) || '—');
+    labelCell(sheet, row++, 'Options', neutralizeFormula(flattenMap(garment.selectedOptions)) || '—');
+    const charts = garment.sizeCharts ?? [];
+    if (charts.length > 0) {
+      labelCell(sheet, row++, 'Size charts', neutralizeFormula(charts.map((c) => c.name).join(', ')));
+    }
+    const images = garment.images ?? [];
+    if (images.length > 0) {
+      labelCell(
+        sheet,
+        row++,
+        'Images',
+        neutralizeFormula(
+          images
+            .map((img) => img.caption?.trim() || img.storageKey.split('/').pop() || 'image')
+            .join(', '),
+        ),
+      );
+    }
+    if (garment.notes) labelCell(sheet, row++, 'Notes', neutralizeFormula(garment.notes));
+    row++; // spacer between garments
+  }
+
+  // Flat Garment/Size/Quantity table — pivots and sums directly in Excel.
   sectionTitle(sheet, row++, 'Size summary');
   const headerRow = sheet.getRow(row++);
   headerRow.values = ['Garment', 'Size', 'Quantity'];
@@ -199,10 +253,7 @@ function buildLinesSheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
   styleTableHeader(sheet.getRow(1));
 
   for (const garment of props.snapshot.garments) {
-    const fabrics = effectiveFabrics({
-      fabrics: garment.fabrics,
-      selectedFabrics: garment.selectedFabrics,
-    }).join(', ');
+    const fabrics = fabricSummary(garment);
     const options = flattenMap(garment.selectedOptions);
 
     for (const line of garment.lines) {

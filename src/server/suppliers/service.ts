@@ -65,6 +65,7 @@ export async function createSupplier(input: CreateSupplierInput) {
       .values({
         name: input.name,
         supplierCode: input.supplierCode ?? null,
+        portalPassword: input.portalPassword ?? null,
         contactPerson: input.contactPerson ?? null,
         email: input.email ?? null,
         phone: input.phone ?? null,

@@ -627,6 +627,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
           orderId={order.id}
           orderStatus={currentStatus}
           colorSampleRequestedAt={colorSampleRequestedAt}
+          deadlineDate={order.deadlineDate ?? null}
           garments={order.garments.map((g) => ({ id: g.id, name: g.name }))}
           summary={production.summary}
           loading={production.loading}

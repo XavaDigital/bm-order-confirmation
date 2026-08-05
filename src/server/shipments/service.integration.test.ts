@@ -123,6 +123,7 @@ describe('createShipment', () => {
         carrier: 'DHL',
         poId: po.id,
         poNumber: po.poNumber,
+        contentsNote: null,
       });
 
       const audits = await db.query.auditEvents.findMany({
@@ -337,6 +338,7 @@ describe('attachPurchaseOrders / detachPurchaseOrder', () => {
       action: 'po_attached',
       poId: second.po.id,
       poNumber: second.po.poNumber,
+      contentsNote: null,
     });
 
     const detached = await detachPurchaseOrder(shipment.id, second.po.id, {
@@ -417,7 +419,8 @@ describe('getShipment / listShipments', () => {
     const shipment = await getShipment(created.id);
     expect(shipment.supplier.name).toBe('Vast Apparel');
     expect(shipment.purchaseOrders).toEqual([
-      { id: po.id, poNumber: po.poNumber, status: 'draft', orderId, orderNumber },
+      // contentsNote null = the whole PO travels in this shipment.
+      { id: po.id, poNumber: po.poNumber, status: 'draft', orderId, orderNumber, contentsNote: null },
     ]);
 
     await expect(getShipment(GHOST)).rejects.toThrow('Shipment not found');

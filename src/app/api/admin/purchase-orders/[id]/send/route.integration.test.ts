@@ -60,7 +60,9 @@ beforeEach(async () => {
   session.email = 'staff@example.com';
 });
 
-async function seedPo(opts: { supplierEmail?: string | null; satisfyGate?: boolean } = {}) {
+async function seedPo(
+  opts: { supplierEmail?: string | null; satisfyGate?: boolean; approve?: boolean } = {},
+) {
   const [supplier] = await db
     .insert(schema.suppliers)
     .values({
@@ -88,6 +90,9 @@ async function seedPo(opts: { supplierEmail?: string | null; satisfyGate?: boole
   // seeds five tasks carrying `po_send`). These tests are about the SEND, so
   // satisfy the gate unless a test is specifically exercising it.
   if (opts.satisfyGate !== false) await satisfyPoSendGate(created.orderId);
+  // Drafts cannot send since the APPROVED status landed (David, 2026-08-05) —
+  // approve by default so the send tests exercise the send, not the gate.
+  if (opts.approve !== false) await updatePurchaseOrderStatus(po.id, 'approved');
   return { po, orderId: created.orderId, orderNumber: created.orderNumber };
 }
 
@@ -149,7 +154,18 @@ describe('POST /api/admin/purchase-orders/[id]/send', () => {
     expect(sendSupplierPoEmail).not.toHaveBeenCalled();
   });
 
-  it('sends the latest revision PDF, moves draft → sent with a sentAt stamp, and records po.sent', async () => {
+  it('returns 409 for a DRAFT — approval must come first (David, 2026-08-05)', async () => {
+    const { po } = await seedPo({ approve: false });
+
+    const res = await POST(postRequest(po.id), withId(po.id));
+    const json = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(json.error).toBe('Approve the purchase order before sending it');
+    expect(sendSupplierPoEmail).not.toHaveBeenCalled();
+  });
+
+  it('sends the latest revision PDF, moves approved → sent with a sentAt stamp, and records po.sent', async () => {
     const { po, orderId, orderNumber } = await seedPo();
 
     const res = await POST(postRequest(po.id), withId(po.id));
@@ -171,14 +187,14 @@ describe('POST /api/admin/purchase-orders/[id]/send', () => {
     expect(Buffer.isBuffer(emailArgs.pdf)).toBe(true);
     expect(emailArgs.pdf.subarray(0, 4).toString('latin1')).toBe('%PDF');
 
-    // SUPPLIER_PORTAL_PLAN.md Phase 5: sending a PO auto-mints its supplier
-    // portal link and includes it in the email.
+    // The email carries the PRETTY per-PO portal URL (David, 2026-08-05) —
+    // deterministic from the PO number, no token minted anymore.
     expect(typeof emailArgs.portalUrl).toBe('string');
-    expect(emailArgs.portalUrl).toContain('/s/');
+    expect(emailArgs.portalUrl).toContain(`/supplier/po/${po.poNumber}`);
     const activeLink = await db.query.poSupplierAccess.findFirst({
       where: and(eq(schema.poSupplierAccess.purchaseOrderId, po.id), isNull(schema.poSupplierAccess.revokedAt)),
     });
-    expect(activeLink).toBeDefined();
+    expect(activeLink).toBeUndefined();
 
     const updated = (await db.query.purchaseOrders.findFirst({
       where: eq(schema.purchaseOrders.id, po.id),
@@ -199,7 +215,7 @@ describe('POST /api/admin/purchase-orders/[id]/send', () => {
 
   it('resends an already-sent PO (revision > 1 gets the amended subject inputs) without touching status', async () => {
     const { po } = await seedPo();
-    await POST(postRequest(po.id), withId(po.id)); // first send: draft → sent
+    await POST(postRequest(po.id), withId(po.id)); // first send: approved → sent
     await issueRevision(po.id, { reason: 'sizes corrected' });
     sendSupplierPoEmail.mockClear();
 
@@ -218,17 +234,19 @@ describe('POST /api/admin/purchase-orders/[id]/send', () => {
 
   it('returns 409 for a status that does not allow sending', async () => {
     const { po } = await seedPo();
-    await updatePurchaseOrderStatus(po.id, 'in_production');
+    // A mid-production resend is legal since 2026-08-05 (revisions can chase a
+    // job on the floor) — only the terminal/receipt statuses refuse.
+    await updatePurchaseOrderStatus(po.id, 'received');
 
     const res = await POST(postRequest(po.id), withId(po.id));
     const json = await res.json();
 
     expect(res.status).toBe(409);
-    expect(json.error).toBe('Cannot send a in_production purchase order');
+    expect(json.error).toBe('Cannot send a received purchase order');
     expect(sendSupplierPoEmail).not.toHaveBeenCalled();
   });
 
-  it('returns 500 with the underlying message when the SMTP send fails, leaving the PO draft', async () => {
+  it('returns 500 with the underlying message when the SMTP send fails, leaving the PO approved', async () => {
     sendSupplierPoEmail.mockRejectedValueOnce(new Error('SMTP exploded'));
     const { po } = await seedPo();
 
@@ -241,7 +259,7 @@ describe('POST /api/admin/purchase-orders/[id]/send', () => {
     const updated = (await db.query.purchaseOrders.findFirst({
       where: eq(schema.purchaseOrders.id, po.id),
     }))!;
-    expect(updated.status).toBe('draft');
+    expect(updated.status).toBe('approved');
     expect(updated.sentAt).toBeNull();
   });
 });
@@ -265,7 +283,7 @@ describe('POST /api/admin/purchase-orders/[id]/send — pre-production gate', ()
     const after = (await db.query.purchaseOrders.findFirst({
       where: eq(schema.purchaseOrders.id, po.id),
     }))!;
-    expect(after.status).toBe('draft');
+    expect(after.status).toBe('approved');
     expect(after.sentAt).toBeNull();
   });
 

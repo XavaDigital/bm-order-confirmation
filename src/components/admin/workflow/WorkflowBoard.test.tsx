@@ -224,7 +224,7 @@ describe('WorkflowBoard — rendering', () => {
 });
 
 describe('WorkflowBoard — purchase-order cards', () => {
-  it('links a PO card to its order production tab', async () => {
+  it('links a PO card straight to the purchase order (David, 2026-08-05)', async () => {
     vi.mocked(getJson).mockResolvedValue({
       boardKey: 'purchase_order',
       orphanedCount: 0,
@@ -249,7 +249,37 @@ describe('WorkflowBoard — purchase-order cards', () => {
     renderBoard('purchase_order');
 
     const link = await screen.findByRole('link', { name: /^PO-/ });
-    expect(link).toHaveAttribute('href', '/admin/orders/order-9?tab=production');
+    expect(link).toHaveAttribute('href', '/admin/purchase-orders/po1');
+  });
+
+  it('clicking anywhere on a PO card opens the purchase order', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getJson).mockResolvedValue({
+      boardKey: 'purchase_order',
+      orphanedCount: 0,
+      columns: [
+        {
+          slug: 'sent',
+          name: 'Sent to Supplier',
+          statusKey: 'sent',
+          color: null,
+          isTerminal: false,
+          cards: [
+            card({
+              id: 'po1',
+              reference: 'PO-2607-ACM-JANECOACH',
+              title: 'Acme Apparel',
+              orderId: 'order-9',
+            }),
+          ],
+        },
+      ],
+    });
+    renderBoard('purchase_order');
+
+    await user.click(await screen.findByText('Acme Apparel'));
+
+    expect(routerPushMock).toHaveBeenCalledWith('/admin/purchase-orders/po1');
   });
 });
 

@@ -28,10 +28,14 @@ export const PROTECTED_STAGE_SLUGS: Readonly<Record<WorkflowBoardKey, readonly s
   order: ['draft', 'sent', 'viewed', 'changes_requested', 'confirmed', 'cancelled'],
   purchase_order: [
     'draft',
+    'approved', // seeded in 0038 with the 2026-08-05 vocabulary
     'sent',
     'confirmed',
     'pre_production',
+    'test_print', // seeded in 0038 with the 2026-08-05 vocabulary
+    'prod_layout', // seeded in 0038
     'in_production',
+    'quality_control', // seeded in 0038
     'in_transit',
     'received',
     'completed',

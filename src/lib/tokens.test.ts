@@ -1,5 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import { generateToken, hashToken, tokensMatch, buildConfirmationUrl, buildRosterUrl } from './tokens';
+import {
+  generateToken,
+  hashToken,
+  tokensMatch,
+  buildConfirmationUrl,
+  buildRosterUrl,
+  buildSupplierPoUrl,
+  buildSupplierPortalHomeUrl,
+} from './tokens';
 
 vi.mock('./env', () => ({
   env: { APP_BASE_URL: 'http://localhost:3000/', TOKEN_PEPPER: 'test-pepper' },
@@ -59,5 +67,23 @@ describe('buildConfirmationUrl', () => {
 describe('buildRosterUrl', () => {
   it('strips a trailing slash from APP_BASE_URL before appending the roster path', () => {
     expect(buildRosterUrl('abc123')).toBe('http://localhost:3000/o/roster/abc123');
+  });
+});
+
+describe('buildSupplierPoUrl', () => {
+  it('builds the pretty per-PO portal URL from the PO number', () => {
+    expect(buildSupplierPoUrl('DY123')).toBe('http://localhost:3000/supplier/po/DY123');
+  });
+
+  it('URI-encodes legacy PO numbers so pre-2026-08 formats stay linkable', () => {
+    expect(buildSupplierPoUrl('PO-2607-VA01-JANE COACH')).toBe(
+      'http://localhost:3000/supplier/po/PO-2607-VA01-JANE%20COACH',
+    );
+  });
+});
+
+describe('buildSupplierPortalHomeUrl', () => {
+  it('builds the supplier portal home from the supplier code', () => {
+    expect(buildSupplierPortalHomeUrl('DY')).toBe('http://localhost:3000/supplier/DY');
   });
 });

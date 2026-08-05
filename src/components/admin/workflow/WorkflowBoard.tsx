@@ -140,9 +140,11 @@ export function applyOptimisticMove(
 }
 
 function cardHref(boardKey: BoardKey, card: BoardCard): string {
+  // A PO card opens the PO itself, not the parent order (David, 2026-08-05) —
+  // the card's id IS the purchase-order id on the purchase_order board.
   return boardKey === 'order'
     ? `/admin/orders/${card.id}`
-    : `/admin/orders/${card.orderId ?? ''}?tab=production`;
+    : `/admin/purchase-orders/${card.id}`;
 }
 
 function DraggableCard({

@@ -121,7 +121,7 @@ describe('POST /api/admin/purchase-orders', () => {
     const { po, status, garmentId } = await createPoViaRoute();
 
     expect(status).toBe(201);
-    expect(po.poNumber).toMatch(/^PO-\d{4}-VA01-JANECOACH$/);
+    expect(po.poNumber).toBe('VA1'); // {CODE}{seq} numbering (2026-08-05)
     expect(po.status).toBe('draft');
     expect(po.createdBy).toBe(staff.id);
     expect(po.revision.revisionNumber).toBe(1);
@@ -202,21 +202,48 @@ describe('GET /api/admin/purchase-orders (+detail)', () => {
 });
 
 describe('PATCH /api/admin/purchase-orders/[id]', () => {
-  it('updates dates/notes', async () => {
+  it('updates dates/notes and audits the ship-date move with from→to', async () => {
     await setStaffSession();
-    const { po } = await createPoViaRoute();
+    const { po, orderId } = await createPoViaRoute();
 
     const res = await PATCH(
       jsonRequest(`/api/admin/purchase-orders/${po.id}`, 'PATCH', {
-        deadlineDate: '2026-09-15',
-        notes: 'deadline pulled in',
+        expectedShipDate: '2026-09-15',
+        notes: 'ship date agreed',
       }),
       withId(po.id),
     );
     const updated = await res.json();
     expect(res.status).toBe(200);
-    expect(updated.deadlineDate).toBe('2026-09-15');
-    expect(updated.notes).toBe('deadline pulled in');
+    expect(updated.expectedShipDate).toBe('2026-09-15');
+    expect(updated.notes).toBe('ship date agreed');
+
+    const audits = await db.query.auditEvents.findMany({
+      where: eq(schema.auditEvents.aggregateId, orderId),
+    });
+    const shipDateAudit = audits.find((a) => a.eventType === 'po.ship_date_changed');
+    expect(shipDateAudit).toBeDefined();
+    expect(shipDateAudit!.payload).toEqual({
+      poId: po.id,
+      poNumber: po.poNumber,
+      from: null,
+      to: '2026-09-15',
+    });
+  });
+
+  it('silently strips deadlineDate — the PO mirrors the order and is not per-PO editable', async () => {
+    await setStaffSession();
+    const { po } = await createPoViaRoute();
+
+    const res = await PATCH(
+      jsonRequest(`/api/admin/purchase-orders/${po.id}`, 'PATCH', {
+        deadlineDate: '2026-09-15', // no longer part of the update contract
+      }),
+      withId(po.id),
+    );
+    const updated = await res.json();
+    expect(res.status).toBe(200);
+    expect(updated.deadlineDate).toBeNull(); // untouched (order has no deadline)
   });
 });
 

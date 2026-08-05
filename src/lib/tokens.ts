@@ -47,3 +47,17 @@ export function buildMemberRosterUrl(rawToken: string): string {
 export function buildSupplierPortalUrl(rawToken: string): string {
   return `${env.APP_BASE_URL.replace(/\/$/, '')}/s/${rawToken}`;
 }
+
+/**
+ * The PRETTY per-PO portal URL (David, 2026-08-05): known the moment the PO
+ * is raised, because the PO number is the path. Access is gated by the
+ * supplier's portal password, not by the URL being secret.
+ */
+export function buildSupplierPoUrl(poNumber: string): string {
+  return `${env.APP_BASE_URL.replace(/\/$/, '')}/supplier/po/${encodeURIComponent(poNumber)}`;
+}
+
+/** The supplier's portal home — their filterable PO table. */
+export function buildSupplierPortalHomeUrl(supplierCode: string): string {
+  return `${env.APP_BASE_URL.replace(/\/$/, '')}/supplier/${encodeURIComponent(supplierCode)}`;
+}

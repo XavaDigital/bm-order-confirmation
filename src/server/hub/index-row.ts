@@ -34,6 +34,24 @@ export type OrderIndexChip =
   | 'cancelled';
 
 /**
+ * The 2026-08-05 production vocabulary, folded onto the coarser aggregate
+ * scale before aggregation. `aggregateProductionStatus` predates these
+ * statuses and reports null on vocabulary it does not know — which would make
+ * a confirmed order whose PO is mid-production read as "no active POs yet".
+ * The fold keeps the CRM chip honest without widening the pinned aggregate
+ * vocabulary the hub already consumes:
+ *  - approved is internal sign-off before sending → ranks as draft;
+ *  - test_print / prod_layout are design-prep phases → rank as pre_production;
+ *  - quality_control sits inside the production run → ranks as in_production.
+ */
+const PO_STATUS_FOLD: Record<string, string> = {
+  approved: 'draft',
+  test_print: 'pre_production',
+  prod_layout: 'pre_production',
+  quality_control: 'in_production',
+};
+
+/**
  * Map order status + PO statuses onto the display chip.
  *
  * The order enum verbatim until `confirmed`; once confirmed, the aggregate
@@ -50,7 +68,7 @@ export function orderIndexChip(orderStatus: string, poStatuses: string[]): Order
     return direct.includes(orderStatus) ? (orderStatus as OrderIndexChip) : null;
   }
 
-  const aggregate = aggregateProductionStatus(poStatuses);
+  const aggregate = aggregateProductionStatus(poStatuses.map((s) => PO_STATUS_FOLD[s] ?? s));
   if (aggregate === null) return 'confirmed'; // no active POs yet
   if (aggregate === 'completed') return 'completed';
   if (['pre_production', 'in_production', 'in_transit', 'received'].includes(aggregate)) {

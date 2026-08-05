@@ -63,6 +63,12 @@ export const createShipmentSchema = z.object({
   supplierId: z.string().uuid(),
   /** The purchase orders (of that supplier) travelling in this shipment. */
   purchaseOrderIds: z.array(z.string().uuid()).min(1),
+  /**
+   * Per-PO "what's in this consignment" notes, keyed by PO id (David,
+   * 2026-08-05): a PO can split across shipments weeks apart, so each link
+   * says which part travelled. Absent/empty = the whole PO.
+   */
+  poContents: z.record(z.string().uuid(), z.string().trim().max(500)).optional(),
   nickname: shortText.optional(),
   carrier: shortText.optional(),
   trackingNumber: shortText.optional(),
@@ -96,6 +102,8 @@ export const updateShipmentStatusSchema = z.object({
 
 export const attachPurchaseOrdersSchema = z.object({
   purchaseOrderIds: z.array(z.string().uuid()).min(1),
+  /** Same per-PO contents notes as on create. */
+  poContents: z.record(z.string().uuid(), z.string().trim().max(500)).optional(),
 });
 
 /** DELETE body for detaching a single PO from a shipment. */

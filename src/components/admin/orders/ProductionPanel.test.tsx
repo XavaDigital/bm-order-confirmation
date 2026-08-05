@@ -82,6 +82,7 @@ function renderPanel(overrides: Partial<Parameters<typeof ProductionPanel>[0]> =
         orderId="order-1"
         orderStatus="confirmed"
         colorSampleRequestedAt={null}
+        deadlineDate="2026-09-15"
         garments={[
           { id: 'g1', name: 'Jersey' },
           { id: 'g2', name: 'Hoodie' },
@@ -138,7 +139,8 @@ describe('ProductionPanel', () => {
 
     const poLink = await screen.findByRole('link', { name: 'PO-2607-AC01-WILDCATS' });
     expect(poLink).toHaveAttribute('href', '/admin/purchase-orders/po-1');
-    expect(screen.getByText('Sent')).toBeInTheDocument();
+    // 'sent' renders as Unconfirmed (poStatusMeta).
+    expect(screen.getByText('Unconfirmed')).toBeInTheDocument();
     expect(screen.getByText('Draft')).toBeInTheDocument();
     expect(screen.getByText('v2')).toBeInTheDocument();
     expect(screen.getByText('v1')).toBeInTheDocument();
@@ -170,6 +172,8 @@ describe('ProductionPanel', () => {
     expect(await screen.findByText('Jersey — 5 sizing rows')).toBeInTheDocument();
     expect(screen.getByText('(already covered)')).toBeInTheDocument();
     expect(screen.getByText('Hoodie — 3 sizing rows')).toBeInTheDocument();
+    // The order's customer deadline is threaded through to the modal.
+    expect(screen.getByText(/Customer deadline: 15 Sept? 2026/)).toBeInTheDocument();
   });
 
   it('asks the owner to reload after a successful create', async () => {

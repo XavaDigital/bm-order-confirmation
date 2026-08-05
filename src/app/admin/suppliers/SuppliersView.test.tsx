@@ -18,6 +18,7 @@ function supplier(overrides: Partial<SupplierRow> = {}): SupplierRow {
     id: 'sup-1',
     name: 'Dongguan Apparel',
     supplierCode: 'DG',
+    portalPassword: null,
     contactPerson: 'Li Wei',
     email: 'sales@dongguan.example',
     phone: null,
@@ -162,6 +163,62 @@ describe('SuppliersView', () => {
     );
     expect(await screen.findByText('Supplier deactivated')).toBeInTheDocument();
     expect(await screen.findByText('Inactive')).toBeInTheDocument();
+  });
+
+  it('shows whether the supplier portal is enabled in the table', async () => {
+    renderView('admin', [
+      supplier({ portalPassword: 'hunter22' }),
+      supplier({ id: 'sup-2', name: 'Beta Garments', portalPassword: null }),
+      // A password without a code still has no portal URL to open.
+      supplier({ id: 'sup-3', name: 'NoCode Co', supplierCode: null, portalPassword: 'hunter22' }),
+    ]);
+
+    expect(await screen.findByText('Dongguan Apparel')).toBeInTheDocument();
+    expect(within(await rowFor('Dongguan Apparel')).getByText('Enabled')).toBeInTheDocument();
+    expect(within(await rowFor('Beta Garments')).getByText('Off')).toBeInTheDocument();
+    expect(within(await rowFor('NoCode Co')).getByText('Off')).toBeInTheDocument();
+  });
+
+  it('edits the portal password and PATCHes it (null when cleared)', async () => {
+    const user = userEvent.setup();
+    renderView('admin', [supplier({ portalPassword: 'oldpass99' })]);
+
+    const row = await rowFor('Dongguan Apparel');
+    await user.click(within(row).getByRole('button', { name: /edit/i }));
+    const dialog = await screen.findByRole('dialog');
+
+    const passwordInput = within(dialog).getByPlaceholderText('Leave blank to keep the portal closed');
+    expect(passwordInput).toHaveValue('oldpass99');
+    await user.clear(passwordInput);
+    await user.type(passwordInput, 'newpass77');
+
+    vi.mocked(patchJson).mockResolvedValueOnce(supplier({ portalPassword: 'newpass77' }));
+    await user.click(within(dialog).getByRole('button', { name: /save/i }));
+
+    await vi.waitFor(() =>
+      expect(patchJson).toHaveBeenCalledWith(
+        '/api/admin/suppliers/sup-1',
+        expect.objectContaining({ portalPassword: 'newpass77' }),
+        'Failed to save supplier',
+      ),
+    );
+
+    // Clearing sends an explicit null so the server closes the portal.
+    await user.click(within(await rowFor('Dongguan Apparel')).getByRole('button', { name: /edit/i }));
+    const dialog2 = await screen.findByRole('dialog');
+    await user.clear(
+      within(dialog2).getByPlaceholderText('Leave blank to keep the portal closed'),
+    );
+    vi.mocked(patchJson).mockResolvedValueOnce(supplier({ portalPassword: null }));
+    await user.click(within(dialog2).getByRole('button', { name: /save/i }));
+
+    await vi.waitFor(() =>
+      expect(patchJson).toHaveBeenLastCalledWith(
+        '/api/admin/suppliers/sup-1',
+        expect.objectContaining({ portalPassword: null }),
+        'Failed to save supplier',
+      ),
+    );
   });
 
   it('shows the server error message when saving fails', async () => {

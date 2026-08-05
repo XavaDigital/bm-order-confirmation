@@ -418,8 +418,9 @@ describe('seeded stages', () => {
 
   it('seeds one stage per PO status and nothing extra', async () => {
     const stages = await listActiveStages('purchase_order');
-    expect(stages).toHaveLength(10);
-    expect(new Set(stages.map((s) => s.statusKey)).size).toBe(10);
+    // 10 from 0020 + approved/test_print/prod_layout/quality_control from 0038.
+    expect(stages).toHaveLength(14);
+    expect(new Set(stages.map((s) => s.statusKey)).size).toBe(14);
   });
 
   it('seeds the pre-production checklist, including one non-blocking task', async () => {

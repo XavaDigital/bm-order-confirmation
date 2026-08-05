@@ -97,3 +97,50 @@ export async function signPoAssets<T extends { url: string | null; storageKey?: 
     })),
   );
 }
+
+/**
+ * Sign every garment mock-up image and size chart in a PO snapshot, in place
+ * of the raw storage keys (same per-request discipline as signPoAssets).
+ * Shared by the supplier portal view, the admin PO read, and the PDF render —
+ * one signer, so no surface forgets an image class.
+ */
+export async function signPoSnapshotMedia<
+  T extends {
+    garments: Array<{
+      images?: Array<{ storageKey: string; thumbnailStorageKey: string | null }>;
+      sizeCharts?: Array<{ storageKey: string | null }>;
+    }>;
+  },
+>(snapshot: T, ttlSeconds = DEFAULT_TTL_SECONDS): Promise<T> {
+  const garments = await Promise.all(
+    snapshot.garments.map(async (g) => ({
+      ...g,
+      ...(g.images?.length
+        ? {
+            images: await Promise.all(
+              g.images.map(async (img) => ({
+                ...img,
+                url: await getSignedUrl(img.storageKey, ttlSeconds).catch(() => null),
+                thumbnailUrl: img.thumbnailStorageKey
+                  ? await getSignedUrl(img.thumbnailStorageKey, ttlSeconds).catch(() => null)
+                  : null,
+              })),
+            ),
+          }
+        : {}),
+      ...(g.sizeCharts?.length
+        ? {
+            sizeCharts: await Promise.all(
+              g.sizeCharts.map(async (chart) => ({
+                ...chart,
+                downloadUrl: chart.storageKey
+                  ? await getSignedUrl(chart.storageKey, ttlSeconds).catch(() => null)
+                  : null,
+              })),
+            ),
+          }
+        : {}),
+    })),
+  );
+  return { ...snapshot, garments };
+}

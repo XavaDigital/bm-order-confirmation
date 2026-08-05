@@ -5,9 +5,17 @@
  * Mirrors OrderPdf's fleet look (indigo accent, Helvetica, A4).
  */
 import type { ReactNode } from 'react';
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+import { Document, Image, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
 import { APP_NAME, PDF_FOOTER_TEXT } from '@/lib/config';
-import type { PoSnapshot, PoSnapshotGarment } from '@/db/schema';
+import type { PoSnapshot, PoSnapshotGarment, PoSnapshotImage } from '@/db/schema';
+
+/**
+ * A snapshot image AFTER the route ran the snapshot through
+ * `signPoSnapshotMedia` — the stored snapshot only carries storage keys, so
+ * the caller must sign before rendering. Images without a signed url (storage
+ * down / unconfigured) are skipped rather than crashing the render.
+ */
+type SignedSnapshotImage = PoSnapshotImage & { url?: string | null };
 
 const ACCENT = '#4f46e5'; // fleet indigo
 const INK = '#191919';
@@ -144,6 +152,29 @@ const s = StyleSheet.create({
     backgroundColor: WHITE,
   },
   col: { flex: 1 },
+  imagesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 6,
+  },
+  imageCell: {
+    width: 110,
+  },
+  image: {
+    width: 110,
+    height: 110,
+    objectFit: 'contain',
+    borderWidth: 1,
+    borderColor: MID_GREY,
+    backgroundColor: WHITE,
+  },
+  imageCaption: {
+    fontSize: 6,
+    color: TEXT_MID,
+    marginTop: 2,
+    textAlign: 'center',
+  },
   sizeSummary: {
     marginTop: 4,
     fontSize: 8,
@@ -198,7 +229,8 @@ export interface PoPdfProps {
   /** Reason for the amendment — shown for revision > 1 when present. */
   revisionReason?: string | null;
   createdAt: string;
-  deadlineDate: string | null;
+  // No deadlineDate: the PO deadline is the CUSTOMER deadline (2026-08-05)
+  // and this PDF goes to the factory — it must never render it.
   expectedShipDate: string | null;
   notes: string | null;
   supplier: {
@@ -215,7 +247,6 @@ export function PoPdf({
   revisionNumber,
   revisionReason,
   createdAt,
-  deadlineDate,
   expectedShipDate,
   notes,
   supplier,
@@ -267,9 +298,8 @@ export function PoPdf({
                 day: 'numeric', month: 'long', year: 'numeric',
               })}
             />
-            {deadlineDate && <LabelValueRow label="Deadline" value={deadlineDate} />}
             {expectedShipDate && (
-              <LabelValueRow label="Expected ship" value={expectedShipDate} />
+              <LabelValueRow label="Required ship date" value={expectedShipDate} />
             )}
             {snapshot.preparedByEmail && (
               <LabelValueRow label="Prepared by" value={snapshot.preparedByEmail} />
@@ -318,21 +348,28 @@ export function PoPdf({
                   {g.garmentTypeName ? `  ·  ${g.garmentTypeName}` : ''}
                 </Text>
                 <View style={s.garmentBody}>
+                  {/* Every fabric field and every option renders, blank or not
+                      (David, 2026-08-05: options and columns MUST always be
+                      displayed — a blank shows as a dash, never disappears). */}
                   {g.selectedFabrics &&
-                    Object.entries(g.selectedFabrics)
-                      .filter(([, v]) => v)
-                      .map(([label, valueText]) => (
-                        <LabelValueRow key={`fabric-${label}`} label={label} value={valueText} />
-                      ))}
+                    Object.entries(g.selectedFabrics).map(([label, valueText]) => (
+                      <LabelValueRow
+                        key={`fabric-${label}`}
+                        label={label}
+                        value={valueText?.trim() ? valueText : '—'}
+                      />
+                    ))}
                   {g.fabrics.length > 0 && (
                     <LabelValueRow label="Fabrics" value={g.fabrics.join(', ')} />
                   )}
                   {g.selectedOptions &&
-                    Object.entries(g.selectedOptions)
-                      .filter(([, v]) => v)
-                      .map(([label, valueText]) => (
-                        <LabelValueRow key={label} label={label} value={valueText} />
-                      ))}
+                    Object.entries(g.selectedOptions).map(([label, valueText]) => (
+                      <LabelValueRow
+                        key={label}
+                        label={label}
+                        value={valueText?.trim() ? valueText : '—'}
+                      />
+                    ))}
                   {(g.sizeCharts ?? []).length > 0 && (
                     <LabelValueRow
                       label="Size charts"
@@ -340,6 +377,25 @@ export function PoPdf({
                     />
                   )}
                   {g.notes && <LabelValueRow label="Notes" value={g.notes} />}
+                  {/* Mock-up images — only when the route signed the snapshot
+                      (signPoSnapshotMedia) and the URL resolved. */}
+                  {(() => {
+                    const signedImages = ((g.images ?? []) as SignedSnapshotImage[]).filter(
+                      (img): img is SignedSnapshotImage & { url: string } => Boolean(img.url),
+                    );
+                    if (signedImages.length === 0) return null;
+                    return (
+                      <View style={s.imagesRow}>
+                        {signedImages.map((img) => (
+                          <View key={img.id} style={s.imageCell}>
+                            {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image has no alt prop */}
+                            <Image style={s.image} src={img.url} />
+                            {img.caption && <Text style={s.imageCaption}>{img.caption}</Text>}
+                          </View>
+                        ))}
+                      </View>
+                    );
+                  })()}
                   {g.lines.length > 0 && (
                     <View style={s.table}>
                       <View style={s.tableHeader}>

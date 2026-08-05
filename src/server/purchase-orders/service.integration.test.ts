@@ -8,10 +8,20 @@ vi.mock('@/db', async () => {
   return { db, schema };
 });
 
+// Capture the supplier email instead of hitting SMTP — sendPurchaseOrder's
+// tests assert on what would have been sent (portal URL, recipient).
+const sendSupplierPoEmailMock = vi.hoisted(() =>
+  vi.fn(async (_params: Record<string, unknown>) => {}),
+);
+vi.mock('@/lib/email', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/email')>()),
+  sendSupplierPoEmail: sendSupplierPoEmailMock,
+}));
+
 import { db } from '@/db';
 import { resetTestDb } from '@/db/test-helpers';
 import * as schema from '@/db/schema';
-import { createOrder, upsertSizingRows, deleteGarment } from '@/server/orders/service';
+import { createOrder, updateOrder, upsertSizingRows, deleteGarment } from '@/server/orders/service';
 import { createOrderSchema } from '@/server/orders/contract';
 import {
   createPurchaseOrder,
@@ -20,19 +30,15 @@ import {
   issueRevision,
   listPurchaseOrders,
   listRevisions,
+  sendPurchaseOrder,
   updatePurchaseOrder,
   updatePurchaseOrderStatus,
 } from './service';
 
 afterEach(async () => {
   await resetTestDb(db);
+  sendSupplierPoEmailMock.mockClear();
 });
-
-// Expected PO-number date segment for "now" (generatePoNumber uses new Date()).
-function yymm() {
-  const now = new Date();
-  return `${String(now.getFullYear() % 100).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
 
 async function seedSupplier(overrides: Partial<typeof schema.suppliers.$inferInsert> = {}) {
   const [supplier] = await db
@@ -88,17 +94,18 @@ describe('createPurchaseOrder', () => {
         orderId,
         supplierId: supplier.id,
         garmentIds: [hoodie.id],
-        deadlineDate: '2026-09-01',
         notes: 'rush',
       },
       { actorStaffUserId: staff.id, actorEmail: staff.email },
     );
 
-    expect(po.poNumber).toMatch(new RegExp(`^PO-${yymm()}-VA01-JANECOACH$`));
+    // {CODE}{seq} format (David, 2026-08-05) — first PO for this supplier.
+    expect(po.poNumber).toBe('VA1');
     expect(po.status).toBe('draft');
     expect(po.currentRevisionNumber).toBe(1);
     expect(po.createdBy).toBe(staff.id);
-    expect(po.deadlineDate).toBe('2026-09-01');
+    // The order has no customer deadline, so the mirrored PO deadline is null.
+    expect(po.deadlineDate).toBeNull();
 
     // Rev 1: reason null, snapshot keyed by the REAL sizing-row uuids.
     expect(po.revision.revisionNumber).toBe(1);
@@ -140,7 +147,7 @@ describe('createPurchaseOrder', () => {
     expect(audits[0].payload).toEqual({ poId: po.id, poNumber: po.poNumber });
   });
 
-  it('increments NN for the same supplier and month', async () => {
+  it('increments the per-supplier sequence', async () => {
     const supplier = await seedSupplier();
     const { orderId, garments } = await seedOrder();
 
@@ -155,8 +162,54 @@ describe('createPurchaseOrder', () => {
       garmentIds: [garments[1].id],
     });
 
-    expect(first.poNumber).toContain(`-VA01-`);
-    expect(second.poNumber).toContain(`-VA02-`);
+    expect(first.poNumber).toBe('VA1');
+    expect(second.poNumber).toBe('VA2');
+  });
+
+  it('numbers each supplier independently, and sequences survive across months', async () => {
+    const dy = await seedSupplier({ name: 'Dynasty', supplierCode: 'DY' });
+    const goal = await seedSupplier({ name: 'Goal Sports', supplierCode: 'GOAL' });
+    const { orderId, garments } = await seedOrder();
+
+    const dyFirst = await createPurchaseOrder({
+      orderId,
+      supplierId: dy.id,
+      garmentIds: [garments[0].id],
+    });
+    const goalFirst = await createPurchaseOrder({
+      orderId,
+      supplierId: goal.id,
+      garmentIds: [garments[1].id],
+    });
+    // Each supplier counts alone — DY1 and GOAL1 coexist.
+    expect(dyFirst.poNumber).toBe('DY1');
+    expect(goalFirst.poNumber).toBe('GOAL1');
+
+    // The sequence is the supplier row's counter, not a month bucket — a
+    // month (even a year) rollover must not reset it to 1.
+    vi.useFakeTimers({ now: new Date('2027-01-15T00:00:00Z'), toFake: ['Date'] });
+    try {
+      const dySecond = await createPurchaseOrder({
+        orderId,
+        supplierId: dy.id,
+        garmentIds: [garments[1].id],
+      });
+      expect(dySecond.poNumber).toBe('DY2');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('derives a 2-char fallback code when the supplier has none stored', async () => {
+    const noCode = await seedSupplier({ name: 'Vast Apparel', supplierCode: null });
+    const { orderId, garments } = await seedOrder();
+
+    const po = await createPurchaseOrder({
+      orderId,
+      supplierId: noCode.id,
+      garmentIds: [garments[0].id],
+    });
+    expect(po.poNumber).toBe('VA1'); // first letters of the first two words
   });
 
   it('rejects garment ids that belong to a different order (409)', async () => {
@@ -286,6 +339,87 @@ describe('updatePurchaseOrderStatus', () => {
   });
 });
 
+describe('sendPurchaseOrder', () => {
+  const renderPdf = async () => Buffer.from('%PDF-fake');
+
+  async function seedSendablePo() {
+    const supplier = await seedSupplier({ email: 'factory@example.com' });
+    const { orderId, garments } = await seedOrder();
+    const po = await createPurchaseOrder({
+      orderId,
+      supplierId: supplier.id,
+      garmentIds: [garments[0].id],
+    });
+    // Open the po_send gate: deactivate the migration-seeded order checklist
+    // tasks (artwork/sizing/fabric). resetTestDb restores them per test.
+    await db.update(schema.workflowStageTasks).set({ isActive: false });
+    return { po, orderId, supplier };
+  }
+
+  it('refuses to send a draft — internal approval comes first (409)', async () => {
+    const { po } = await seedSendablePo();
+
+    await expect(sendPurchaseOrder(po.id, {}, renderPdf)).rejects.toThrow(
+      'Approve the purchase order before sending it',
+    );
+    expect(sendSupplierPoEmailMock).not.toHaveBeenCalled();
+  });
+
+  it('sends an approved PO: portal URL in the email, approved → sent with sentAt', async () => {
+    const { po, orderId } = await seedSendablePo();
+    await updatePurchaseOrderStatus(po.id, 'approved');
+
+    const result = await sendPurchaseOrder(po.id, { actorEmail: 'sam@example.com' }, renderPdf);
+    expect(result).toEqual({ poNumber: po.poNumber, to: 'factory@example.com' });
+
+    expect(sendSupplierPoEmailMock).toHaveBeenCalledTimes(1);
+    const emailArgs = sendSupplierPoEmailMock.mock.calls[0][0];
+    expect(emailArgs.to).toBe('factory@example.com');
+    // The pretty deterministic per-PO URL — no token minting anymore.
+    expect(emailArgs.portalUrl).toBe(`http://localhost:3000/supplier/po/${po.poNumber}`);
+
+    const updated = await db.query.purchaseOrders.findFirst({
+      where: eq(schema.purchaseOrders.id, po.id),
+    });
+    expect(updated!.status).toBe('sent');
+    expect(updated!.sentAt).toBeInstanceOf(Date);
+
+    // No supplier-access token row is minted by a send anymore.
+    const accessRows = await db
+      .select()
+      .from(schema.poSupplierAccess)
+      .where(eq(schema.poSupplierAccess.purchaseOrderId, po.id));
+    expect(accessRows).toHaveLength(0);
+
+    const sentEvents = await db.query.domainEvents.findMany({
+      where: and(
+        eq(schema.domainEvents.aggregateId, orderId),
+        eq(schema.domainEvents.eventType, 'po.sent'),
+      ),
+    });
+    expect(sentEvents).toHaveLength(1);
+    expect(sentEvents[0].payload).toMatchObject({ poId: po.id, to: 'factory@example.com' });
+  });
+
+  it('resending a sent PO leaves the status untouched; terminal states refuse', async () => {
+    const { po } = await seedSendablePo();
+    await updatePurchaseOrderStatus(po.id, 'approved');
+    await sendPurchaseOrder(po.id, {}, renderPdf);
+    await sendPurchaseOrder(po.id, {}, renderPdf); // resend after a revision is legal
+
+    expect(sendSupplierPoEmailMock).toHaveBeenCalledTimes(2);
+    const updated = await db.query.purchaseOrders.findFirst({
+      where: eq(schema.purchaseOrders.id, po.id),
+    });
+    expect(updated!.status).toBe('sent');
+
+    await updatePurchaseOrderStatus(po.id, 'received');
+    await expect(sendPurchaseOrder(po.id, {}, renderPdf)).rejects.toThrow(
+      'Cannot send a received purchase order',
+    );
+  });
+});
+
 describe('issueRevision', () => {
   it('bumps the revision, records the reason, and snapshots the edited sizing', async () => {
     const supplier = await seedSupplier();
@@ -403,6 +537,76 @@ describe('updatePurchaseOrder', () => {
       poNumber: po.poNumber,
       fields: ['expectedShipDate', 'notes'],
     });
+  });
+
+  it('audits po.ship_date_changed with from→to when the expected ship date moves', async () => {
+    const supplier = await seedSupplier();
+    const { orderId, garments } = await seedOrder();
+    const po = await createPurchaseOrder({
+      orderId,
+      supplierId: supplier.id,
+      garmentIds: [garments[0].id],
+      expectedShipDate: '2026-10-01',
+    });
+
+    await updatePurchaseOrder(
+      po.id,
+      { expectedShipDate: '2026-10-20' },
+      { actorEmail: 'sam@example.com' },
+    );
+    // A notes-only patch must NOT add a ship-date row.
+    await updatePurchaseOrder(po.id, { notes: 'unrelated' }, { actorEmail: 'sam@example.com' });
+
+    const audits = await db.query.auditEvents.findMany({
+      where: and(
+        eq(schema.auditEvents.aggregateId, orderId),
+        eq(schema.auditEvents.eventType, 'po.ship_date_changed'),
+      ),
+    });
+    expect(audits).toHaveLength(1);
+    expect(audits[0].payload).toEqual({
+      poId: po.id,
+      poNumber: po.poNumber,
+      from: '2026-10-01',
+      to: '2026-10-20',
+    });
+    expect(audits[0].actorEmail).toBe('sam@example.com');
+  });
+});
+
+describe('getPurchaseOrder', () => {
+  it('serves the portal URL, the PO history, and the order deadline', async () => {
+    const supplier = await seedSupplier();
+    const created = await createOrder(
+      createOrderSchema.parse({
+        customer: { name: 'Jane Coach', email: 'jane@example.com' },
+        deadlineDate: '2026-09-30',
+        garments: [{ name: 'Jersey', sizing: [{ size: 'M' }] }],
+      }),
+    );
+    const garment = (await db.query.garments.findFirst({
+      where: eq(schema.garments.orderId, created.orderId),
+    }))!;
+    const po = await createPurchaseOrder({
+      orderId: created.orderId,
+      supplierId: supplier.id,
+      garmentIds: [garment.id],
+    });
+    await updatePurchaseOrderStatus(po.id, 'approved', { actorEmail: 'sam@example.com' });
+
+    const detail = await getPurchaseOrder(po.id);
+    expect(detail.portalUrl).toBe(`http://localhost:3000/supplier/po/${po.poNumber}`);
+    // The order block carries the LIVE customer deadline for the admin page.
+    expect(detail.order.deadlineDate).toBe('2026-09-30');
+    // History: audit rows filtered to this PO (created + status change).
+    expect(detail.history.length).toBeGreaterThanOrEqual(2);
+    expect(detail.history.map((h) => h.eventType)).toEqual(
+      expect.arrayContaining(['po.created', 'po.status_changed']),
+    );
+    const statusRow = detail.history.find((h) => h.eventType === 'po.status_changed')!;
+    expect(statusRow.payload).toMatchObject({ poId: po.id, from: 'draft', to: 'approved' });
+    expect(statusRow.actorEmail).toBe('sam@example.com');
+    expect(detail.history.every((h) => (h.payload as { poId?: string }).poId === po.id)).toBe(true);
   });
 });
 
@@ -528,11 +732,12 @@ describe('listPurchaseOrders / listRevisions', () => {
 
 /**
  * What the factory is allowed to see. These tests exist because the separation
- * is a convention, not something the types enforce: a stray `?? order.deadlineDate`
- * or a helpful prefill in the create modal would leak confidential commercial
- * detail to a supplier and nothing else would catch it.
+ * is a convention, not something the types enforce: the customer deadline now
+ * DOES live on the PO row (David's 2026-08-05 reversal — it is internal
+ * planning data), but it must still never reach the snapshot the supplier
+ * documents are rendered from, and neither must any other commercial detail.
  */
-describe('factory-facing data boundary', () => {
+describe('customer deadline and the factory-facing data boundary', () => {
   /** An order carrying every field that must NOT reach a supplier. */
   async function seedConfidentialOrder() {
     const created = await createOrder(
@@ -555,7 +760,7 @@ describe('factory-facing data boundary', () => {
     return { orderId: created.orderId, garmentId: garments[0].id };
   }
 
-  it('never derives the PO deadline from the customer deadline', async () => {
+  it('stamps the customer deadline onto the PO at create (2026-08-05 reversal)', async () => {
     const supplier = await seedSupplier();
     const { orderId, garmentId } = await seedConfidentialOrder();
 
@@ -563,13 +768,12 @@ describe('factory-facing data boundary', () => {
       orderId,
       supplierId: supplier.id,
       garmentIds: [garmentId],
-      // Staff deliberately did not set a factory deadline.
     });
 
-    expect(po.deadlineDate).toBeNull();
+    expect(po.deadlineDate).toBe('2026-09-30');
   });
 
-  it('keeps the two deadlines independent when both are set', async () => {
+  it('re-syncs every PO when the order deadline moves, and clears when it clears', async () => {
     const supplier = await seedSupplier();
     const { orderId, garmentId } = await seedConfidentialOrder();
 
@@ -577,10 +781,20 @@ describe('factory-facing data boundary', () => {
       orderId,
       supplierId: supplier.id,
       garmentIds: [garmentId],
-      deadlineDate: '2026-08-15', // the factory works to its own, earlier date
     });
+    expect(po.deadlineDate).toBe('2026-09-30');
 
-    expect(po.deadlineDate).toBe('2026-08-15');
+    await updateOrder(orderId, { deadlineDate: '2026-10-15' }, { actorEmail: 'sam@example.com' });
+    let row = await db.query.purchaseOrders.findFirst({
+      where: eq(schema.purchaseOrders.id, po.id),
+    });
+    expect(row!.deadlineDate).toBe('2026-10-15');
+
+    await updateOrder(orderId, { deadlineDate: null });
+    row = await db.query.purchaseOrders.findFirst({
+      where: eq(schema.purchaseOrders.id, po.id),
+    });
+    expect(row!.deadlineDate).toBeNull();
   });
 
   /**
@@ -615,6 +829,10 @@ describe('factory-facing data boundary', () => {
       'garmentId',
       'garmentTypeId',
       'garmentTypeName',
+      // Deliberate addition (2026-08-05): garment mock-up images — the
+      // supplier PO must show what the garment looks like. storageKey refs
+      // only; signed per request, never durable URLs.
+      'images',
       'lines',
       'name',
       'notes',

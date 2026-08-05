@@ -29,9 +29,16 @@ const notesSchema = z.string().trim().min(1).max(2000);
 const specialtiesSchema = z.array(z.string().trim().min(1).max(80)).max(20);
 const nonNegIntSchema = z.number().int().min(0);
 
+// The supplier-portal password (David, 2026-08-05): admin-set, one per
+// supplier, stored READABLY (staff tell the supplier what it is — the
+// rosterPassword/accessCode ruling). Setting it opens /supplier/{CODE};
+// clearing it closes the portal and invalidates every session cookie.
+const portalPasswordSchema = z.string().trim().min(6).max(64);
+
 export const createSupplierSchema = z.object({
   name: nameSchema,
   supplierCode: supplierCodeSchema.optional(),
+  portalPassword: portalPasswordSchema.optional(),
   contactPerson: shortTextSchema.optional(),
   email: emailSchema.optional(),
   phone: shortTextSchema.optional(),
@@ -51,6 +58,7 @@ export const updateSupplierSchema = z
   .object({
     name: nameSchema,
     supplierCode: supplierCodeSchema.nullable(),
+    portalPassword: portalPasswordSchema.nullable(),
     contactPerson: shortTextSchema.nullable(),
     email: emailSchema.nullable(),
     phone: shortTextSchema.nullable(),

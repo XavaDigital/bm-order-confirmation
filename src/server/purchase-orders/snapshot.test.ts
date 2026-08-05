@@ -51,6 +51,8 @@ describe('buildPoSnapshot', () => {
           // Empty because the fixture loaded no chart links — [] means "loaded
           // and none", distinct from a legacy snapshot's missing key.
           sizeCharts: [],
+          // Same convention for mock-up images (2026-08-05).
+          images: [],
           notes: 'front print',
           lines: [
             {
@@ -100,6 +102,34 @@ describe('buildPoSnapshot', () => {
       notes: null,
       lines: [],
     });
+  });
+});
+
+describe('buildPoSnapshot — garment images (2026-08-05)', () => {
+  it('captures mock-up images as storage refs, normalizing missing fields to null', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({
+        images: [
+          {
+            id: 'img-1',
+            storageKey: 'mockups/front.png',
+            thumbnailStorageKey: 'mockups/front-thumb.png',
+            caption: 'Front',
+          },
+          { id: 'img-2', storageKey: 'mockups/back.png', thumbnailStorageKey: null, caption: null },
+        ],
+      }),
+    ]);
+
+    expect(snapshot.garments[0].images).toEqual([
+      {
+        id: 'img-1',
+        storageKey: 'mockups/front.png',
+        thumbnailStorageKey: 'mockups/front-thumb.png',
+        caption: 'Front',
+      },
+      { id: 'img-2', storageKey: 'mockups/back.png', thumbnailStorageKey: null, caption: null },
+    ]);
   });
 });
 

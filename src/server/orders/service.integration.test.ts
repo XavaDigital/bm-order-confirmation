@@ -390,6 +390,51 @@ describe('updateOrder', () => {
     ).rejects.toThrow(NotFoundError);
   });
 
+  it('re-syncs every PO deadline when the order deadline moves (David, 2026-08-05)', async () => {
+    // The PO's deadlineDate mirrors orders.deadlineDate: stamped at PO create
+    // and re-written in the same transaction whenever the order's changes.
+    const { createPurchaseOrder } = await import('@/server/purchase-orders/service');
+    const created = await createOrder(
+      minimalInput({
+        deadlineDate: '2026-09-30',
+        garments: [{ name: 'Home Jersey', sizing: [{ size: 'M' }] }],
+      }),
+    );
+    const [supplier] = await db
+      .insert(schema.suppliers)
+      .values({ name: 'Vast Apparel', supplierCode: 'VA' })
+      .returning();
+    const garment = (await db.query.garments.findFirst({
+      where: eq(schema.garments.orderId, created.orderId),
+    }))!;
+    const po = await createPurchaseOrder({
+      orderId: created.orderId,
+      supplierId: supplier.id,
+      garmentIds: [garment.id],
+    });
+    expect(po.deadlineDate).toBe('2026-09-30');
+
+    await updateOrder(created.orderId, { deadlineDate: '2026-10-15' });
+    let row = await db.query.purchaseOrders.findFirst({
+      where: eq(schema.purchaseOrders.id, po.id),
+    });
+    expect(row!.deadlineDate).toBe('2026-10-15');
+
+    // A patch that does not touch the deadline leaves the POs alone.
+    await updateOrder(created.orderId, { clubName: 'Unrelated Change FC' });
+    row = await db.query.purchaseOrders.findFirst({
+      where: eq(schema.purchaseOrders.id, po.id),
+    });
+    expect(row!.deadlineDate).toBe('2026-10-15');
+
+    // Clearing the order deadline clears the mirror too.
+    await updateOrder(created.orderId, { deadlineDate: null });
+    row = await db.query.purchaseOrders.findFirst({
+      where: eq(schema.purchaseOrders.id, po.id),
+    });
+    expect(row!.deadlineDate).toBeNull();
+  });
+
   it('sets and clears internalNotes independently of generalNotes, visible via getOrderAdmin', async () => {
     const created = await createOrder(minimalInput({ generalNotes: 'Customer-facing note' }));
 

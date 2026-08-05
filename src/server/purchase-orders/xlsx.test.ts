@@ -45,7 +45,6 @@ function props(overrides: Partial<PoXlsxProps> = {}): PoXlsxProps {
     revisionNumber: 1,
     revisionReason: null,
     createdAt: '2026-07-27T02:30:00.000Z',
-    deadlineDate: '2026-09-01',
     expectedShipDate: '2026-08-20',
     notes: 'Pack by player name.',
     supplier: {
@@ -97,8 +96,10 @@ describe('buildPoWorkbook', () => {
     expect(findRow(sheet, 'Revision')?.[1]).toBe('1 (original)');
     expect(findRow(sheet, 'Our order')?.[1]).toBe('OC-ABCD1234');
     expect(findRow(sheet, 'PO issued')?.[1]).toBe('2026-07-27');
-    expect(findRow(sheet, 'Deadline')?.[1]).toBe('2026-09-01');
-    expect(findRow(sheet, 'Expected ship')?.[1]).toBe('2026-08-20');
+    // The PO deadline is the CUSTOMER deadline (2026-08-05) — this factory-
+    // facing workbook must never carry a Deadline row at all.
+    expect(findRow(sheet, 'Deadline')).toBeUndefined();
+    expect(findRow(sheet, 'Required ship date')?.[1]).toBe('2026-08-20');
     expect(findRow(sheet, 'Name')?.[1]).toBe('Golden Stitch');
     expect(findRow(sheet, 'Contact')?.[1]).toBe('Mei Chen');
     expect(findRow(sheet, 'Email')?.[1]).toBe('mei@goldenstitch.example');
@@ -135,6 +136,55 @@ describe('buildPoWorkbook', () => {
     expect(findRow(sheet, 'Total pieces')?.[2]).toBe('5');
   });
 
+  it('writes a Garment details section with fabrics, options, size charts and images', async () => {
+    const detailed = snapshot();
+    detailed.garments[0].sizeCharts = [
+      { id: 'c-1', name: 'Adult Hoodie Chart', storageKey: 'charts/adult.pdf' },
+    ];
+    detailed.garments[0].images = [
+      {
+        id: 'i-1',
+        storageKey: 'images/orders/front-mockup.png',
+        thumbnailStorageKey: null,
+        caption: 'Front mock-up',
+      },
+      {
+        id: 'i-2',
+        storageKey: 'images/orders/back-view.png',
+        thumbnailStorageKey: null,
+        caption: null,
+      },
+    ];
+    const wb = await load(await buildPoWorkbook(props({ snapshot: detailed })));
+    const sheet = wb.getWorksheet('Purchase Order')!;
+    const all = rows(sheet);
+
+    expect(all.some((r) => r[0] === 'GARMENT DETAILS')).toBe(true);
+    expect(all.some((r) => r[0] === 'Home Jersey — Pullover Hoodie')).toBe(true);
+    expect(findRow(sheet, 'Fabrics')?.[1]).toBe('Outer Fabric: Cotton Fleece; Hood Lining: Mesh');
+    expect(findRow(sheet, 'Options')?.[1]).toBe('Zip Type: pullover; Cord Color: Black');
+    expect(findRow(sheet, 'Size charts')?.[1]).toBe('Adult Hoodie Chart');
+    // Captions where present, else the storage filename — never embedded.
+    expect(findRow(sheet, 'Images')?.[1]).toBe('Front mock-up, back-view.png');
+
+    // The typeless garment still gets its rows — a blank options map shows a
+    // dash rather than the row disappearing (options must always display).
+    const shortsIdx = all.findIndex((r) => r[0] === 'Shorts');
+    expect(shortsIdx).toBeGreaterThan(-1);
+    const shortsOptions = all
+      .slice(shortsIdx)
+      .find((r) => r[0] === 'Options');
+    expect(shortsOptions?.[1]).toBe('—');
+  });
+
+  it('keeps blank option values visible as dashes in the Lines options cell', async () => {
+    const blanks = snapshot();
+    blanks.garments[0].selectedOptions = { 'Zip Type': 'pullover', 'Cord Color': '' };
+    const wb = await load(await buildPoWorkbook(props({ snapshot: blanks })));
+    const sheet = wb.getWorksheet('Lines')!;
+    expect(rows(sheet)[1][3]).toBe('Zip Type: pullover; Cord Color: —');
+  });
+
   it('writes one Lines row per sizing line with garment columns denormalized', async () => {
     const wb = await load(await buildPoWorkbook(props()));
     const sheet = wb.getWorksheet('Lines')!;
@@ -156,8 +206,8 @@ describe('buildPoWorkbook', () => {
     expect(all[1]).toEqual([
       'Home Jersey',
       'Pullover Hoodie',
-      // labeled picks win over the legacy flat list (effectiveFabrics)
-      'Cotton Fleece, Mesh',
+      // labeled picks win over the legacy flat list, labels preserved
+      'Outer Fabric: Cotton Fleece; Hood Lining: Mesh',
       'Zip Type: pullover; Cord Color: Black',
       'M',
       'Alex',
@@ -214,13 +264,10 @@ describe('buildPoWorkbook', () => {
 
   it('omits optional meta rows when the PO has none', async () => {
     const wb = await load(
-      await buildPoWorkbook(
-        props({ deadlineDate: null, expectedShipDate: null, notes: null }),
-      ),
+      await buildPoWorkbook(props({ expectedShipDate: null, notes: null })),
     );
     const sheet = wb.getWorksheet('Purchase Order')!;
-    expect(findRow(sheet, 'Deadline')).toBeUndefined();
-    expect(findRow(sheet, 'Expected ship')).toBeUndefined();
+    expect(findRow(sheet, 'Required ship date')).toBeUndefined();
     expect(rows(sheet).some((r) => r[0] === 'NOTES TO SUPPLIER')).toBe(false);
   });
 
@@ -229,7 +276,9 @@ describe('buildPoWorkbook', () => {
     empty.garments[1].lines = [];
     const wb = await load(await buildPoWorkbook(props({ snapshot: empty })));
     const sheet = wb.getWorksheet('Purchase Order')!;
-    expect(findRow(sheet, 'Shorts')?.[1]).toBe('(no lines)');
+    // 'Shorts' also appears as a Garment-details title row, so match the
+    // size-summary row specifically.
+    expect(rows(sheet).some((r) => r[0] === 'Shorts' && r[1] === '(no lines)')).toBe(true);
     expect(findRow(sheet, 'Total pieces')?.[2]).toBe('4');
   });
 });

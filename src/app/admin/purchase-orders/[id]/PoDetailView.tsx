@@ -1,9 +1,12 @@
 'use client';
 
 /**
- * Purchase-order detail (PO_PLAN): header actions (send / PDF / status
- * machine), variance banner + revision issuing, editable dates/notes, the
- * latest-revision line tables, revision history, and a shipments placeholder.
+ * Purchase-order detail (PO_PLAN): header actions (approve / send / PDF /
+ * status machine), variance banner + revision issuing, editable ship dates and
+ * notes (the customer deadline is display-only — imported from the order),
+ * the always-on supplier portal link + password snippet, the supplier-shared
+ * comment thread and the order's team notes, the latest-revision line tables,
+ * revision + audit history, and a shipments placeholder.
  *
  * Data: the client loads GET /api/admin/purchase-orders/[id] for the PO
  * itself, and sources VARIANCE from the parent order's production-summary
@@ -34,14 +37,16 @@ import {
   Typography,
 } from 'antd';
 import {
+  CheckOutlined,
   CopyOutlined,
   DownOutlined,
   DownloadOutlined,
+  ExportOutlined,
   FileExcelOutlined,
   LinkOutlined,
   MailOutlined,
   PaperClipOutlined,
-  StopOutlined,
+  SendOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -56,11 +61,11 @@ import {
   type PoVariance,
   type PoVarianceCounts,
 } from '@/server/purchase-orders/snapshot';
-import type { PoSnapshot, PoSnapshotAsset, PoSnapshotLine } from '@/db/schema';
-import { PO_STATUS } from '@/lib/status';
+import type { PoSnapshot, PoSnapshotAsset, PoSnapshotGarment, PoSnapshotLine } from '@/db/schema';
+import { PO_STATUS, poStatusMeta } from '@/lib/status';
 import { ASSET_KIND_COLOR, ASSET_KIND_LABEL } from '@/lib/asset-kind';
 import { formatDate } from '@/lib/format';
-import { getJson, postJson, patchJson, deleteJson } from '@/lib/api-fetch';
+import { getJson, postJson, patchJson } from '@/lib/api-fetch';
 
 const { Text } = Typography;
 
@@ -78,6 +83,42 @@ interface PoShipment {
   carrier: string | null;
   trackingNumber: string | null;
   status: string;
+}
+
+/** One audit row of the PO's who/when record (listPoHistory, newest first). */
+interface PoHistoryEntry {
+  id: string;
+  eventType: string;
+  actorEmail: string | null;
+  payload: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+/** Plain labels for the PO history card — anything else renders its raw type. */
+const HISTORY_EVENT_LABEL: Record<string, string> = {
+  'po.status_changed': 'Status changed',
+  'po.ship_date_changed': 'Ship date changed',
+  'po.supplier_updated': 'Supplier update',
+  'po.sent': 'Sent to supplier',
+  'po.created': 'Created',
+  'po.updated': 'Details updated',
+};
+
+/** A note/comment row from the parent order's notes API (subset we render). */
+interface PoOrderNote {
+  id: string;
+  body: string;
+  authorKind: 'staff' | 'email_flow' | 'system' | 'supplier';
+  authorName: string | null;
+  authorEmail: string | null;
+  authorLabel: string | null;
+  visibility: 'internal' | 'shared';
+  deleted: boolean;
+  createdAt: string;
+}
+
+function noteAuthor(note: PoOrderNote): string {
+  return note.authorName ?? note.authorEmail ?? note.authorLabel ?? 'Unknown';
 }
 
 interface PoDetail {
@@ -100,10 +141,21 @@ interface PoDetail {
     email: string | null;
     phone: string | null;
   };
-  order: { id: string; orderNumber: string; customerName: string; status: string };
+  order: {
+    id: string;
+    orderNumber: string;
+    customerName: string;
+    status: string;
+    /** The customer deadline — served live from the order so it can't go stale. */
+    deadlineDate: string | null;
+  };
   revisions: PoRevision[];
   shipments: PoShipment[];
+  /** Legacy emailed-token link info (the token flow is gone; view-only). */
   supplierLink: { active: boolean; lastViewedAt: string | null };
+  /** The pretty always-on portal URL (/supplier/{CODE}/...). */
+  portalUrl: string;
+  history: PoHistoryEntry[];
 }
 
 interface ProductionSummary {
@@ -114,30 +166,60 @@ interface ProductionSummary {
   }>;
 }
 
-const LINE_COLUMNS: ColumnType<PoSnapshotLine>[] = [
-  {
-    title: 'Size',
-    dataIndex: 'size',
-    width: 120,
-    render: (v: string | null) => v ?? <Text type="secondary">—</Text>,
-  },
-  {
-    title: 'Player',
-    dataIndex: 'playerName',
-    render: (v: string | null) => v ?? <Text type="secondary">—</Text>,
-  },
-  {
-    title: 'Number',
-    dataIndex: 'playerNumber',
-    width: 110,
-    render: (v: string | null) => v ?? <Text type="secondary">—</Text>,
-  },
-  {
+const dash = <Text type="secondary">—</Text>;
+
+/**
+ * Line-table columns for one snapshot garment: the fixed columns plus one per
+ * user-defined sizing column captured in the snapshot (values live in each
+ * line's `customValues`, keyed by label). Quantity only appears when some line
+ * carries one — pre-0025 revisions have none and a column of 1s is noise.
+ */
+function buildLineColumns(garment: PoSnapshotGarment): ColumnType<PoSnapshotLine>[] {
+  const columns: ColumnType<PoSnapshotLine>[] = [
+    {
+      title: 'Size',
+      dataIndex: 'size',
+      width: 120,
+      render: (v: string | null) => v ?? dash,
+    },
+    {
+      title: 'Player',
+      dataIndex: 'playerName',
+      render: (v: string | null) => v ?? dash,
+    },
+    {
+      title: 'Number',
+      dataIndex: 'playerNumber',
+      width: 110,
+      render: (v: string | null) => v ?? dash,
+    },
+  ];
+
+  for (const col of garment.sizingColumns ?? []) {
+    columns.push({
+      title: col.label,
+      key: `custom-${col.label}`,
+      render: (_: unknown, line: PoSnapshotLine) => line.customValues?.[col.label] ?? dash,
+    });
+  }
+
+  if ((garment.lines ?? []).some((line) => line.quantity !== undefined)) {
+    columns.push({
+      title: 'Qty',
+      dataIndex: 'quantity',
+      width: 70,
+      render: (v: number | undefined) => v ?? 1,
+    });
+  }
+
+  columns.push({
     title: 'Notes',
     dataIndex: 'notes',
-    render: (v: string | null) => v ?? <Text type="secondary">—</Text>,
-  },
-];
+    render: (v: string | null) => v ?? dash,
+  });
+
+  return columns;
+}
 
 export function PoDetailView({ poId }: { poId: string }) {
   const { message, modal } = App.useApp();
@@ -153,17 +235,47 @@ export function PoDetailView({ poId }: { poId: string }) {
   const [revisionReason, setRevisionReason] = useState('');
   const [issuingRevision, setIssuingRevision] = useState(false);
 
-  // Editable summary fields
-  const [deadline, setDeadline] = useState<Dayjs | null>(null);
+  // Editable summary fields (the customer deadline is display-only — it is
+  // imported from the order server-side and never sent from here).
   const [expectedShip, setExpectedShip] = useState<Dayjs | null>(null);
   const [actualShip, setActualShip] = useState<Dayjs | null>(null);
   const [notes, setNotes] = useState('');
   const [savingSummary, setSavingSummary] = useState(false);
 
-  // Supplier portal link — shown once when (re)generated, matching ShareLinkPanel's
-  // "copy now" convention (the raw token is never persisted after creation).
-  const [supplierLinkUrl, setSupplierLinkUrl] = useState<string | null>(null);
-  const [supplierLinkBusy, setSupplierLinkBusy] = useState<'generate' | 'revoke' | null>(null);
+  // The supplier's portal password (from the supplier record): undefined =
+  // still loading, null = no password set (portal closed).
+  const [portalPassword, setPortalPassword] = useState<string | null | undefined>(undefined);
+
+  // The parent order's threads: supplier-shared comments + team order notes.
+  const [comments, setComments] = useState<PoOrderNote[]>([]);
+  const [orderNotes, setOrderNotes] = useState<PoOrderNote[]>([]);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [postingComment, setPostingComment] = useState(false);
+
+  const loadThreads = useCallback(
+    async (orderId: string) => {
+      // Best-effort: the PO page still works if the notes API fails.
+      try {
+        const [commentRows, noteRows] = await Promise.all([
+          getJson<PoOrderNote[]>(
+            `/api/admin/orders/${orderId}/notes`,
+            'Failed to load comments',
+          ),
+          getJson<PoOrderNote[]>(
+            `/api/admin/orders/${orderId}/notes?kind=note`,
+            'Failed to load order notes',
+          ),
+        ]);
+        // The supplier conversation is the SHARED slice of the order thread —
+        // internal chatter stays on the order page.
+        setComments(commentRows.filter((n) => n.visibility === 'shared' && !n.deleted));
+        setOrderNotes(noteRows.filter((n) => !n.deleted));
+      } catch {
+        // leave whatever was last loaded
+      }
+    },
+    [],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -173,10 +285,20 @@ export function PoDetailView({ poId }: { poId: string }) {
         'Failed to load purchase order',
       );
       setDetail(d);
-      setDeadline(d.deadlineDate ? dayjs(d.deadlineDate) : null);
       setExpectedShip(d.expectedShipDate ? dayjs(d.expectedShipDate) : null);
       setActualShip(d.actualShipDate ? dayjs(d.actualShipDate) : null);
       setNotes(d.notes ?? '');
+      // The portal password lives on the supplier record, not the PO read.
+      try {
+        const supplier = await getJson<{ portalPassword: string | null }>(
+          `/api/admin/suppliers/${d.supplier.id}`,
+          'Failed to load supplier',
+        );
+        setPortalPassword(supplier.portalPassword);
+      } catch {
+        setPortalPassword(undefined);
+      }
+      await loadThreads(d.orderId);
       // Variance is best-effort — the page still works if the summary fails.
       try {
         const summary = await getJson<ProductionSummary>(
@@ -195,7 +317,7 @@ export function PoDetailView({ poId }: { poId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [poId, message]);
+  }, [poId, message, loadThreads]);
 
   useEffect(() => {
     load();
@@ -264,7 +386,8 @@ export function PoDetailView({ poId }: { poId: string }) {
       await patchJson(
         `/api/admin/purchase-orders/${poId}`,
         {
-          deadlineDate: deadline ? deadline.format('YYYY-MM-DD') : null,
+          // No deadlineDate — it mirrors the order's customer deadline and is
+          // not editable per PO.
           expectedShipDate: expectedShip ? expectedShip.format('YYYY-MM-DD') : null,
           actualShipDate: actualShip ? actualShip.format('YYYY-MM-DD') : null,
           notes: notes.trim() || null,
@@ -280,49 +403,36 @@ export function PoDetailView({ poId }: { poId: string }) {
     }
   }
 
-  async function generateSupplierLink() {
-    setSupplierLinkBusy('generate');
-    try {
-      const { url } = await postJson<{ url: string }>(
-        `/api/admin/purchase-orders/${poId}/supplier-link`,
-        undefined,
-        'Failed to generate supplier link',
-      );
-      setSupplierLinkUrl(url);
-      message.success('Supplier portal link generated');
-      await load();
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : 'Failed to generate supplier link');
-    } finally {
-      setSupplierLinkBusy(null);
-    }
+  /** Link + password together, ready to paste into an email (ShareLinkPanel's pattern). */
+  function portalEmailSnippet(url: string, password: string): string {
+    return `View and update this purchase order here:\n${url}\n\nPortal password: ${password}`;
   }
 
-  async function revokeSupplierLink() {
-    setSupplierLinkBusy('revoke');
+  async function copyPortalSnippet() {
+    if (!detail || !portalPassword) return;
     try {
-      await deleteJson(
-        `/api/admin/purchase-orders/${poId}/supplier-link`,
-        undefined,
-        'Failed to revoke supplier link',
-      );
-      setSupplierLinkUrl(null);
-      message.success('Supplier portal link revoked');
-      await load();
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : 'Failed to revoke supplier link');
-    } finally {
-      setSupplierLinkBusy(null);
-    }
-  }
-
-  async function copySupplierLink() {
-    if (!supplierLinkUrl) return;
-    try {
-      await navigator.clipboard.writeText(supplierLinkUrl);
-      message.success('Link copied to clipboard');
+      await navigator.clipboard.writeText(portalEmailSnippet(detail.portalUrl, portalPassword));
+      message.success('Link and password copied to clipboard');
     } catch {
       message.error('Copy failed — please copy manually');
+    }
+  }
+
+  async function postComment() {
+    if (!detail || !commentDraft.trim()) return;
+    setPostingComment(true);
+    try {
+      await postJson(
+        `/api/admin/orders/${detail.orderId}/notes`,
+        { body: commentDraft.trim(), visibility: 'shared' },
+        'Failed to post the comment',
+      );
+      setCommentDraft('');
+      await loadThreads(detail.orderId);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to post the comment');
+    } finally {
+      setPostingComment(false);
     }
   }
 
@@ -345,7 +455,10 @@ export function PoDetailView({ poId }: { poId: string }) {
     canTransition(detail.status as PoStatus, s),
   );
   const supplierHasEmail = Boolean(detail.supplier.email);
-  const canSend = detail.status === 'draft' || detail.status === 'sent';
+  const isDraft = detail.status === 'draft';
+  // Mirrors sendPurchaseOrder's guards: a draft must be approved first, and a
+  // received/completed/cancelled PO has nothing left to send.
+  const canSend = !['draft', 'received', 'completed', 'cancelled'].includes(detail.status);
 
   const sendButton = (
     <Button icon={<MailOutlined />} loading={sending} disabled={!supplierHasEmail || !canSend}>
@@ -372,6 +485,15 @@ export function PoDetailView({ poId }: { poId: string }) {
         }
         extra={
           <Space>
+            {isDraft && (
+              <Button
+                type="primary"
+                icon={<CheckOutlined />}
+                onClick={() => applyStatus('approved')}
+              >
+                Approve
+              </Button>
+            )}
             {supplierHasEmail && canSend ? (
               <Popconfirm
                 title="Send to supplier"
@@ -386,7 +508,9 @@ export function PoDetailView({ poId }: { poId: string }) {
                 title={
                   !supplierHasEmail
                     ? 'Supplier has no email address'
-                    : `A ${PO_STATUS[detail.status as PoStatus]?.label.toLowerCase() ?? detail.status} purchase order cannot be sent`
+                    : isDraft
+                      ? 'Approve the purchase order before sending it'
+                      : `A ${PO_STATUS[detail.status as PoStatus]?.label.toLowerCase() ?? detail.status} purchase order cannot be sent`
                 }
               >
                 {sendButton}
@@ -490,18 +614,21 @@ export function PoDetailView({ poId }: { poId: string }) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div>
                   <Text strong style={{ display: 'block', marginBottom: 4 }}>
-                    Deadline
+                    Customer deadline
                   </Text>
-                  <DatePicker
-                    style={{ width: '100%' }}
-                    format="DD MMM YYYY"
-                    value={deadline}
-                    onChange={setDeadline}
-                  />
+                  <Tooltip title="Imported from the customer order automatically; hidden from the supplier">
+                    <Text>
+                      {detail.order.deadlineDate ? (
+                        formatDate(detail.order.deadlineDate)
+                      ) : (
+                        <Text type="secondary">None set</Text>
+                      )}
+                    </Text>
+                  </Tooltip>
                 </div>
                 <div>
                   <Text strong style={{ display: 'block', marginBottom: 4 }}>
-                    Expected ship
+                    Required ship date
                   </Text>
                   <DatePicker
                     style={{ width: '100%' }}
@@ -546,106 +673,158 @@ export function PoDetailView({ poId }: { poId: string }) {
         <Card title="Supplier Portal" size="small">
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              A token-gated link the supplier can open to view this purchase order, push its
-              status forward, and leave a comment. Minted automatically the first time a PO is
-              sent — regenerate below only if the link needs replacing.
+              The supplier&apos;s permanent link to this purchase order — view the latest
+              revision, push the status forward, and leave a comment. Guarded by the
+              supplier&apos;s portal password.
             </Text>
 
-            {detail.supplierLink.active && !supplierLinkUrl && (
+            {/* Same compact treatment as the customer link (ShareLinkPanel). */}
+            <Space wrap size={8}>
+              <Text code copyable={{ text: detail.portalUrl }} style={{ wordBreak: 'break-all' }}>
+                {detail.portalUrl}
+              </Text>
+              <Button
+                size="small"
+                icon={<ExportOutlined />}
+                href={detail.portalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open
+              </Button>
+            </Space>
+
+            {portalPassword === null && (
               <Alert
                 type="warning"
                 showIcon
-                icon={<LinkOutlined />}
-                message={
+                message="The supplier portal is closed"
+                description={
                   <span>
-                    Active link exists — URL not shown
-                    {detail.supplierLink.lastViewedAt && (
-                      <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-                        (last viewed {formatDate(detail.supplierLink.lastViewedAt)})
-                      </Text>
-                    )}
+                    {detail.supplier.name} has no portal password, so this link won&apos;t open
+                    until an admin sets one on the{' '}
+                    <Link href="/admin/suppliers">supplier record</Link>.
                   </span>
                 }
-                description="The link is only displayed once when it's generated. Regenerate to get a new copyable URL — this invalidates the current one."
               />
             )}
 
-            {!detail.supplierLink.active && !supplierLinkUrl && (
-              <Alert
-                type="info"
-                showIcon
-                message="No supplier link yet"
-                description="One is generated automatically the next time this PO is sent, or generate one now."
-              />
-            )}
-
-            {supplierLinkUrl && (
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <Text strong>Supplier link</Text>
-                  <Text type="warning" style={{ fontSize: 12 }}>
-                    — copy now, this won&apos;t be shown again after you leave this page
-                  </Text>
-                </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '8px 12px',
-                    background: 'var(--ant-color-fill-tertiary)',
-                    borderRadius: 6,
-                    border: '1px solid var(--ant-color-warning-border, var(--ant-color-border))',
-                  }}
-                >
-                  <LinkOutlined style={{ color: 'var(--ant-color-primary)', flexShrink: 0 }} />
-                  <Text style={{ flex: 1, wordBreak: 'break-all', fontSize: 13 }}>
-                    {supplierLinkUrl}
-                  </Text>
-                  <Button type="primary" size="small" icon={<CopyOutlined />} onClick={copySupplierLink}>
-                    Copy
+            {/* Link + password together, ready to paste into an email. */}
+            {portalPassword && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  background: 'var(--ant-color-fill-tertiary)',
+                  border: '1px solid var(--ant-color-border)',
+                  borderRadius: 6,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <Text strong>For your email</Text>
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<CopyOutlined />}
+                    onClick={copyPortalSnippet}
+                  >
+                    Copy link + password
                   </Button>
                 </div>
+                <Text
+                  type="secondary"
+                  style={{ fontSize: 12, whiteSpace: 'pre-wrap', display: 'block', wordBreak: 'break-all' }}
+                >
+                  {portalEmailSnippet(detail.portalUrl, portalPassword)}
+                </Text>
               </div>
             )}
 
-            <Space wrap>
-              <Tooltip
-                title={
-                  detail.supplierLink.active
-                    ? 'Creates a new URL and invalidates the existing one'
-                    : undefined
-                }
-              >
+            {detail.supplierLink.lastViewedAt && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Legacy emailed link last opened {formatDate(detail.supplierLink.lastViewedAt)}
+              </Text>
+            )}
+          </Space>
+        </Card>
+
+        <Card title="Comments" size="small">
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              The conversation shared with the supplier on their portal — their comments and
+              staff replies. Anything posted here is visible to the supplier.
+            </Text>
+            {comments.length === 0 ? (
+              <Text type="secondary">No shared comments yet.</Text>
+            ) : (
+              <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                {comments.map((note) => (
+                  <div key={note.id}>
+                    <Space size={6} wrap>
+                      <Text strong style={{ fontSize: 13 }}>
+                        {noteAuthor(note)}
+                      </Text>
+                      {note.authorKind === 'supplier' && (
+                        <Tag color="gold" style={{ marginInlineEnd: 0 }}>
+                          Supplier
+                        </Tag>
+                      )}
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {formatDate(note.createdAt)}
+                      </Text>
+                    </Space>
+                    <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{note.body}</div>
+                  </div>
+                ))}
+              </Space>
+            )}
+            <div>
+              <Input.TextArea
+                rows={2}
+                maxLength={2000}
+                value={commentDraft}
+                onChange={(e) => setCommentDraft(e.target.value)}
+                placeholder="Reply to the supplier…"
+                aria-label="New supplier comment"
+              />
+              <div style={{ marginTop: 6 }}>
                 <Button
-                  icon={<LinkOutlined />}
-                  loading={supplierLinkBusy === 'generate'}
-                  disabled={supplierLinkBusy !== null && supplierLinkBusy !== 'generate'}
-                  onClick={generateSupplierLink}
+                  type="primary"
+                  size="small"
+                  icon={<SendOutlined />}
+                  loading={postingComment}
+                  disabled={!commentDraft.trim()}
+                  onClick={postComment}
                 >
-                  {detail.supplierLink.active ? 'Regenerate link' : 'Generate link'}
+                  Post to supplier
                 </Button>
-              </Tooltip>
-              {detail.supplierLink.active && (
-                <Popconfirm
-                  title="Revoke supplier link?"
-                  description="The current URL will stop working immediately."
-                  onConfirm={revokeSupplierLink}
-                  okText="Revoke"
-                  okType="danger"
-                  disabled={supplierLinkBusy !== null}
-                >
-                  <Button
-                    danger
-                    icon={<StopOutlined />}
-                    loading={supplierLinkBusy === 'revoke'}
-                    disabled={supplierLinkBusy !== null && supplierLinkBusy !== 'revoke'}
-                  >
-                    Revoke link
-                  </Button>
-                </Popconfirm>
-              )}
-            </Space>
+              </div>
+            </div>
+          </Space>
+        </Card>
+
+        <Card title="Order notes (from the order)" size="small">
+          <Space direction="vertical" size={10} style={{ width: '100%' }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              The team&apos;s order notes, brought through so production can check every point
+              has been dealt with. Add or edit them on the order page.
+            </Text>
+            {orderNotes.length === 0 ? (
+              <Text type="secondary">No order notes.</Text>
+            ) : (
+              orderNotes.map((note) => (
+                <div key={note.id}>
+                  <Space size={6} wrap>
+                    <Text strong style={{ fontSize: 13 }}>
+                      {noteAuthor(note)}
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {formatDate(note.createdAt)}
+                    </Text>
+                  </Space>
+                  <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{note.body}</div>
+                </div>
+              ))
+            )}
           </Space>
         </Card>
 
@@ -666,6 +845,12 @@ export function PoDetailView({ poId }: { poId: string }) {
                     .map(([size, n]) => `${size} ×${n}`)
                     .join(' · ')
                 : '';
+              const fabricPairs = Object.entries(g.selectedFabrics ?? {});
+              const optionPairs = Object.entries(g.selectedOptions ?? {});
+              const images = g.images ?? [];
+              const imageCaptions = images
+                .map((img) => img.caption)
+                .filter((c): c is string => Boolean(c));
               return (
                 <div key={g.garmentId}>
                   <div style={{ marginBottom: 8 }}>
@@ -676,9 +861,53 @@ export function PoDetailView({ poId }: { poId: string }) {
                       </Text>
                     )}
                   </div>
+                  {(fabricPairs.length > 0 || g.fabrics.length > 0) && (
+                    <div style={{ marginBottom: 4 }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        Fabrics:{' '}
+                        {fabricPairs.length > 0
+                          ? fabricPairs.map(([part, fabric]) => `${part}: ${fabric}`).join(' · ')
+                          : g.fabrics.join(', ')}
+                      </Text>
+                    </div>
+                  )}
+                  {optionPairs.length > 0 && (
+                    <div style={{ marginBottom: 4 }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        Options:{' '}
+                        {optionPairs.map(([label, value]) => `${label}: ${value}`).join(' · ')}
+                      </Text>
+                    </div>
+                  )}
+                  {(g.sizeCharts ?? []).length > 0 && (
+                    <div style={{ marginBottom: 4 }}>
+                      <Space size={4} wrap>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          Size charts:
+                        </Text>
+                        {g.sizeCharts!.map((chart) => (
+                          <Tag key={chart.id} style={{ marginInlineEnd: 0 }}>
+                            {chart.name}
+                          </Tag>
+                        ))}
+                      </Space>
+                    </div>
+                  )}
+                  {/* The admin read serves raw storage keys for snapshot images
+                      (only PO assets are signed on this surface), so list the
+                      count and captions rather than dead thumbnails. */}
+                  {images.length > 0 && (
+                    <div style={{ marginBottom: 4 }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {images.length} mock-up image{images.length === 1 ? '' : 's'} on the
+                        supplier PO
+                        {imageCaptions.length > 0 ? ` — ${imageCaptions.join(' · ')}` : ''}
+                      </Text>
+                    </div>
+                  )}
                   <Table
                     dataSource={g.lines}
-                    columns={LINE_COLUMNS}
+                    columns={buildLineColumns(g)}
                     rowKey="sizingRowId"
                     size="small"
                     pagination={false}
@@ -763,6 +992,40 @@ export function PoDetailView({ poId }: { poId: string }) {
               ),
             }))}
           />
+        </Card>
+
+        <Card title="History" size="small">
+          {detail.history.length === 0 ? (
+            <Text type="secondary">Nothing recorded yet.</Text>
+          ) : (
+            <Timeline
+              items={detail.history.map((entry) => {
+                const from = entry.payload?.from;
+                const to = entry.payload?.to;
+                const isStatus = entry.eventType === 'po.status_changed';
+                return {
+                  key: entry.id,
+                  children: (
+                    <Space size={8} wrap>
+                      <Text strong>
+                        {HISTORY_EVENT_LABEL[entry.eventType] ?? entry.eventType}
+                      </Text>
+                      {typeof from === 'string' && typeof to === 'string' && (
+                        <Text>
+                          {isStatus ? poStatusMeta(from).label : from} →{' '}
+                          {isStatus ? poStatusMeta(to).label : to}
+                        </Text>
+                      )}
+                      {entry.actorEmail && (
+                        <Text type="secondary">{entry.actorEmail}</Text>
+                      )}
+                      <Text type="secondary">{formatDate(entry.createdAt)}</Text>
+                    </Space>
+                  ),
+                };
+              })}
+            />
+          )}
         </Card>
 
         <Card title="Shipments" size="small">

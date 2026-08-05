@@ -37,6 +37,7 @@ function renderModal(overrides: Partial<Parameters<typeof CreatePoModal>[0]> = {
         orderId="order-1"
         orderStatus="confirmed"
         colorSampleRequestedAt={null}
+        deadlineDate={null}
         garments={GARMENTS}
         {...overrides}
       />
@@ -183,6 +184,29 @@ describe('CreatePoModal', () => {
 
     expect(await screen.findByText('Supplier is inactive')).toBeInTheDocument();
     expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it('shows the customer deadline beside the ship date instead of a deadline picker', async () => {
+    installMockFetch([suppliersRoute()]);
+    renderModal({ deadlineDate: '2026-09-15' });
+    await screen.findByText('Jersey — 5 sizing rows');
+
+    // en-NZ short month renders "Sep" or "Sept" depending on ICU.
+    expect(
+      screen.getByText(/Customer deadline: 15 Sept? 2026 — imported to the PO automatically/),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Required ship date')).toBeInTheDocument();
+    expect(screen.queryByText('Deadline')).not.toBeInTheDocument();
+  });
+
+  it("says 'none set' when the order has no customer deadline", async () => {
+    installMockFetch([suppliersRoute()]);
+    renderModal();
+    await screen.findByText('Jersey — 5 sizing rows');
+
+    expect(
+      screen.getByText(/Customer deadline: none set — imported to the PO automatically/),
+    ).toBeInTheDocument();
   });
 
   it('marks fully covered garments with a covered hint', async () => {

@@ -22,6 +22,7 @@ import {
 } from 'antd';
 import type { Dayjs } from 'dayjs';
 import { ApiError, postJson } from '@/lib/api-fetch';
+import { formatDate } from '@/lib/format';
 import { useAdminResource } from '@/lib/use-admin-resource';
 
 export interface PoModalGarment {
@@ -49,6 +50,11 @@ interface Props {
   orderId: string;
   orderStatus: string;
   colorSampleRequestedAt: string | null;
+  /**
+   * The order's customer deadline — display only. The PO's deadline is copied
+   * from it server-side at create; it is never sent from here.
+   */
+  deadlineDate: string | null;
   garments: PoModalGarment[];
 }
 
@@ -59,6 +65,7 @@ export function CreatePoModal({
   orderId,
   orderStatus,
   colorSampleRequestedAt,
+  deadlineDate,
   garments,
 }: Props) {
   const { message } = App.useApp();
@@ -68,7 +75,6 @@ export function CreatePoModal({
   );
   const [supplierId, setSupplierId] = useState<string | undefined>(undefined);
   const [garmentIds, setGarmentIds] = useState<string[]>([]);
-  const [deadlineDate, setDeadlineDate] = useState<Dayjs | null>(null);
   const [expectedShipDate, setExpectedShipDate] = useState<Dayjs | null>(null);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -95,7 +101,7 @@ export function CreatePoModal({
           orderId,
           supplierId,
           garmentIds,
-          deadlineDate: deadlineDate ? deadlineDate.format('YYYY-MM-DD') : undefined,
+          // No deadlineDate — the server copies the customer deadline onto the PO.
           expectedShipDate: expectedShipDate ? expectedShipDate.format('YYYY-MM-DD') : undefined,
           notes: notes.trim() || undefined,
         },
@@ -203,31 +209,21 @@ export function CreatePoModal({
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 160 }}>
-            <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
-              Deadline
-            </Typography.Text>
-            <DatePicker
-              style={{ width: '100%' }}
-              format="DD MMM YYYY"
-              value={deadlineDate}
-              onChange={setDeadlineDate}
-              placeholder="Optional"
-            />
-          </div>
-          <div style={{ flex: 1, minWidth: 160 }}>
-            <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
-              Expected ship date
-            </Typography.Text>
-            <DatePicker
-              style={{ width: '100%' }}
-              format="DD MMM YYYY"
-              value={expectedShipDate}
-              onChange={setExpectedShipDate}
-              placeholder="Optional"
-            />
-          </div>
+        <div>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
+            Required ship date
+          </Typography.Text>
+          <DatePicker
+            style={{ width: '100%', maxWidth: 240 }}
+            format="DD MMM YYYY"
+            value={expectedShipDate}
+            onChange={setExpectedShipDate}
+            placeholder="Optional"
+          />
+          <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+            Customer deadline: {deadlineDate ? formatDate(deadlineDate) : 'none set'} — imported to
+            the PO automatically
+          </Typography.Text>
         </div>
 
         <div>

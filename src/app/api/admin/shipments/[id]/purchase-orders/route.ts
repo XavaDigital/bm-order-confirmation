@@ -12,10 +12,12 @@ export const POST = defineRoute<{ id: string }, typeof attachPurchaseOrdersSchem
   schema: attachPurchaseOrdersSchema,
   handler: async ({ params, body, session }) =>
     NextResponse.json(
-      await attachPurchaseOrders(params.id, body.purchaseOrderIds, {
-        actorStaffUserId: session!.userId,
-        actorEmail: session!.email,
-      }),
+      await attachPurchaseOrders(
+        params.id,
+        body.purchaseOrderIds,
+        { actorStaffUserId: session!.userId, actorEmail: session!.email },
+        body.poContents,
+      ),
     ),
 });
 

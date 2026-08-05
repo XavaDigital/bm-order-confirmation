@@ -71,7 +71,8 @@ describe('PurchaseOrdersView', () => {
     expect(screen.getByText('BM-1042')).toBeInTheDocument();
     expect(screen.getByText('Jane Coach')).toBeInTheDocument();
     expect(screen.getByText('Vast Apparel')).toBeInTheDocument();
-    expect(screen.getByText('Sent')).toBeInTheDocument();
+    // 'sent' renders as Unconfirmed (poStatusMeta).
+    expect(screen.getByText('Unconfirmed')).toBeInTheDocument();
     expect(screen.getByText('v2')).toBeInTheDocument();
     expect(screen.getByText('15 Sept 2026')).toBeInTheDocument();
     expect(screen.getByText('30 Aug 2026')).toBeInTheDocument();
@@ -113,7 +114,7 @@ describe('PurchaseOrdersView', () => {
 
     // First combobox is the status Select; antd opens on mouseDown.
     fireEvent.mouseDown(screen.getAllByRole('combobox')[0]);
-    fireEvent.click(await screen.findByTitle('In production'));
+    fireEvent.click(await screen.findByTitle('Production'));
 
     await vi.waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/admin/purchase-orders?status=in_production');

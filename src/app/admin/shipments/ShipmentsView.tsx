@@ -84,11 +84,23 @@ interface PoListRow {
  * and remake/cancelled POs aren't shippable consignment content. The PO list
  * endpoint has no such filter, so it is applied client-side here.
  */
-const UNSHIPPED_PO_STATUSES = ['draft', 'sent', 'confirmed', 'pre_production', 'in_production'];
+const UNSHIPPED_PO_STATUSES = [
+  'draft',
+  'approved',
+  'sent',
+  'confirmed',
+  'pre_production',
+  'test_print',
+  'prod_layout',
+  'in_production',
+  'quality_control',
+];
 
 interface FormValues {
   supplierId: string;
   purchaseOrderIds?: string[];
+  /** Per-PO "what's included" notes, keyed by PO id (partial shipments). */
+  poContents?: Record<string, string>;
   nickname?: string;
   carrier?: string;
   trackingNumber?: string;
@@ -241,6 +253,14 @@ export function ShipmentsView() {
           etaDate: values.etaDate ? values.etaDate.format('YYYY-MM-DD') : null,
           notes: trimmedOrNull(values.notes),
         };
+        // Per-PO contents notes: only for still-selected POs, only non-empty.
+        const poContents = Object.fromEntries(
+          Object.entries(values.poContents ?? {}).filter(
+            ([poId, note]) =>
+              (values.purchaseOrderIds ?? []).includes(poId) && note?.trim(),
+          ),
+        );
+        if (Object.keys(poContents).length > 0) body.poContents = poContents;
         for (const key of Object.keys(body)) {
           if (body[key] === null) delete body[key];
         }
@@ -502,6 +522,41 @@ export function ShipmentsView() {
                   label: `${po.poNumber} — ${po.customerName}`,
                 }))}
               />
+            </Form.Item>
+          )}
+
+          {/* Partial shipments (David, 2026-08-05): a PO can split across
+              consignments weeks apart, so each attached PO takes an optional
+              "what's included" note. Blank = the whole PO. */}
+          {!editing && (
+            <Form.Item
+              noStyle
+              shouldUpdate={(prev, cur) => prev.purchaseOrderIds !== cur.purchaseOrderIds}
+            >
+              {({ getFieldValue }) => {
+                const ids: string[] = getFieldValue('purchaseOrderIds') ?? [];
+                if (ids.length === 0) return null;
+                return (
+                  <>
+                    {ids.map((poId) => {
+                      const po = poOptions.find((p) => p.id === poId);
+                      return (
+                        <Form.Item
+                          key={poId}
+                          label={`What's included from ${po?.poNumber ?? 'this PO'}`}
+                          name={['poContents', poId]}
+                          tooltip="Optional — for a partial shipment, note which part of the PO is in this consignment"
+                        >
+                          <Input
+                            placeholder="Leave blank if the whole PO is in this shipment"
+                            maxLength={500}
+                          />
+                        </Form.Item>
+                      );
+                    })}
+                  </>
+                );
+              }}
             </Form.Item>
           )}
 

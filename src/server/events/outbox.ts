@@ -111,6 +111,10 @@ export type DomainEventType =
   // Supplier portal (SUPPLIER_PORTAL_PLAN.md). Distinct from po.status_changed
   // so notification routing can tell "a supplier did this" from "staff did this".
   | 'po.supplier_updated'
+  // Audit-only (David, 2026-08-05): who moved the expected ship date, and
+  // from what to what. Recorded by both the staff PATCH and the supplier
+  // portal; no notification hangs off it.
+  | 'po.ship_date_changed'
   | 'supplier_link.generated'
   | 'supplier_link.revoked';
 

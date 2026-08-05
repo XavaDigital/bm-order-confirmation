@@ -75,12 +75,22 @@ export const eventStatus = confirmation.enum('event_status', [
   'failed',
   'dead',
 ]);
+// Production flow per David's 2026-08-05 vocabulary: sent renders as
+// UNCONFIRMED, pre_production as DESIGN PREP, in_production as PRODUCTION,
+// in_transit as SHIPPING (values keep their names — pg enum values cannot be
+// renamed or removed, and fleet consumers already hold them). test_print,
+// prod_layout and quality_control are the 2026-08-05 additions; `confirmed`
+// is legacy (new flow goes sent → design prep directly) but rows hold it.
 export const poStatus = confirmation.enum('po_status', [
   'draft',
+  'approved',
   'sent',
   'confirmed',
   'pre_production',
+  'test_print',
+  'prod_layout',
   'in_production',
+  'quality_control',
   'in_transit',
   'received',
   'completed',
@@ -938,9 +948,21 @@ export const suppliers = confirmation.table(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     name: text('name').notNull(),
-    // Short uppercase code used in PO numbers (PO-{YYMM}-{CODE}{NN}-…).
-    // Unique when set; auto-generated 2-char fallback from the name when blank.
+    // Short uppercase code used in PO numbers ({CODE}{seq}, e.g. DY123) and in
+    // the supplier portal URL (/supplier/{CODE}). Unique when set;
+    // auto-generated 2-char fallback from the name when blank.
     supplierCode: text('supplier_code'),
+    // Supplier portal password (David, 2026-08-05) — one shared password per
+    // supplier, set by an admin, stored READABLY like orders.rosterPassword
+    // (staff must be able to tell the supplier what it is). Null = the portal
+    // is closed for this supplier. Verification binds it into the portal
+    // cookie signature, so changing it signs everyone out.
+    portalPassword: text('portal_password'),
+    // Per-supplier PO number sequence ({CODE}{seq}, David, 2026-08-05: each
+    // supplier counts alone — DY123 and GOAL123 coexist). Incremented with a
+    // row lock inside the PO create transaction; POs predating the format
+    // keep their PO-{YYMM}-… numbers.
+    poSeq: integer('po_seq').notNull().default(0),
     contactPerson: text('contact_person'),
     email: text('email'),
     phone: text('phone'),
@@ -1005,12 +1027,26 @@ export interface PoSnapshotSizeChart {
   storageKey: string | null;
 }
 
+/** A garment mock-up image captured at revision time (David, 2026-08-05: the
+ *  supplier PO must show the garment images). Only storage keys are stored —
+ *  signed at render time like every other snapshot asset. */
+export interface PoSnapshotImage {
+  id: string;
+  storageKey: string;
+  /** Resized copy for grids; falls back to storageKey when null. */
+  thumbnailStorageKey: string | null;
+  caption: string | null;
+}
+
 export interface PoSnapshotGarment {
   garmentId: string;
   name: string;
   garmentTypeId: string | null;
   /** Denormalized so the PDF renders without a live garment_types read. */
   garmentTypeName: string | null;
+  /** Mock-up images at revision time. Optional: revisions cut before 0038-era
+   *  snapshots have none, and readers must tolerate absence. */
+  images?: PoSnapshotImage[];
   fabrics: string[];
   selectedFabrics: Record<string, string> | null;
   selectedOptions: Record<string, string> | null;
@@ -1180,8 +1216,15 @@ export const shipmentPurchaseOrders = confirmation.table(
     purchaseOrderId: uuid('purchase_order_id')
       .notNull()
       .references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+    // What of the PO is IN this shipment (David, 2026-08-05): a PO can split
+    // across shipments weeks apart, so each link says which part travelled —
+    // "hoodies only, jerseys follow", free text. Null = the whole PO.
+    contentsNote: text('contents_note'),
   },
   (t) => [
+    // The composite PK means one link row per (shipment, PO) — a partial
+    // re-ship goes on a NEW shipment, which is exactly the model David
+    // described (parts of one PO shipping at different times).
     primaryKey({ columns: [t.shipmentId, t.purchaseOrderId] }),
     index('shipment_pos_po_idx').on(t.purchaseOrderId),
   ],

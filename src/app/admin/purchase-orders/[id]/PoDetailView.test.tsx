@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
 import { installMockFetch, type MockRoute } from '@/test/mockFetch';
@@ -51,7 +51,13 @@ function detail(overrides: Record<string, unknown> = {}) {
       email: 'factory@example.com',
       phone: null,
     },
-    order: { id: 'order-1', orderNumber: 'BM-1042', customerName: 'Jane Coach', status: 'confirmed' },
+    order: {
+      id: 'order-1',
+      orderNumber: 'BM-1042',
+      customerName: 'Jane Coach',
+      status: 'confirmed',
+      deadlineDate: '2026-09-15',
+    },
     revisions: [
       {
         id: 'rev-1',
@@ -63,6 +69,8 @@ function detail(overrides: Record<string, unknown> = {}) {
     ],
     shipments: [],
     supplierLink: { active: false, lastViewedAt: null },
+    portalUrl: 'https://orders.example.com/supplier/VA/PO-2607-VA01-JANECOACH',
+    history: [],
     ...overrides,
   };
 }
@@ -114,11 +122,49 @@ function varianceSummary() {
   };
 }
 
-function baseRoutes(d = detail(), summary: unknown = noVarianceSummary()): MockRoute[] {
+function baseRoutes(
+  d = detail(),
+  summary: unknown = noVarianceSummary(),
+  opts: { portalPassword?: string | null; comments?: unknown[]; orderNotes?: unknown[] } = {},
+): MockRoute[] {
   return [
     { match: `/api/admin/purchase-orders/${PO_ID}`, method: 'GET', response: d },
     { match: /\/api\/admin\/orders\/order-1\/purchase-orders/, method: 'GET', response: summary },
+    {
+      match: '/api/admin/suppliers/sup-1',
+      method: 'GET',
+      // `in` rather than `??` — an explicit null (portal closed) must survive.
+      response: {
+        id: 'sup-1',
+        portalPassword: 'portalPassword' in opts ? opts.portalPassword : 'hunter22',
+      },
+    },
+    {
+      match: '/api/admin/orders/order-1/notes',
+      method: 'GET',
+      response: opts.comments ?? [],
+    },
+    {
+      match: '/api/admin/orders/order-1/notes?kind=note',
+      method: 'GET',
+      response: opts.orderNotes ?? [],
+    },
   ];
+}
+
+function note(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'note-1',
+    body: 'Please double-box the hoodies',
+    authorKind: 'staff',
+    authorName: 'Dana Sales',
+    authorEmail: 'dana@example.com',
+    authorLabel: null,
+    visibility: 'shared',
+    deleted: false,
+    createdAt: '2026-07-21T10:00:00Z',
+    ...overrides,
+  };
 }
 
 function renderView() {
@@ -143,7 +189,8 @@ describe('PoDetailView', () => {
     renderView();
 
     expect(await screen.findByText('PO-2607-VA01-JANECOACH')).toBeInTheDocument();
-    expect(screen.getByText('Sent')).toBeInTheDocument();
+    // 'sent' renders as Unconfirmed (poStatusMeta).
+    expect(screen.getByText('Unconfirmed')).toBeInTheDocument();
     expect(screen.getByText('v1')).toBeInTheDocument();
 
     const sendButton = screen.getByRole('button', { name: /send to supplier/i });
@@ -162,12 +209,15 @@ describe('PoDetailView', () => {
     await user.click(screen.getByRole('button', { name: /advance status/i }));
 
     const menu = await screen.findByRole('menu');
-    // From 'sent': forward chain + cancel...
+    // From 'sent': the full forward production chain + cancel...
     for (const label of [
       'Confirmed',
-      'Pre-production',
-      'In production',
-      'In transit',
+      'Design prep',
+      'Test print',
+      'Prod layout',
+      'Production',
+      'Quality control',
+      'Shipping',
       'Received',
       'Completed',
       'Cancelled',
@@ -176,6 +226,7 @@ describe('PoDetailView', () => {
     }
     // ...but never backwards or into remake from 'sent'.
     expect(within(menu).queryByText('Draft')).not.toBeInTheDocument();
+    expect(within(menu).queryByText('Approved')).not.toBeInTheDocument();
     expect(within(menu).queryByText('Remake')).not.toBeInTheDocument();
   });
 
@@ -191,7 +242,7 @@ describe('PoDetailView', () => {
     await screen.findByText('PO-2607-VA01-JANECOACH');
 
     await user.click(screen.getByRole('button', { name: /advance status/i }));
-    await user.click(await screen.findByText('In production'));
+    await user.click(await screen.findByText('Production'));
 
     await vi.waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -391,5 +442,259 @@ describe('PoDetailView', () => {
     expect(await screen.findByText('July air batch')).toBeInTheDocument();
     expect(screen.getByText('DHL')).toBeInTheDocument();
     expect(screen.getByText('In transit')).toBeInTheDocument();
+  });
+
+  it('shows the customer deadline read-only, sourced from the order', async () => {
+    installMockFetch(baseRoutes());
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    expect(screen.getByText('Customer deadline')).toBeInTheDocument();
+    // en-NZ short month renders "Sep" or "Sept" depending on ICU.
+    expect(screen.getByText(/15 Sept? 2026/)).toBeInTheDocument();
+    // The per-PO deadline picker is gone.
+    expect(screen.queryByText('Deadline')).not.toBeInTheDocument();
+  });
+
+  it('saves ship dates and notes WITHOUT a deadlineDate', async () => {
+    const user = userEvent.setup();
+    const { fetchMock, addRoute } = installMockFetch(baseRoutes());
+    addRoute({ match: `/api/admin/purchase-orders/${PO_ID}`, method: 'PATCH', response: detail() });
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await vi.waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
+      expect(patch?.[0]).toBe(`/api/admin/purchase-orders/${PO_ID}`);
+      expect(JSON.parse(patch![1]!.body as string)).toEqual({
+        expectedShipDate: null,
+        actualShipDate: null,
+        notes: null,
+      });
+    });
+  });
+
+  it('shows Approve for a draft PO and blocks sending until approved', async () => {
+    installMockFetch(baseRoutes(detail({ status: 'draft' })));
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    expect(screen.getByRole('button', { name: /approve/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /send to supplier/i })).toBeDisabled();
+  });
+
+  it('Approve posts the approved status', async () => {
+    const user = userEvent.setup();
+    const { fetchMock, addRoute } = installMockFetch(baseRoutes(detail({ status: 'draft' })));
+    addRoute({
+      match: `/api/admin/purchase-orders/${PO_ID}/status`,
+      method: 'POST',
+      response: { ok: true },
+    });
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    await user.click(screen.getByRole('button', { name: /approve/i }));
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/admin/purchase-orders/${PO_ID}/status`,
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ status: 'approved' }),
+        }),
+      );
+    });
+  });
+
+  it('always shows the portal URL with Open and the copy link + password snippet', async () => {
+    installMockFetch(baseRoutes());
+    renderView();
+
+    expect(
+      await screen.findByText('https://orders.example.com/supplier/VA/PO-2607-VA01-JANECOACH'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /open/i })).toHaveAttribute(
+      'href',
+      'https://orders.example.com/supplier/VA/PO-2607-VA01-JANECOACH',
+    );
+    expect(
+      await screen.findByRole('button', { name: /copy link \+ password/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Portal password: hunter22/)).toBeInTheDocument();
+    // The token generate/revoke flow is gone.
+    expect(screen.queryByRole('button', { name: /generate link/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /revoke link/i })).not.toBeInTheDocument();
+  });
+
+  it('warns that the portal is closed when the supplier has no password', async () => {
+    installMockFetch(baseRoutes(detail(), noVarianceSummary(), { portalPassword: null }));
+    renderView();
+
+    expect(await screen.findByText('The supplier portal is closed')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /copy link \+ password/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /supplier record/i })).toHaveAttribute(
+      'href',
+      '/admin/suppliers',
+    );
+  });
+
+  it('shows when the legacy emailed link was last opened', async () => {
+    installMockFetch(
+      baseRoutes(detail({ supplierLink: { active: true, lastViewedAt: '2026-07-25T10:00:00Z' } })),
+    );
+    renderView();
+
+    expect(await screen.findByText(/legacy emailed link last opened/i)).toBeInTheDocument();
+  });
+
+  it('renders the history card with plain labels, actors and from→to', async () => {
+    installMockFetch(
+      baseRoutes(
+        detail({
+          history: [
+            {
+              id: 'h2',
+              eventType: 'po.status_changed',
+              actorEmail: 'sam@example.com',
+              payload: { poId: PO_ID, from: 'approved', to: 'sent' },
+              createdAt: '2026-07-20T10:00:00Z',
+            },
+            {
+              id: 'h1',
+              eventType: 'po.created',
+              actorEmail: 'sam@example.com',
+              payload: { poId: PO_ID },
+              createdAt: '2026-07-18T10:00:00Z',
+            },
+          ],
+        }),
+      ),
+    );
+    renderView();
+
+    expect(await screen.findByText('Status changed')).toBeInTheDocument();
+    // Statuses render their display labels, not the raw keys.
+    expect(screen.getByText('Approved → Unconfirmed')).toBeInTheDocument();
+    expect(screen.getByText('Created')).toBeInTheDocument();
+    expect(screen.getAllByText('sam@example.com')).toHaveLength(2);
+  });
+
+  it('shows only SHARED comments in the supplier conversation', async () => {
+    installMockFetch(
+      baseRoutes(detail(), noVarianceSummary(), {
+        comments: [
+          note(),
+          note({ id: 'note-2', body: 'internal grumbling', visibility: 'internal' }),
+          note({
+            id: 'note-3',
+            body: 'We will ship Friday',
+            authorKind: 'supplier',
+            authorName: null,
+            authorEmail: null,
+            authorLabel: 'Factory rep',
+          }),
+        ],
+      }),
+    );
+    renderView();
+
+    expect(await screen.findByText('Please double-box the hoodies')).toBeInTheDocument();
+    expect(screen.getByText('We will ship Friday')).toBeInTheDocument();
+    expect(screen.getByText('Factory rep')).toBeInTheDocument();
+    expect(screen.queryByText('internal grumbling')).not.toBeInTheDocument();
+  });
+
+  it('posts a staff reply as a shared note', async () => {
+    const user = userEvent.setup();
+    const { fetchMock, addRoute } = installMockFetch(baseRoutes());
+    addRoute({
+      match: '/api/admin/orders/order-1/notes',
+      method: 'POST',
+      status: 201,
+      response: { id: 'note-9' },
+    });
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    await user.type(screen.getByLabelText('New supplier comment'), 'Thanks, confirmed');
+    await user.click(screen.getByRole('button', { name: /post to supplier/i }));
+
+    await vi.waitFor(() => {
+      const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+      expect(post?.[0]).toBe('/api/admin/orders/order-1/notes');
+      expect(JSON.parse(post![1]!.body as string)).toEqual({
+        body: 'Thanks, confirmed',
+        visibility: 'shared',
+      });
+    });
+  });
+
+  it('brings the team order notes through read-only', async () => {
+    installMockFetch(
+      baseRoutes(detail(), noVarianceSummary(), {
+        orderNotes: [note({ id: 'n1', body: 'Sleeves 1cm shorter', visibility: 'internal' })],
+      }),
+    );
+    renderView();
+
+    expect(await screen.findByText('Order notes (from the order)')).toBeInTheDocument();
+    expect(await screen.findByText('Sleeves 1cm shorter')).toBeInTheDocument();
+  });
+
+  it('renders per-garment options, fabrics, size charts, images and custom sizing columns', async () => {
+    const snap = snapshot();
+    snap.garments[0] = {
+      ...snap.garments[0],
+      fabrics: ['Dri-fit'],
+      selectedFabrics: { Body: 'Dri-fit' },
+      selectedOptions: { Collar: 'V-neck' },
+      sizingColumns: [{ label: 'Initials', type: 'text' }],
+      sizeCharts: [{ id: 'sc1', name: 'Adult hoodie chart', storageKey: 'charts/x.png' }],
+      images: [
+        { id: 'img1', storageKey: 'mockups/a.png', thumbnailStorageKey: null, caption: 'Front' },
+        { id: 'img2', storageKey: 'mockups/b.png', thumbnailStorageKey: null, caption: null },
+      ],
+      lines: [
+        {
+          sizingRowId: 'row-1',
+          size: 'M',
+          playerName: 'Alice',
+          playerNumber: '7',
+          notes: null,
+          customValues: { Initials: 'AB' },
+          quantity: 2,
+        },
+      ],
+    } as unknown as (typeof snap.garments)[0];
+    installMockFetch(
+      baseRoutes(
+        detail({
+          revisions: [
+            {
+              id: 'rev-1',
+              revisionNumber: 1,
+              reason: null,
+              snapshot: snap,
+              createdAt: '2026-07-18T10:00:00Z',
+            },
+          ],
+        }),
+      ),
+    );
+    renderView();
+
+    expect(await screen.findByText(/Body: Dri-fit/)).toBeInTheDocument();
+    expect(screen.getByText(/Collar: V-neck/)).toBeInTheDocument();
+    expect(screen.getByText('Adult hoodie chart')).toBeInTheDocument();
+    expect(screen.getByText(/2 mock-up images on the supplier PO — Front/)).toBeInTheDocument();
+    // The snapshot's custom sizing column drives a real table column.
+    expect(screen.getByText('Initials')).toBeInTheDocument();
+    expect(screen.getByText('AB')).toBeInTheDocument();
+    expect(screen.getByText('Qty')).toBeInTheDocument();
   });
 });

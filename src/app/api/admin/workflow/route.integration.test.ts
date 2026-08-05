@@ -124,7 +124,8 @@ describe('GET /api/admin/workflow/board', () => {
     const json = await (await BOARD_GET(boardRequest('?boardKey=purchase_order'), NO_PARAMS)).json();
 
     expect(json.boardKey).toBe('purchase_order');
-    expect(json.columns).toHaveLength(10);
+    // 10 seeded in 0020 + the four 2026-08-05 vocabulary stages from 0038.
+    expect(json.columns).toHaveLength(14);
   });
 
   it('400s on an unknown board key', async () => {

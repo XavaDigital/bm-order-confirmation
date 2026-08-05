@@ -21,6 +21,8 @@ interface Props {
   orderId: string;
   orderStatus: string;
   colorSampleRequestedAt: string | null;
+  /** The order's customer deadline — shown in CreatePoModal, copied to the PO server-side. */
+  deadlineDate: string | null;
   /** The order's garments as known by the parent view — name fallback while the summary loads. */
   garments: Array<{ id: string; name: string }>;
   /**
@@ -46,6 +48,7 @@ export function ProductionPanel({
   orderId,
   orderStatus,
   colorSampleRequestedAt,
+  deadlineDate,
   garments,
   summary: data,
   loading,
@@ -187,6 +190,7 @@ export function ProductionPanel({
           orderId={orderId}
           orderStatus={orderStatus}
           colorSampleRequestedAt={colorSampleRequestedAt}
+          deadlineDate={deadlineDate}
           garments={modalGarments}
         />
       )}

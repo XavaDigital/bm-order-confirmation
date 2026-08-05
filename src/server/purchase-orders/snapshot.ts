@@ -16,6 +16,7 @@ import type {
   PoSnapshotCheck,
   PoSnapshot,
   PoSnapshotGarment,
+  PoSnapshotImage,
   PoSnapshotLine,
   PoSnapshotSizeChart,
 } from '@/db/schema';
@@ -62,6 +63,8 @@ export interface LiveGarment {
   /** Linked reference charts, as drizzle's relation shape. Optional so pure
    *  callers that never loaded the relation keep working. */
   sizeChartLinks?: { sizeChart: { id: string; name: string; storageKey: string | null } | null }[];
+  /** Mock-up images, as drizzle's relation shape (already sorted by the loader). */
+  images?: { id: string; storageKey: string; thumbnailStorageKey: string | null; caption: string | null }[];
   notes: string | null;
   sizing: LiveSizingRow[];
 }
@@ -133,6 +136,14 @@ export function buildPoSnapshot(
         selectedOptions: g.selectedOptions ?? null,
         sizingColumns: g.sizingColumns ?? [],
         sizeCharts: toSnapshotSizeCharts(g),
+        images: (g.images ?? []).map(
+          (img): PoSnapshotImage => ({
+            id: img.id,
+            storageKey: img.storageKey,
+            thumbnailStorageKey: img.thumbnailStorageKey ?? null,
+            caption: img.caption ?? null,
+          }),
+        ),
         notes: g.notes ?? null,
         lines: g.sizing.map(toSnapshotLine),
       }),
