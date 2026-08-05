@@ -72,12 +72,14 @@ describe('buildRosterUrl', () => {
 
 describe('buildSupplierPoUrl', () => {
   it('builds the pretty per-PO portal URL from the PO number', () => {
-    expect(buildSupplierPoUrl('DY123')).toBe('http://localhost:3000/supplier/po/DY123');
+    expect(buildSupplierPoUrl('DY', 'DY123')).toBe(
+      'http://localhost:3000/supplier/DY/po/DY123',
+    );
   });
 
   it('URI-encodes legacy PO numbers so pre-2026-08 formats stay linkable', () => {
-    expect(buildSupplierPoUrl('PO-2607-VA01-JANE COACH')).toBe(
-      'http://localhost:3000/supplier/po/PO-2607-VA01-JANE%20COACH',
+    expect(buildSupplierPoUrl('VA', 'PO-2607-VA01-JANE COACH')).toBe(
+      'http://localhost:3000/supplier/VA/po/PO-2607-VA01-JANE%20COACH',
     );
   });
 });

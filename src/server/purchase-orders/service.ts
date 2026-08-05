@@ -129,7 +129,7 @@ async function loadOrderGarments(orderId: string) {
 /**
  * Build the next PO number: `{CODE}{seq}` (David, 2026-08-05 — DY123,
  * GOAL123; each supplier counts alone, and the number doubles as the portal
- * URL path `/supplier/po/{poNumber}`).
+ * URL path `/supplier/{CODE}/po/{poNumber}`).
  *
  * The sequence is the supplier row's `po_seq` counter, incremented HERE with
  * an UPDATE inside the caller's transaction — the row lock serializes two
@@ -303,7 +303,7 @@ export async function getPurchaseOrder(id: string) {
     supplierLink: activeSupplierLink
       ? { active: true as const, lastViewedAt: activeSupplierLink.lastViewedAt }
       : { active: false as const, lastViewedAt: null },
-    portalUrl: buildSupplierPoUrl(po.poNumber),
+    portalUrl: buildSupplierPoUrl(supplierCodeOrFallback(po.supplier), po.poNumber),
     history: await listPoHistory(po.orderId, id),
   };
 }
@@ -744,9 +744,9 @@ export async function sendPurchaseOrder(
   });
 
   // The pretty per-PO portal URL (David, 2026-08-05): deterministic from the
-  // PO number, gated by the supplier's portal password — no token to mint,
-  // and the link in an old email never stops working.
-  const portalUrl = buildSupplierPoUrl(po.poNumber);
+  // supplier code + PO number, gated by the supplier's portal password — no
+  // token to mint, and the link in an old email never stops working.
+  const portalUrl = buildSupplierPoUrl(supplierCodeOrFallback(po.supplier), po.poNumber);
 
   await sendSupplierPoEmail({
     to: supplierEmail,

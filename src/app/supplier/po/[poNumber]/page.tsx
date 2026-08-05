@@ -1,27 +1,22 @@
 import { eq } from 'drizzle-orm';
+import { permanentRedirect } from 'next/navigation';
 import { db } from '@/db';
 import { purchaseOrders } from '@/db/schema';
-import { SupplierPoDetailView } from './view';
 
 export const dynamic = 'force-dynamic';
-
-// Never let search engines index supplier portal URLs.
-export const metadata = { title: 'Supplier Portal', robots: { index: false, follow: false } };
 
 type Props = { params: Promise<{ poNumber: string }> };
 
 /**
- * The pretty per-PO URL (/supplier/po/PO-2607-DY01-DYNASTY). The URL does not
- * carry the supplier code the API routes need, so this server component looks
- * it up by PO number — a read-only routing hint, NOT an auth decision: the
- * client view still has to pass /api/supplier/[code]/po/[poNumber], which
- * enforces the cookie gate and supplier ownership.
+ * LEGACY path shape. The per-PO URL moved to /supplier/{CODE}/po/{PO#}
+ * (David, 2026-08-05) hours after this form first shipped — this stub keeps
+ * any link already sent working with a permanent redirect.
  *
- * An unknown PO number (or a supplier with no portal code) gets a dummy code
- * rather than a 404, so this page renders the same login card either way and
- * never confirms which PO numbers exist to someone who cannot sign in.
+ * The code lookup is a routing hint, not an auth decision: the target page
+ * shows the same login card for real and unknown POs alike, so redirecting an
+ * unknown number with a placeholder code leaks nothing.
  */
-export default async function SupplierPoPage({ params }: Props) {
+export default async function LegacySupplierPoPage({ params }: Props) {
   const { poNumber: raw } = await params;
   let poNumber = raw;
   try {
@@ -37,5 +32,5 @@ export default async function SupplierPoPage({ params }: Props) {
   });
 
   const code = po?.supplier.supplierCode ?? 'UNKNOWN';
-  return <SupplierPoDetailView code={code} poNumber={poNumber} />;
+  permanentRedirect(`/supplier/${encodeURIComponent(code)}/po/${encodeURIComponent(poNumber)}`);
 }

@@ -49,12 +49,15 @@ export function buildSupplierPortalUrl(rawToken: string): string {
 }
 
 /**
- * The PRETTY per-PO portal URL (David, 2026-08-05): known the moment the PO
- * is raised, because the PO number is the path. Access is gated by the
- * supplier's portal password, not by the URL being secret.
+ * The PRETTY per-PO portal URL (David, 2026-08-05; path shape revised
+ * 2026-08-05: /supplier/{CODE}/po/{PO#}): known the moment the PO is raised,
+ * because the code and number ARE the path. Access is gated by the supplier's
+ * portal password, not by the URL being secret. The old /supplier/po/{PO#}
+ * form 308-redirects here.
  */
-export function buildSupplierPoUrl(poNumber: string): string {
-  return `${env.APP_BASE_URL.replace(/\/$/, '')}/supplier/po/${encodeURIComponent(poNumber)}`;
+export function buildSupplierPoUrl(supplierCode: string, poNumber: string): string {
+  const base = env.APP_BASE_URL.replace(/\/$/, '');
+  return `${base}/supplier/${encodeURIComponent(supplierCode)}/po/${encodeURIComponent(poNumber)}`;
 }
 
 /** The supplier's portal home — their filterable PO table. */

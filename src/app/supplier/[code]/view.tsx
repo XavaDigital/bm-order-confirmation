@@ -4,7 +4,7 @@
  * Supplier portal home (David, 2026-08-05): after the shared-password login,
  * a filterable/sortable table of ALL the supplier's sent POs, with per-row and
  * multi-select bulk status changes. Each PO number links to the pretty per-PO
- * page (/supplier/po/[poNumber]).
+ * page (/supplier/[code]/po/[poNumber]).
  *
  * Auth is the signed supplier cookie: the first GET answering 401
  * login_required swaps in the login card, and login replays the load.
@@ -168,7 +168,10 @@ export function SupplierPortalHomeView({ code }: { code: string }) {
       dataIndex: 'poNumber',
       sorter: (a, b) => a.poNumber.localeCompare(b.poNumber),
       render: (poNumber: string) => (
-        <Link href={`/supplier/po/${encodeURIComponent(poNumber)}`} style={{ fontWeight: 600 }}>
+        <Link
+          href={`/supplier/${encodeURIComponent(code)}/po/${encodeURIComponent(poNumber)}`}
+          style={{ fontWeight: 600 }}
+        >
           {poNumber}
         </Link>
       ),

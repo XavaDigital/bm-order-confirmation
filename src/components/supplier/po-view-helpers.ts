@@ -1,6 +1,6 @@
 /**
  * Pure helpers + shared types for the supplier-facing PO surfaces
- * (/supplier/[code], /supplier/po/[poNumber] and the legacy /s/[token] link).
+ * (/supplier/[code], /supplier/[code]/po/[poNumber] and the legacy /s/[token] link).
  *
  * Kept free of React/antd so they are unit-testable and so BOTH surfaces render
  * garments from the same column/row logic — the "MUST always be displayed"

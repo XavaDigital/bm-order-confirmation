@@ -3,7 +3,7 @@
 /**
  * Everything the factory needs from one PO snapshot, rendered identically on
  * BOTH supplier surfaces — the password portal detail page
- * (/supplier/po/[poNumber]) and the legacy per-PO token link (/s/[token]) —
+ * (/supplier/[code]/po/[poNumber]) and the legacy per-PO token link (/s/[token]) —
  * so the two can never drift (David, 2026-08-05).
  *
  * Per garment: name/type, fabrics (labeled picks + legacy list), EVERY garment

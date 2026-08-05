@@ -376,7 +376,7 @@ describe('sendPurchaseOrder', () => {
     const emailArgs = sendSupplierPoEmailMock.mock.calls[0][0];
     expect(emailArgs.to).toBe('factory@example.com');
     // The pretty deterministic per-PO URL — no token minting anymore.
-    expect(emailArgs.portalUrl).toBe(`http://localhost:3000/supplier/po/${po.poNumber}`);
+    expect(emailArgs.portalUrl).toBe(`http://localhost:3000/supplier/VA/po/${po.poNumber}`);
 
     const updated = await db.query.purchaseOrders.findFirst({
       where: eq(schema.purchaseOrders.id, po.id),
@@ -595,7 +595,7 @@ describe('getPurchaseOrder', () => {
     await updatePurchaseOrderStatus(po.id, 'approved', { actorEmail: 'sam@example.com' });
 
     const detail = await getPurchaseOrder(po.id);
-    expect(detail.portalUrl).toBe(`http://localhost:3000/supplier/po/${po.poNumber}`);
+    expect(detail.portalUrl).toBe(`http://localhost:3000/supplier/VA/po/${po.poNumber}`);
     // The order block carries the LIVE customer deadline for the admin page.
     expect(detail.order.deadlineDate).toBe('2026-09-30');
     // History: audit rows filtered to this PO (created + status change).

@@ -190,7 +190,7 @@ describe('POST /api/admin/purchase-orders/[id]/send', () => {
     // The email carries the PRETTY per-PO portal URL (David, 2026-08-05) —
     // deterministic from the PO number, no token minted anymore.
     expect(typeof emailArgs.portalUrl).toBe('string');
-    expect(emailArgs.portalUrl).toContain(`/supplier/po/${po.poNumber}`);
+    expect(emailArgs.portalUrl).toContain(`/supplier/VA/po/${po.poNumber}`);
     const activeLink = await db.query.poSupplierAccess.findFirst({
       where: and(eq(schema.poSupplierAccess.purchaseOrderId, po.id), isNull(schema.poSupplierAccess.revokedAt)),
     });

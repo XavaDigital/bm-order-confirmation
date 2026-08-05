@@ -7,7 +7,7 @@
  * types the password, and it labels every comment/status change they make.
  *
  * Shared by the portal home (/supplier/[code]) and the per-PO page
- * (/supplier/po/[poNumber]) so an expired cookie shows the same gate anywhere.
+ * (/supplier/[code]/po/[poNumber]) so an expired cookie shows the same gate anywhere.
  */
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Input, Typography } from 'antd';
