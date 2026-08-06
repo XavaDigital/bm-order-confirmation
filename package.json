@@ -44,7 +44,7 @@
     "antd": "^5.22.0",
     "bcryptjs": "^3.0.3",
     "dayjs": "^1.11.21",
-    "drizzle-orm": "^0.38.0",
+    "drizzle-orm": "^0.45.2",
     "exceljs": "^4.4.0",
     "iron-session": "^8.0.4",
     "isomorphic-dompurify": "^3.19.0",
