@@ -30,7 +30,7 @@ import {
 } from '@/db/schema';
 import { resolveActiveToken } from '@/server/access/tokens';
 import { applyNameCase } from '@/lib/names';
-import { unionChartSizes } from '@/lib/sizes';
+import { customerChartLinks, unionChartSizes } from '@/lib/sizes';
 import { signImageRefs, signChartRefs } from '@/lib/signed-urls';
 import {
   upsertNameListEntries,
@@ -257,7 +257,8 @@ export async function getRosterState(
 
   const stateGarments: RosterStateGarment[] = await Promise.all(
     orderGarments.map(async (g) => {
-      const linkedCharts = g.sizeChartLinks.filter((l) => l.sizeChart);
+      // Customer surface — production charts (factory detail) never show here.
+      const linkedCharts = customerChartLinks(g.sizeChartLinks);
       return {
         id: g.id,
         name: g.name,

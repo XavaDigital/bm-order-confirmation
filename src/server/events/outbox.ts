@@ -120,6 +120,8 @@ export type DomainEventType =
   // off supplier uploads later; file_removed is audit-only.
   | 'po.file_uploaded'
   | 'po.file_removed'
+  // Audit-only: a pre-send checklist tick/untick, with who and which item.
+  | 'po.check_changed'
   | 'supplier_link.generated'
   | 'supplier_link.revoked';
 

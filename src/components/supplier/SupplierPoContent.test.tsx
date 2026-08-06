@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import type { PoSnapshot, PoSnapshotAsset, PoSnapshotImage, PoSnapshotSizeChart } from '@/db/schema';
 import { SupplierPoContent } from './SupplierPoContent';
+import { diffPoSnapshots } from './po-diff';
 
 /** A signed snapshot the way the supplier views receive it (post-signing). */
 function snapshot(overrides: Partial<PoSnapshot> = {}): PoSnapshot {
@@ -116,6 +117,53 @@ describe('SupplierPoContent', () => {
     const assetLink = screen.getByRole('link', { name: /Block Numbers/ });
     expect(assetLink).toHaveAttribute('href', 'https://signed.example/font.ttf');
     expect(screen.getByText('for playerNumber')).toBeInTheDocument();
+  });
+
+  it('highlights what a revision changed: changed cells, changed options, and added lines', () => {
+    const prev = snapshot();
+    const next = snapshot();
+    // Rev N: size M→L on r-1, Zip Type changed, and a new line r-2.
+    next.garments[0].lines = [
+      { ...prev.garments[0].lines[0], size: 'L' },
+      {
+        sizingRowId: 'r-2',
+        size: 'S',
+        playerName: 'Billie',
+        playerNumber: null,
+        quantity: 1,
+        notes: null,
+        customValues: null,
+      },
+    ];
+    next.garments[0].selectedOptions = { 'Zip Type': 'full zip', 'Cord Color': '' };
+
+    const diff = diffPoSnapshots(prev, next);
+    render(<SupplierPoContent snapshot={next} diff={diff} />);
+
+    // The changed size cell carries the amber tint; the untouched player cell does not.
+    const changedCell = screen.getByText('L').closest('td');
+    expect(changedCell?.style.background).toContain('250, 173, 20');
+    const untouchedCell = screen.getByText('Alex').closest('td');
+    expect(untouchedCell?.style.background ?? '').not.toContain('250, 173, 20');
+
+    // Every cell of the ADDED line r-2 gets the green tint.
+    const addedCell = screen.getByText('Billie').closest('td');
+    expect(addedCell?.style.background).toContain('82, 196, 26');
+
+    // The changed option row is highlighted; the untouched one is not.
+    const changedOption = screen.getByText('Zip Type').closest('div');
+    expect(changedOption?.style.background).toContain('250, 173, 20');
+    const untouchedOption = screen.getByText('Cord Color').closest('div');
+    expect(untouchedOption?.style.background ?? '').not.toContain('250, 173, 20');
+  });
+
+  it('marks a garment added in this revision', () => {
+    const prev = snapshot({ garments: [] });
+    const next = snapshot();
+    const diff = diffPoSnapshots(prev, next);
+
+    render(<SupplierPoContent snapshot={next} diff={diff} />);
+    expect(screen.getByText('New in this revision')).toBeInTheDocument();
   });
 
   it('tolerates a minimal legacy snapshot (no images, charts, columns or assets)', () => {

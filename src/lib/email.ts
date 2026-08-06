@@ -587,17 +587,22 @@ export async function sendCustomerReceiptEmail(params: SendCustomerReceiptParams
 // supplier" (PO_PLAN). Revision >1 = amended PO superseding earlier versions.
 // ---------------------------------------------------------------------------
 
-export interface SendSupplierPoEmailParams {
-  to: string;
+/** The subject/body inputs of the supplier PO email — no buffers, so the
+ *  send-preview route can compose exactly what a send would say without
+ *  rendering the PDF or fetching a single attachment byte. */
+export interface ComposeSupplierPoEmailParams {
   toName: string;
   poNumber: string;
   orderNumber: string;
   revisionNumber: number;
   /** Optional reason shown for amended POs (revision > 1). */
   reason?: string | null;
-  pdf: Buffer;
-  /** The .xlsx twin of the PDF (AUTO_ORDER_EMAIL_PLAN.md Phase 1) — same revision snapshot, spreadsheet shape. */
-  xlsx: Buffer;
+  /**
+   * Optional staff paragraph inserted at the top of the body (David,
+   * 2026-08-06 send-preview): plain text, escaped on the way into the HTML —
+   * staff type prose here, not markup.
+   */
+  messageIntro?: string | null;
   /**
    * True when `collectSnapshotAttachments` had to substitute thumbnails for
    * full-resolution garment images to stay under the SMTP size cap. Adds one
@@ -611,15 +616,27 @@ export interface SendSupplierPoEmailParams {
    * before.
    */
   portalUrl?: string | null;
-  /**
-   * Uploaded fonts/design files, size charts, and garment images riding
-   * alongside the PDF/XLSX — the files themselves, because a signed URL
-   * inside a sent email expires.
-   */
-  extraAttachments?: { filename: string; content: Buffer; contentType?: string }[];
 }
 
-export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Promise<void> {
+/** The PDF/XLSX attachment filenames a supplier PO send uses — exported so the
+ *  send-preview can list them without building either document. */
+export function supplierPoDocumentNames(
+  poNumber: string,
+  revisionNumber: number,
+): { pdf: string; xlsx: string } {
+  const suffix = revisionNumber > 1 ? `-rev${revisionNumber}` : '';
+  return { pdf: `${poNumber}${suffix}.pdf`, xlsx: `${poNumber}${suffix}.xlsx` };
+}
+
+/**
+ * Pure subject/body composition for the supplier PO email — the ONE place its
+ * wording lives. `sendSupplierPoEmail` delivers exactly this; the send-preview
+ * route shows exactly this. Keep the two in lockstep by never composing the
+ * email anywhere else.
+ */
+export function composeSupplierPoEmail(
+  params: ComposeSupplierPoEmailParams,
+): { subject: string; html: string; text: string } {
   const { poNumber, orderNumber, revisionNumber } = params;
   const amended = revisionNumber > 1;
   const portalBlock = params.portalUrl
@@ -629,6 +646,12 @@ export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Pr
   const subject = amended
     ? `Amended purchase order ${poNumber} (revision ${revisionNumber}) — ${APP_NAME}`
     : `Purchase order ${poNumber} — ${APP_NAME}`;
+
+  // Staff-typed, so escaped (R2 §1.1 rule); pre-wrap keeps their paragraphs.
+  const messageIntro = params.messageIntro?.trim() ?? '';
+  const messageIntroBlock = messageIntro
+    ? `<p style="color:#1f2328;font-size:15px;line-height:1.6;white-space:pre-wrap;margin:0 0 24px;">${escapeHtml(messageIntro)}</p>`
+    : '';
 
   const supersedeLine = amended
     ? `This revision supersedes all previous versions of ${poNumber} — please discard earlier copies.`
@@ -647,14 +670,11 @@ export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Pr
       </p>`
     : '';
 
-  await sendEmail({
-    to: params.to,
-    toName: params.toName,
-    subject,
-    html: wrapEmailLayout({
-      title: amended ? 'Amended Purchase Order' : 'Purchase Order',
-      headerLabel: amended ? `Purchase Order — Revision ${revisionNumber}` : 'Purchase Order',
-      bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${escapeHtml(params.toName)},</p>
+  const html = wrapEmailLayout({
+    title: amended ? 'Amended Purchase Order' : 'Purchase Order',
+    headerLabel: amended ? `Purchase Order — Revision ${revisionNumber}` : 'Purchase Order',
+    bodyHtml: `<p style="color:#333b45;font-size:16px;margin:0 0 16px;">Hi ${escapeHtml(params.toName)},</p>
+              ${messageIntroBlock}
               ${introP(`
                 Please find attached ${amended ? `revision ${revisionNumber} of` : ''} purchase order <strong style="color:#1f2328;">${poNumber}</strong>
                 (our order <strong style="color:#1f2328;">${orderNumber}</strong>).
@@ -669,30 +689,59 @@ export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Pr
                 document is unclear, contact us before starting production.
                 ${params.portalUrl ? ' You can also update the production status and leave a comment from the Supplier Portal link above.' : ''}
               </p>`,
-    }),
-    text: [
-      `Hi ${params.toName},`,
-      '',
-      `Please find attached ${amended ? `revision ${revisionNumber} of ` : ''}purchase order ${poNumber} (our order ${orderNumber}).`,
-      ...(supersedeLine ? ['', supersedeLine] : []),
-      ...(amended && params.reason ? ['', `Reason for amendment: ${params.reason}`] : []),
-      ...(params.sizeReduced
-        ? ['', 'Full-resolution garment images were too large to attach — reduced-size copies are included instead.']
-        : []),
-      ...(params.portalUrl
-        ? ['', `Update the production status or leave a comment here: ${params.portalUrl}`]
-        : []),
-      '',
-      `Please confirm receipt by replying to this email. If anything in the attached document is unclear, contact us before starting production.`,
-    ].join('\n'),
+  });
+
+  const text = [
+    `Hi ${params.toName},`,
+    '',
+    ...(messageIntro ? [messageIntro, ''] : []),
+    `Please find attached ${amended ? `revision ${revisionNumber} of ` : ''}purchase order ${poNumber} (our order ${orderNumber}).`,
+    ...(supersedeLine ? ['', supersedeLine] : []),
+    ...(amended && params.reason ? ['', `Reason for amendment: ${params.reason}`] : []),
+    ...(params.sizeReduced
+      ? ['', 'Full-resolution garment images were too large to attach — reduced-size copies are included instead.']
+      : []),
+    ...(params.portalUrl
+      ? ['', `Update the production status or leave a comment here: ${params.portalUrl}`]
+      : []),
+    '',
+    `Please confirm receipt by replying to this email. If anything in the attached document is unclear, contact us before starting production.`,
+  ].join('\n');
+
+  return { subject, html, text };
+}
+
+export interface SendSupplierPoEmailParams extends ComposeSupplierPoEmailParams {
+  to: string;
+  pdf: Buffer;
+  /** The .xlsx twin of the PDF (AUTO_ORDER_EMAIL_PLAN.md Phase 1) — same revision snapshot, spreadsheet shape. */
+  xlsx: Buffer;
+  /**
+   * Uploaded fonts/design files, size charts, and garment images riding
+   * alongside the PDF/XLSX — the files themselves, because a signed URL
+   * inside a sent email expires.
+   */
+  extraAttachments?: { filename: string; content: Buffer; contentType?: string }[];
+}
+
+export async function sendSupplierPoEmail(params: SendSupplierPoEmailParams): Promise<void> {
+  const { subject, html, text } = composeSupplierPoEmail(params);
+  const documents = supplierPoDocumentNames(params.poNumber, params.revisionNumber);
+
+  await sendEmail({
+    to: params.to,
+    toName: params.toName,
+    subject,
+    html,
+    text,
     attachments: [
       {
-        filename: `${poNumber}${amended ? `-rev${revisionNumber}` : ''}.pdf`,
+        filename: documents.pdf,
         content: params.pdf,
         contentType: 'application/pdf',
       },
       {
-        filename: `${poNumber}${amended ? `-rev${revisionNumber}` : ''}.xlsx`,
+        filename: documents.xlsx,
         content: params.xlsx,
         contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       },

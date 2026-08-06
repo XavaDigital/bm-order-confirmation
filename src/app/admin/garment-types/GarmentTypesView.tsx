@@ -27,6 +27,7 @@ import type { GarmentTypeOption, GarmentTypeFabricField } from '@/db/schema';
 import { SectionTitle } from '@/components/admin/SectionTitle';
 import { OrderOptionsManager } from '@/components/admin/garment-types/OrderOptionsManager';
 import { FabricFieldsManager } from '@/components/admin/garment-types/FabricFieldsManager';
+import { buildKindGroupedChartOptions } from '@/components/admin/orders/SizeChartLinker';
 import { postJson, patchJson } from '@/lib/api-fetch';
 import { useAdminResource } from '@/lib/use-admin-resource';
 
@@ -46,6 +47,8 @@ export interface GarmentTypeRow {
 interface SizeChartOption {
   id: string;
   name: string;
+  /** 'customer' or 'production' — the picker groups by this. */
+  kind?: 'customer' | 'production';
 }
 
 interface FormValues {
@@ -269,7 +272,11 @@ export function GarmentTypesView({ role }: Props) {
               mode="multiple"
               placeholder="Select size charts"
               optionFilterProp="label"
-              options={(charts ?? []).map((c) => ({ value: c.id, label: c.name }))}
+              // Grouped by kind so a type links one of each set: customer
+              // charts feed the customer page, production charts feed POs.
+              options={buildKindGroupedChartOptions(
+                (charts ?? []).map((c) => ({ ...c, description: null })),
+              )}
             />
           </Form.Item>
 

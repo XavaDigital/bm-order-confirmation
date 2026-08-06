@@ -26,7 +26,7 @@ import {
   SaveOutlined,
   AppstoreOutlined,
 } from '@ant-design/icons';
-import type { GarmentTypeOption, GarmentTypeFabricField, SizeChartSize } from '@/db/schema';
+import type { GarmentTypeOption, GarmentTypeFabricField, SizeChartKind, SizeChartSize } from '@/db/schema';
 import { SectionTitle } from '@/components/admin/SectionTitle';
 import { SizingTable } from './SizingTable';
 import { NameListTable } from './NameListTable';
@@ -90,6 +90,8 @@ interface SizeChart {
   id: string;
   name: string;
   description: string | null;
+  /** 'customer' or 'production' — the linker groups its options by this. */
+  kind?: SizeChartKind;
   sizes: SizeChartSize[];
 }
 

@@ -42,8 +42,8 @@ afterEach(async () => {
   vi.mocked(uploadFile).mockClear();
 });
 
-async function seedSizeChart(name = 'Adult Unisex') {
-  const [chart] = await db.insert(schema.sizeCharts).values({ name }).returning();
+async function seedSizeChart(name = 'Adult Unisex', kind: schema.SizeChartKind = 'customer') {
+  const [chart] = await db.insert(schema.sizeCharts).values({ name, kind }).returning();
   return chart;
 }
 
@@ -91,6 +91,22 @@ describe('getOrderForCustomer', () => {
     expect(result).not.toBeNull();
     expect(result!.order.garments[0].sizing).toHaveLength(1);
     expect(result!.order.garments[0].sizeChartLinks[0].sizeChart.name).toBe('Womens Chart');
+  });
+
+  // Two chart sets (David, 2026-08-06): production charts carry factory detail
+  // and must never reach the customer surface.
+  it('excludes production charts from the customer read', async () => {
+    const customerChart = await seedSizeChart('Customer Chart', 'customer');
+    const productionChart = await seedSizeChart('Factory Chart', 'production');
+    const created = await createOrder(
+      minimalInput({
+        garments: [{ name: 'Jersey', sizeChartIds: [customerChart.id, productionChart.id] }],
+      }),
+    );
+
+    const result = await getOrderForCustomer(created.token);
+    const links = result!.order.garments[0].sizeChartLinks;
+    expect(links.map((l) => l.sizeChart.name)).toEqual(['Customer Chart']);
   });
 
   it('includes roster progress counts and keeps roster-submitted sizing rows in the read model', async () => {
@@ -830,6 +846,29 @@ describe('buildConfirmationSnapshot (pure)', () => {
     // No legacy snake_case keys anywhere in a freshly built snapshot.
     expect(Object.keys(snapshot).some((k) => k.includes('_'))).toBe(false);
     expect(JSON.stringify(snapshot)).not.toMatch(/"[a-z0-9]+_[a-z0-9_]+":/);
+  });
+
+  // The snapshot records what the customer SAW — production charts never
+  // rendered on their page, so their names must not be in the agreed record.
+  it('excludes production charts from sizeChartNames', () => {
+    const snapshot = buildConfirmationSnapshot(
+      {
+        ...orderFixture,
+        garments: [
+          {
+            ...orderFixture.garments[0],
+            sizeChartLinks: [
+              { sizeChart: { name: 'Adult Unisex', kind: 'customer' as const } },
+              { sizeChart: { name: 'Factory Chart', kind: 'production' as const } },
+              { sizeChart: null },
+            ],
+          },
+        ],
+      },
+      {},
+    );
+
+    expect(snapshot.garments[0].sizeChartNames).toEqual(['Adult Unisex']);
   });
 
   it('prefers the customer-entered shipping address and flags a prior colour sample request', () => {

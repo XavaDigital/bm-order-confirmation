@@ -11,11 +11,12 @@ import {
   rosterAccess,
   rosterMemberAccess,
   rosterMembers,
+  type SizeChartKind,
   type SizeChartSize,
 } from '@/db/schema';
 import { resolveActiveToken } from '@/server/access/tokens';
 import { applyNameCase } from '@/lib/names';
-import { unionChartSizes } from '@/lib/sizes';
+import { customerChartLinks, unionChartSizes } from '@/lib/sizes';
 import { assertGarmentBelongsToOrder } from '@/server/orders/guards';
 import {
   upsertNameListEntries,
@@ -78,22 +79,28 @@ function toRosterGarment(garment: {
   name: string;
   notes: string | null;
   sizeChartLinks: {
-    sizeChart: { name: string; storageKey: string | null; sizes: SizeChartSize[] | null } | null;
+    sizeChart: {
+      name: string;
+      storageKey: string | null;
+      kind: SizeChartKind;
+      sizes: SizeChartSize[] | null;
+    } | null;
   }[];
   nameListEnabled: boolean;
   nameListRows: number | null;
   nameListEntries: { id: string; name: string; playerNumber: string | null }[];
 }) {
-  const linkedCharts = garment.sizeChartLinks.filter((link) => link.sizeChart);
+  // Customer surface — production charts (factory detail) are filtered out.
+  const linkedCharts = customerChartLinks(garment.sizeChartLinks);
   return {
     id: garment.id,
     name: garment.name,
     notes: garment.notes ?? null,
     // Chart-defined sizes drive the member size dropdown
-    sizes: unionChartSizes(linkedCharts.map((link) => ({ sizes: link.sizeChart!.sizes ?? [] }))),
+    sizes: unionChartSizes(linkedCharts.map((link) => ({ sizes: link.sizeChart.sizes ?? [] }))),
     sizeCharts: linkedCharts.map((link) => ({
-      name: link.sizeChart!.name,
-      storageKey: link.sizeChart!.storageKey ?? null,
+      name: link.sizeChart.name,
+      storageKey: link.sizeChart.storageKey ?? null,
     })),
     // "Got Your Back" style — see GOT_YOUR_BACK_PLAN.md. Independent of the
     // per-member size submission above; the manager edits this directly
@@ -166,6 +173,7 @@ export async function getRosterForMember(rawToken: string) {
                 columns: {
                   name: true,
                   storageKey: true,
+                  kind: true,
                   sizes: true,
                 },
               },
@@ -368,7 +376,7 @@ export async function getRosterForMemberByMemberToken(rawToken: string) {
         with: {
           sizeChartLinks: {
             with: {
-              sizeChart: { columns: { name: true, storageKey: true, sizes: true } },
+              sizeChart: { columns: { name: true, storageKey: true, kind: true, sizes: true } },
             },
           },
           nameListEntries: {

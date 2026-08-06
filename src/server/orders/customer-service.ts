@@ -16,6 +16,7 @@ import {
 } from '@/db/schema';
 import { resolveActiveToken } from '@/server/access/tokens';
 import { accessCodeMatches, isAccessCodeCookieValid } from '@/lib/access-code';
+import { customerChartLinks } from '@/lib/sizes';
 import { uploadFile, signatureKey } from '@/lib/storage';
 import { emitOrderEvent } from '@/server/events/outbox';
 import { toGarmentDto } from './mappers';
@@ -62,6 +63,12 @@ export async function getOrderForCustomer(rawToken: string) {
   return {
     order: {
       ...order,
+      // Production charts are factory detail — the customer surface only ever
+      // sees kind='customer' charts (David, 2026-08-06).
+      garments: order.garments.map((g) => ({
+        ...g,
+        sizeChartLinks: customerChartLinks(g.sizeChartLinks),
+      })),
       rosterSummary: {
         total: rosterTotal,
         submitted: rosterSubmitted,
@@ -324,7 +331,9 @@ interface ConfirmableOrder {
   shippingAddress: Record<string, unknown> | null;
   garments: Array<
     Parameters<typeof toGarmentDto>[0] & {
-      sizeChartLinks: { sizeChart: { name: string } | null }[];
+      sizeChartLinks: {
+        sizeChart: { name: string; kind?: 'customer' | 'production' | null } | null;
+      }[];
       images: { caption: string | null }[];
     }
   >;
@@ -362,9 +371,9 @@ export function buildConfirmationSnapshot(
       // The snapshot is the agreed record — toGarmentDto captures the preset
       // context (garmentTypeName, selectedOptions/Fabrics) alongside sizing.
       ...toGarmentDto(g),
-      sizeChartNames: g.sizeChartLinks
-        .map((l) => l.sizeChart?.name)
-        .filter(Boolean),
+      // Only customer charts — the snapshot records what the customer SAW and
+      // agreed to; production charts never rendered on their page.
+      sizeChartNames: customerChartLinks(g.sizeChartLinks).map((l) => l.sizeChart.name),
       mockupImageCaptions: g.images.map((i) => i.caption).filter(Boolean),
     })),
     shippingAddress: params.shippingAddress ?? order.shippingAddress ?? null,

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { listSizeCharts, createSizeChart } from '@/server/size-charts/service';
-import { sizeChartSizesFormSchema } from '@/server/size-charts/contract';
+import { sizeChartKindSchema, sizeChartSizesFormSchema } from '@/server/size-charts/contract';
 import { badRequest } from '@/lib/api-responses';
 import type { SizeChartSize } from '@/db/schema';
 import { parseMultipartFormData, parseUploadedFile } from '@/lib/uploads';
@@ -45,6 +45,14 @@ export const POST = defineRoute({
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
 
+    // Kind arrives as a plain form field; missing means 'customer' (the safe
+    // default — visible to customers, and the PO fallback set).
+    const rawKind = (formData.get('kind') as string | null) || null;
+    const kindResult = sizeChartKindSchema.optional().safeParse(rawKind ?? undefined);
+    if (!kindResult.success) {
+      return NextResponse.json({ error: 'kind must be customer or production' }, { status: 400 });
+    }
+
     // Sizes arrive as a JSON-string form field alongside the multipart file
     const rawSizes = (formData.get('sizes') as string | null) ?? null;
     let sizes: SizeChartSize[] = [];
@@ -66,6 +74,7 @@ export const POST = defineRoute({
       const chart = await createSizeChart({
         name: nameResult.data,
         description,
+        kind: kindResult.data,
         sizes,
         buffer,
         mimeType: file.type,

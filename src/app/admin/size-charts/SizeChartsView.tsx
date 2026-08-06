@@ -7,6 +7,7 @@ import {
   Button,
   Form,
   Input,
+  Select,
   Upload,
   Space,
   Typography,
@@ -30,7 +31,7 @@ import { formatDate } from '@/lib/format';
 import { deleteJson, patchJson, postForm } from '@/lib/api-fetch';
 import { useAdminResource } from '@/lib/use-admin-resource';
 import { SEMANTIC } from '@/lib/semantic-colors';
-import type { SizeChartSize } from '@/db/schema';
+import type { SizeChartKind, SizeChartSize } from '@/db/schema';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { SizeListManager } from '@/components/admin/size-charts/SizeListManager';
 
@@ -39,9 +40,26 @@ interface SizeChart {
   name: string;
   description: string | null;
   storageKey: string | null;
+  kind: SizeChartKind;
   sizes: SizeChartSize[];
   createdAt: string;
   url: string | null;
+}
+
+/** Kind presentation — shared by the table tag and the modal selects. */
+const KIND_META: Record<SizeChartKind, { label: string; color: string }> = {
+  customer: { label: 'Customer', color: 'cyan' },
+  production: { label: 'Production', color: 'purple' },
+};
+
+const KIND_OPTIONS = (Object.keys(KIND_META) as SizeChartKind[]).map((k) => ({
+  value: k,
+  label: KIND_META[k].label,
+}));
+
+function kindTag(kind: SizeChartKind) {
+  const meta = KIND_META[kind] ?? KIND_META.customer;
+  return <Tag color={meta.color}>{meta.label}</Tag>;
 }
 
 /** Single source of truth for the PDF-vs-image file-type checks in this view. */
@@ -86,7 +104,7 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
   const [sizes, setSizes] = useState<SizeChartSize[]>([]);
 
   async function handleUpload() {
-    let values: { name: string; description?: string; file?: { file: File } };
+    let values: { name: string; description?: string; kind: SizeChartKind; file?: { file: File } };
     try { values = await form.validateFields(); } catch { return; }
 
     const file = values.file?.file;
@@ -97,6 +115,7 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
       const fd = new FormData();
       fd.append('name', values.name);
       if (values.description) fd.append('description', values.description);
+      fd.append('kind', values.kind ?? 'customer');
       fd.append('sizes', JSON.stringify(sizes));
       fd.append('file', file);
 
@@ -114,14 +133,14 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
 
   async function handleEdit() {
     if (!editingChart) return;
-    let values: { name: string; description?: string };
+    let values: { name: string; description?: string; kind: SizeChartKind };
     try { values = await form.validateFields(); } catch { return; }
 
     setEditSaving(true);
     try {
       const updated = await patchJson<SizeChart>(
         `/api/admin/size-charts/${editingChart.id}`,
-        { name: values.name, description: values.description ?? null, sizes },
+        { name: values.name, description: values.description ?? null, kind: values.kind, sizes },
         'Save failed',
       );
       setCharts((prev) => (prev ?? []).map((c) => (c.id === updated.id ? { ...c, ...updated } : c)));
@@ -174,6 +193,18 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
       dataIndex: 'description',
       render(v: string | null) {
         return v ? <Typography.Text>{v}</Typography.Text> : <Typography.Text type="secondary">—</Typography.Text>;
+      },
+    },
+    {
+      title: 'Kind',
+      dataIndex: 'kind',
+      width: 110,
+      // Customer charts are what customers pick sizes from; production charts
+      // carry factory detail for the PO/supplier surfaces.
+      filters: KIND_OPTIONS.map((o) => ({ text: o.label, value: o.value })),
+      onFilter: (value, record) => record.kind === value,
+      render(kind: SizeChartKind) {
+        return kindTag(kind ?? 'customer');
       },
     },
     {
@@ -236,7 +267,11 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
                   onClick={() => {
                     setEditingChart(record);
                     setSizes(record.sizes ?? []);
-                    form.setFieldsValue({ name: record.name, description: record.description ?? '' });
+                    form.setFieldsValue({
+                      name: record.name,
+                      description: record.description ?? '',
+                      kind: record.kind ?? 'customer',
+                    });
                   }}
                 />
               </Tooltip>
@@ -309,6 +344,14 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
           <Form.Item name="description" label="Description (optional)">
             <Input placeholder="e.g. For all sublimated jerseys" />
           </Form.Item>
+          <Form.Item
+            name="kind"
+            label="Kind"
+            initialValue="customer"
+            help="Customer charts show on the customer page; production charts go to the factory on POs"
+          >
+            <Select options={KIND_OPTIONS} />
+          </Form.Item>
           <Form.Item name="file" label="File" rules={[{ required: true, message: 'Select a file' }]}>
             <Upload
               maxCount={1}
@@ -378,6 +421,14 @@ export function SizeChartsView({ role }: SizeChartsViewProps) {
           </Form.Item>
           <Form.Item name="description" label="Description">
             <Input />
+          </Form.Item>
+          <Form.Item
+            name="kind"
+            label="Kind"
+            initialValue="customer"
+            help="Customer charts show on the customer page; production charts go to the factory on POs"
+          >
+            <Select options={KIND_OPTIONS} />
           </Form.Item>
           <Form.Item
             label="Sizes"

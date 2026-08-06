@@ -34,7 +34,6 @@ import {
   Dropdown,
   Input,
   Modal,
-  Popconfirm,
   Space,
   Spin,
   Table,
@@ -64,6 +63,11 @@ import dayjs, { type Dayjs } from 'dayjs';
 import type { ColumnType } from 'antd/es/table';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { ColorBookSelect } from '@/components/admin/purchase-orders/ColorBookSelect';
+import {
+  PoChecklistCard,
+  usePoChecklist,
+} from '@/components/admin/purchase-orders/PoChecklistCard';
+import { SendPoModal, type SendPoResult } from '@/components/admin/purchase-orders/SendPoModal';
 import {
   PoFilesCard,
   usePoFiles,
@@ -334,7 +338,9 @@ export function PoDetailView({ poId }: { poId: string }) {
     counts: PoVarianceCounts;
   } | null>(null);
 
-  const [sending, setSending] = useState(false);
+  // The send flow goes through the preview modal (David, 2026-08-06): see
+  // what's actually being emailed, add an optional message, then confirm.
+  const [sendModalOpen, setSendModalOpen] = useState(false);
   const [revisionModalOpen, setRevisionModalOpen] = useState(false);
   const [revisionReason, setRevisionReason] = useState('');
   const [issuingRevision, setIssuingRevision] = useState(false);
@@ -385,6 +391,15 @@ export function PoDetailView({ poId }: { poId: string }) {
 
   // "Refresh from order" for unsent POs.
   const [refreshing, setRefreshing] = useState(false);
+
+  // The PO's pre-send checklist — the card owns the rows; the page reads them
+  // so the Send button can hint at outstanding items (server enforces).
+  const {
+    items: checklistItems,
+    loadError: checklistError,
+    reload: reloadChecklist,
+    toggle: toggleChecklistItem,
+  } = usePoChecklist(poId);
 
   const loadThreads = useCallback(
     async (orderId: string) => {
@@ -458,32 +473,24 @@ export function PoDetailView({ poId }: { poId: string }) {
     load();
   }, [load]);
 
-  async function sendToSupplier() {
-    setSending(true);
-    try {
-      const res = await postJson<{
-        ok: true;
-        poNumber: string;
-        to: string;
-        attachmentSummary: { images: number; fonts: number; sizeCharts: number; sizeReduced: boolean };
-      }>(`/api/admin/purchase-orders/${poId}/send`, {}, 'Failed to send purchase order');
-      const { images, fonts, sizeCharts, sizeReduced } = res.attachmentSummary;
-      const parts = ['PDF', 'spreadsheet'];
-      if (images > 0) parts.push(`${images} image${images === 1 ? '' : 's'}`);
-      if (fonts > 0) parts.push(`${fonts} font/design file${fonts === 1 ? '' : 's'}`);
-      if (sizeCharts > 0) parts.push(`${sizeCharts} size chart${sizeCharts === 1 ? '' : 's'}`);
-      message.success(`Purchase order emailed to ${res.to} (${parts.join(', ')})`);
-      if (sizeReduced) {
-        message.warning('Images were too large to attach at full resolution — reduced-size copies were sent instead.');
-      }
-      await load();
-    } catch (err) {
-      // 503 (email unconfigured), 409 (guards) and 500 (SMTP) all carry a
-      // human-readable message from the server.
-      message.error(err instanceof Error ? err.message : 'Failed to send purchase order');
-    } finally {
-      setSending(false);
+  /** The modal did the actual send — surface the result and reload. */
+  async function handleSent(res: SendPoResult) {
+    const { images, fonts, sizeCharts, sizeReduced } = res.attachmentSummary;
+    const parts = ['PDF', 'spreadsheet'];
+    if (images > 0) parts.push(`${images} image${images === 1 ? '' : 's'}`);
+    if (fonts > 0) parts.push(`${fonts} font/design file${fonts === 1 ? '' : 's'}`);
+    if (sizeCharts > 0) parts.push(`${sizeCharts} size chart${sizeCharts === 1 ? '' : 's'}`);
+    message.success(`Purchase order emailed to ${res.to} (${parts.join(', ')})`);
+    if (sizeReduced) {
+      message.warning('Images were too large to attach at full resolution — reduced-size copies were sent instead.');
     }
+    await load();
+  }
+
+  /** Tick/untick a manual checklist item from the rail card. */
+  async function handleChecklistToggle(itemId: string, checked: boolean) {
+    const error = await toggleChecklistItem(itemId, checked);
+    if (error) message.error(error);
   }
 
   async function applyStatus(next: PoStatus) {
@@ -771,8 +778,15 @@ export function PoDetailView({ poId }: { poId: string }) {
     files: files ?? [],
   });
 
+  // Outstanding checklist items drive a HINT on the Send button (the card's
+  // data is already loaded); the server remains the enforcement on POST /send.
+  const checklistOutstanding = (checklistItems ?? []).filter((item) => !item.satisfied);
   const sendButton = (
-    <Button icon={<MailOutlined />} loading={sending} disabled={!supplierHasEmail || !canSend}>
+    <Button
+      icon={<MailOutlined />}
+      disabled={!supplierHasEmail || !canSend}
+      onClick={() => setSendModalOpen(true)}
+    >
       Send to supplier
     </Button>
   );
@@ -831,14 +845,19 @@ export function PoDetailView({ poId }: { poId: string }) {
               </Button>
             )}
             {supplierHasEmail && canSend ? (
-              <Popconfirm
-                title="Send to supplier"
-                description={`Email the latest revision (v${detail.currentRevisionNumber}) to ${detail.supplier.email}?`}
-                onConfirm={sendToSupplier}
-                okText="Send"
-              >
-                {sendButton}
-              </Popconfirm>
+              checklistOutstanding.length > 0 ? (
+                // Sendable, but the pre-send checklist would refuse — say so
+                // here rather than after the modal's confirm.
+                <Tooltip
+                  title={`Pre-send checklist incomplete: ${checklistOutstanding
+                    .map((item) => item.label)
+                    .join('; ')}`}
+                >
+                  {sendButton}
+                </Tooltip>
+              ) : (
+                sendButton
+              )
             ) : (
               <Tooltip
                 title={
@@ -1546,8 +1565,14 @@ export function PoDetailView({ poId }: { poId: string }) {
         }}
       >
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          {/* INSERTION POINT: the PO checklist card lands HERE, above the
-              notes, when the workflow checklist reaches this page. */}
+          {/* The pre-send checklist (David, 2026-08-06) — above the notes, so
+              production works down the rail: checks, then the points behind
+              them. Sending is blocked server-side while anything is open. */}
+          <PoChecklistCard
+            items={checklistItems}
+            loadError={checklistError}
+            onToggle={(itemId, checked) => void handleChecklistToggle(itemId, checked)}
+          />
 
           {/* Retitled from "Order notes (from the order)" (David, 2026-08-06)
               and given a composer — production points can be added right here. */}
@@ -1774,6 +1799,22 @@ export function PoDetailView({ poId }: { poId: string }) {
         </Space>
       </div>
       </div>
+
+      {/* Send preview (David, 2026-08-06): what's actually going to the
+          supplier — subject, body, attachments — plus the optional message.
+          A send refused by the checklist/gates lists its blockers in here. */}
+      <SendPoModal
+        open={sendModalOpen}
+        poId={poId}
+        revisionNumber={detail.currentRevisionNumber}
+        onClose={() => setSendModalOpen(false)}
+        onSent={(res) => {
+          void handleSent(res);
+          // A first send moved the checklist's PO from approved → sent; the
+          // card's who/when column may also have gained audit context.
+          void reloadChecklist();
+        }}
+      />
 
       <Modal
         title="Issue revision"

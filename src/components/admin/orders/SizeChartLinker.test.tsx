@@ -39,6 +39,22 @@ describe('SizeChartLinker', () => {
     expect(screen.getByText('Youth Unisex')).toBeInTheDocument();
   });
 
+  it('groups options by kind, with kindless charts under Customer', async () => {
+    renderLinker({
+      charts: [
+        { id: 'chart-1', name: 'Adult Unisex', description: null }, // legacy: no kind
+        { id: 'chart-3', name: 'Factory Chart', description: null, kind: 'production' },
+      ],
+    });
+
+    await userEvent.setup().click(screen.getByRole('combobox'));
+
+    expect(await screen.findByText('Customer charts')).toBeInTheDocument();
+    expect(screen.getByText('Production charts')).toBeInTheDocument();
+    expect(screen.getByText('Adult Unisex')).toBeInTheDocument();
+    expect(screen.getByText('Factory Chart')).toBeInTheDocument();
+  });
+
   it('shows an empty-library message with a link when there are no charts', () => {
     renderLinker({ charts: [] });
 

@@ -61,7 +61,12 @@ beforeEach(async () => {
 });
 
 async function seedPo(
-  opts: { supplierEmail?: string | null; satisfyGate?: boolean; approve?: boolean } = {},
+  opts: {
+    supplierEmail?: string | null;
+    satisfyGate?: boolean;
+    approve?: boolean;
+    satisfyChecklist?: boolean;
+  } = {},
 ) {
   const [supplier] = await db
     .insert(schema.suppliers)
@@ -90,10 +95,25 @@ async function seedPo(
   // seeds five tasks carrying `po_send`). These tests are about the SEND, so
   // satisfy the gate unless a test is specifically exercising it.
   if (opts.satisfyGate !== false) await satisfyPoSendGate(created.orderId);
+  // The PO's own pre-send checklist (migration 0041 seeds four items) also
+  // gates the send — tick everything unless a test exercises the refusal.
+  if (opts.satisfyChecklist !== false) await satisfyPoChecklist(po.id);
   // Drafts cannot send since the APPROVED status landed (David, 2026-08-05) —
   // approve by default so the send tests exercise the send, not the gate.
   if (opts.approve !== false) await updatePurchaseOrderStatus(po.id, 'approved');
   return { po, orderId: created.orderId, orderNumber: created.orderNumber };
+}
+
+/** Tick every active pre-send checklist item for this PO (auto ones included —
+ *  a manual tick satisfies an auto item too, so this is the cheap blanket). */
+async function satisfyPoChecklist(poId: string) {
+  const items = await db.query.poChecklistItems.findMany({
+    where: eq(schema.poChecklistItems.isActive, true),
+  });
+  if (items.length === 0) return;
+  await db.insert(schema.poChecklistCompletions).values(
+    items.map((item) => ({ poId, itemId: item.id, checkedByEmail: 'seed@example.com' })),
+  );
 }
 
 /** Tick every task feeding the po_send gate for this order. */
@@ -266,6 +286,65 @@ describe('POST /api/admin/purchase-orders/[id]/send', () => {
     }))!;
     expect(updated.status).toBe('approved');
     expect(updated.sentAt).toBeNull();
+  });
+
+  it('threads the messageIntro from the preview modal into the supplier email', async () => {
+    const { po } = await seedPo();
+
+    const res = await POST(
+      postRequest(po.id, { messageIntro: 'Rush job — ship by Friday' }),
+      withId(po.id),
+    );
+
+    expect(res.status).toBe(200);
+    expect(sendSupplierPoEmail.mock.calls[0][0]).toMatchObject({
+      messageIntro: 'Rush job — ship by Friday',
+    });
+  });
+
+  it('collapses a whitespace-only messageIntro to none', async () => {
+    const { po } = await seedPo();
+
+    const res = await POST(postRequest(po.id, { messageIntro: '   ' }), withId(po.id));
+
+    expect(res.status).toBe(200);
+    expect(sendSupplierPoEmail.mock.calls[0][0].messageIntro).toBeNull();
+  });
+
+  it('rejects a messageIntro over 2000 characters at the contract', async () => {
+    const { po } = await seedPo();
+
+    const res = await POST(postRequest(po.id, { messageIntro: 'x'.repeat(2001) }), withId(po.id));
+
+    expect(res.status).toBe(400);
+    expect(sendSupplierPoEmail).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 naming the outstanding pre-send checklist items, and sends no email', async () => {
+    const { po } = await seedPo({ satisfyChecklist: false });
+
+    const res = await POST(postRequest(po.id), withId(po.id));
+    const json = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(json.error).toMatch(/^Pre-send checklist incomplete: /);
+    // The two manual items from migration 0041 are necessarily outstanding.
+    expect(json.error).toContain('Design file includes colours');
+    expect(sendSupplierPoEmail).not.toHaveBeenCalled();
+  });
+
+  it('lets the admin gate override bypass the pre-send checklist too', async () => {
+    const { po } = await seedPo({ satisfyChecklist: false });
+    const session = (await getSession()) as unknown as Record<string, unknown>;
+    session.role = 'admin';
+
+    const res = await POST(
+      postRequest(po.id, { overrideReason: 'Factory needs the doc today; checks to follow' }),
+      withId(po.id),
+    );
+
+    expect(res.status).toBe(200);
+    expect(sendSupplierPoEmail).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -45,6 +45,8 @@ import {
 import { darkTheme, BRAND } from '@/lib/theme';
 import { SALES_REP_LABEL } from '@/lib/config';
 import { NameListPreview } from '@/components/customer/NameListPreview';
+import { BulkNameListUpload, type BulkUploadOutcome } from '@/components/customer/BulkNameListUpload';
+import { mergeNameListEntries, type ParsedNameRow } from '@/components/customer/bulk-name-list';
 
 const { Title, Text } = Typography;
 
@@ -481,6 +483,43 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
     } catch {
       message.error('Failed to save the row count.');
     }
+  }
+
+  /**
+   * Bulk upload (BulkNameListUpload): merge the parsed sheet into the draft,
+   * then persist through the SAME name-list route the Save button uses. Throws
+   * customer-readable errors — the upload box renders them inline.
+   */
+  async function bulkImportNames(
+    garmentId: string,
+    rows: ParsedNameRow[],
+  ): Promise<BulkUploadOutcome> {
+    const draft = nameListDrafts[garmentId] ?? { entries: [], rows: null };
+    const merged = mergeNameListEntries(draft.entries, rows); // throws over the 300 cap
+
+    const res = await fetch(`/api/roster/${encodeURIComponent(orderNumber)}/garments/${garmentId}/name-list`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(
+        merged.entries
+          .filter((e) => e.name.trim())
+          .map((e, i) => ({
+            ...(e.id ? { id: e.id } : {}),
+            name: e.name.trim(),
+            playerNumber: e.playerNumber || undefined,
+            sortOrder: i,
+          })),
+      ),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 401) setEntered(false);
+      throw new Error(data.error ?? 'Failed to save the uploaded names');
+    }
+
+    setNameListDrafts((prev) => ({ ...prev, [garmentId]: { ...prev[garmentId], entries: data.entries ?? [] } }));
+    message.success(`Uploaded ${merged.added} name${merged.added === 1 ? '' : 's'}`);
+    return { added: merged.added, duplicates: merged.duplicates };
   }
 
   async function importNameListFromRoster(garmentId: string) {
@@ -991,6 +1030,11 @@ export function RosterPageView({ orderNumber, teamLabel, requiresPassword, hasSe
                         </Button>
                       </Tooltip>
                     </Space>
+                    <BulkNameListUpload
+                      garmentName={g.name}
+                      disabled={state.order.locked}
+                      onImport={(rows) => bulkImportNames(g.id, rows)}
+                    />
                     <Space direction="vertical" style={{ width: '100%' }} size={8}>
                       {draft.entries.map((entry, i) => (
                         <Space key={entry.id || `new-${i}`} wrap>

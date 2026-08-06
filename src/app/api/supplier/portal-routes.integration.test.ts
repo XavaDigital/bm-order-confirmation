@@ -23,6 +23,7 @@ import { createOrder } from '@/server/orders/service';
 import { createOrderSchema } from '@/server/orders/contract';
 import {
   createPurchaseOrder,
+  issueRevision,
   updatePurchaseOrderStatus,
 } from '@/server/purchase-orders/service';
 import { POST as POST_LOGIN } from './[code]/login/route';
@@ -298,6 +299,40 @@ describe('GET /api/supplier/[code]/po/[poNumber] and POST comment', () => {
       withParams({ code: 'GOAL', poNumber: po.poNumber }),
     );
     expect(cross.status).toBe(404);
+  });
+
+  it('serves a specific revision via ?rev=N and 404s unknown or malformed revisions', async () => {
+    const supplier = await seedSupplier();
+    const { po } = await seedSentPo(supplier.id);
+    await db
+      .update(schema.garmentSizing)
+      .set({ size: 'L' })
+      .where(eq(schema.garmentSizing.size, 'M'));
+    await issueRevision(po.id, { reason: 'Size fix' });
+
+    const rev1 = await GET_PO(
+      request(`/api/supplier/VA/po/${po.poNumber}?rev=1`, { cookie: cookieHeaderFor(supplier) }),
+      withParams({ code: 'VA', poNumber: po.poNumber }),
+    );
+    const rev1Json = await rev1.json();
+    expect(rev1.status).toBe(200);
+    expect(rev1Json.view.revisionNumber).toBe(1);
+    expect(rev1Json.view.snapshot.garments[0].lines[0].size).toBe('M');
+    expect(rev1Json.view.revisions.map((r: { revisionNumber: number }) => r.revisionNumber)).toEqual([1, 2]);
+
+    const noParam = await GET_PO(
+      request(`/api/supplier/VA/po/${po.poNumber}`, { cookie: cookieHeaderFor(supplier) }),
+      withParams({ code: 'VA', poNumber: po.poNumber }),
+    );
+    expect((await noParam.json()).view.revisionNumber).toBe(2);
+
+    for (const rev of ['9', '0', 'abc', '1.5']) {
+      const res = await GET_PO(
+        request(`/api/supplier/VA/po/${po.poNumber}?rev=${rev}`, { cookie: cookieHeaderFor(supplier) }),
+        withParams({ code: 'VA', poNumber: po.poNumber }),
+      );
+      expect(res.status).toBe(404);
+    }
   });
 
   it('posts a comment attributed to the named person', async () => {

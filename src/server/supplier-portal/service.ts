@@ -55,7 +55,14 @@ export interface SupplierPortalViewDto {
     email: string | null;
     phone: string | null;
   };
+  /** The revision this view's snapshot shows — the latest unless the caller asked for an earlier one. */
   revisionNumber: number;
+  /**
+   * Every revision of this (sent) PO, ascending — the portal's revision
+   * stepper. Drafts never reach the portal, so all listed revisions were
+   * actually issued to the supplier. Reason is null only for revision 1.
+   */
+  revisions: { revisionNumber: number; reason: string | null; createdAt: string }[];
   snapshot: PoSnapshot;
   comments: OrderNoteDto[];
 }
@@ -123,11 +130,14 @@ export function supplierPasswordMatches(
 
 /** Load a PO by NUMBER and verify it belongs to this supplier and has been sent. */
 async function loadSupplierPoOrThrow(supplierId: string, poNumber: string) {
+  // ALL revisions (desc), not just the latest — the portal view lists them
+  // for the revision stepper. Snapshots are jsonb but POs carry a handful of
+  // revisions at most, so the extra rows are cheap.
   const po = await db.query.purchaseOrders.findFirst({
     where: eq(purchaseOrders.poNumber, poNumber),
     with: {
       supplier: true,
-      revisions: { orderBy: (r, { desc }) => [desc(r.revisionNumber)], limit: 1 },
+      revisions: { orderBy: (r, { desc }) => [desc(r.revisionNumber)] },
     },
   });
   // Draft/approved = not yet sent — invisible on the portal (David,
@@ -177,8 +187,18 @@ export async function listSupplierPos(supplierId: string): Promise<SupplierPoLis
 
 type PortalPo = NonNullable<Awaited<ReturnType<typeof loadSupplierPoOrThrow>>>;
 
-async function buildPortalView(po: PortalPo): Promise<SupplierPortalViewDto> {
-  const latest = po.revisions[0]; // rev 1 always exists
+async function buildPortalView(
+  po: PortalPo,
+  revisionNumber?: number,
+): Promise<SupplierPortalViewDto> {
+  // po.revisions is ordered DESC; rev 1 always exists. When the caller asks
+  // for a specific revision, serve THAT snapshot — the rest of the view
+  // (status, dates, comments) is live PO state either way.
+  const shown =
+    revisionNumber === undefined
+      ? po.revisions[0]
+      : po.revisions.find((r) => r.revisionNumber === revisionNumber);
+  if (!shown) throw new Error('revision_not_found');
   const comments = await listOrderNotes(po.orderId, 'order', { visibility: 'shared' });
 
   // Status changes for the activity feed — from the audit trail, filtered to
@@ -207,9 +227,9 @@ async function buildPortalView(po: PortalPo): Promise<SupplierPortalViewDto> {
   // storageKey, so nothing durable holds a URL that can expire. Media covers
   // garment mock-up images AND size charts (David, 2026-08-05: the supplier
   // PO shows everything they need to make the order exactly as specified).
-  const withAssets: PoSnapshot = latest.snapshot.assets?.length
-    ? { ...latest.snapshot, assets: await signPoAssets(latest.snapshot.assets) }
-    : latest.snapshot;
+  const withAssets: PoSnapshot = shown.snapshot.assets?.length
+    ? { ...shown.snapshot, assets: await signPoAssets(shown.snapshot.assets) }
+    : shown.snapshot;
   const snapshot = await signPoSnapshotMedia(withAssets);
 
   return {
@@ -230,7 +250,14 @@ async function buildPortalView(po: PortalPo): Promise<SupplierPortalViewDto> {
       email: po.supplier.email,
       phone: po.supplier.phone,
     },
-    revisionNumber: latest.revisionNumber,
+    revisionNumber: shown.revisionNumber,
+    revisions: [...po.revisions]
+      .sort((a, b) => a.revisionNumber - b.revisionNumber)
+      .map((r) => ({
+        revisionNumber: r.revisionNumber,
+        reason: r.reason,
+        createdAt: r.createdAt.toISOString(),
+      })),
     snapshot,
     comments,
     statusHistory,
@@ -247,7 +274,7 @@ export async function resolveSupplierPortalView(rawToken: string): Promise<Suppl
     where: eq(purchaseOrders.id, access.purchaseOrderId),
     with: {
       supplier: true,
-      revisions: { orderBy: (r, { desc }) => [desc(r.revisionNumber)], limit: 1 },
+      revisions: { orderBy: (r, { desc }) => [desc(r.revisionNumber)] },
     },
   });
   // The PO a live access row points at is never missing — access rows cascade
@@ -262,13 +289,18 @@ export async function resolveSupplierPortalView(rawToken: string): Promise<Suppl
   return buildPortalView(po);
 }
 
-/** The portal view for the password-gated surface, by PO number. */
+/**
+ * The portal view for the password-gated surface, by PO number. Pass
+ * `revisionNumber` to see an EARLIER revision's snapshot (the stepper's
+ * "what changed" view); unknown revisions throw 'revision_not_found'.
+ */
 export async function resolveSupplierPoViewByNumber(
   supplierId: string,
   poNumber: string,
+  revisionNumber?: number,
 ): Promise<SupplierPortalViewDto> {
   const po = await loadSupplierPoOrThrow(supplierId, poNumber);
-  return buildPortalView(po);
+  return buildPortalView(po, revisionNumber);
 }
 
 // ---------------------------------------------------------------------------

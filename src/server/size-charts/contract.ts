@@ -7,6 +7,14 @@
 import { z } from 'zod';
 import { uniqueBy } from '@/lib/validation';
 
+/**
+ * Chart kind (David, 2026-08-06): 'customer' charts show on the customer
+ * surfaces; 'production' charts carry the fuller factory detail and are what
+ * PO/supplier surfaces prefer. Matches `SizeChartKind` in src/db/schema.ts.
+ */
+export const SIZE_CHART_KINDS = ['customer', 'production'] as const;
+export const sizeChartKindSchema = z.enum(SIZE_CHART_KINDS);
+
 export const sizeChartSizeSchema = z.object({
   label: z.string().trim().min(1).max(30),
   tall: z.boolean().default(false),

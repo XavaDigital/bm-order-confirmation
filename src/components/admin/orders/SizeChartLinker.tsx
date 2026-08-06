@@ -3,11 +3,14 @@
 import { useState } from 'react';
 import { Select, App, Typography } from 'antd';
 import { patchJson } from '@/lib/api-fetch';
+import type { SizeChartKind } from '@/db/schema';
 
 interface SizeChartOption {
   id: string;
   name: string;
   description: string | null;
+  /** Optional so older callers keep working; missing means 'customer'. */
+  kind?: SizeChartKind;
 }
 
 interface Props {
@@ -19,6 +22,26 @@ interface Props {
   charts: SizeChartOption[];
   /** Called after a successful save so the parent can keep garment state fresh. */
   onSaved: (ids: string[]) => void;
+}
+
+/**
+ * Grouped options: customer charts and production charts in labelled groups so
+ * staff can see they are linking one of EACH set — the customer page shows the
+ * customer charts, the PO/supplier surfaces prefer the production ones.
+ */
+export function buildKindGroupedChartOptions(charts: SizeChartOption[]) {
+  const isProduction = (c: SizeChartOption) => (c.kind ?? 'customer') === 'production';
+  const toOption = (c: SizeChartOption) => ({
+    value: c.id,
+    label: c.name,
+    title: c.description ?? undefined,
+  });
+  const customer = charts.filter((c) => !isProduction(c)).map(toOption);
+  const production = charts.filter(isProduction).map(toOption);
+  const groups = [];
+  if (customer.length > 0) groups.push({ label: 'Customer charts', options: customer });
+  if (production.length > 0) groups.push({ label: 'Production charts', options: production });
+  return groups;
 }
 
 export function SizeChartLinker({ orderId, garmentId, value, charts, onSaved }: Props) {
@@ -58,11 +81,8 @@ export function SizeChartLinker({ orderId, garmentId, value, charts, onSaved }: 
       loading={saving}
       value={pendingIds ?? value}
       onChange={handleChange}
-      options={charts.map((c) => ({
-        value: c.id,
-        label: c.name,
-        title: c.description ?? undefined,
-      }))}
+      options={buildKindGroupedChartOptions(charts)}
+      optionFilterProp="label"
       placeholder="Link reference size charts…"
       style={{ width: '100%' }}
       maxTagCount="responsive"

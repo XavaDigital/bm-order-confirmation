@@ -98,6 +98,44 @@ async function seedOrder(customerName = 'Jane Coach') {
 }
 
 describe('createPurchaseOrder', () => {
+  // Two chart sets (David, 2026-08-06): the factory snapshot prefers
+  // production charts and falls back to the customer set — also proves
+  // loadOrderGarments actually selects the kind column.
+  it('snapshots production charts when linked, falling back to customer charts otherwise', async () => {
+    const supplier = await seedSupplier();
+    const { orderId, garments } = await seedOrder();
+    const [hoodie, shorts] = garments;
+
+    const [customerChart] = await db
+      .insert(schema.sizeCharts)
+      .values({ name: 'Customer Chart', kind: 'customer', storageKey: 'size-charts/c.png' })
+      .returning();
+    const [productionChart] = await db
+      .insert(schema.sizeCharts)
+      .values({ name: 'Factory Chart', kind: 'production', storageKey: 'size-charts/p.png' })
+      .returning();
+
+    // Hoodie has both kinds; shorts has only the customer chart.
+    await db.insert(schema.garmentSizeChartLinks).values([
+      { garmentId: hoodie.id, sizeChartId: customerChart.id },
+      { garmentId: hoodie.id, sizeChartId: productionChart.id },
+      { garmentId: shorts.id, sizeChartId: customerChart.id },
+    ]);
+
+    const po = await createPurchaseOrder(
+      { orderId, supplierId: supplier.id, garmentIds: [hoodie.id, shorts.id] },
+      {},
+    );
+
+    const [hoodieSnap, shortsSnap] = po.revision.snapshot.garments;
+    expect(hoodieSnap.sizeCharts).toEqual([
+      { id: productionChart.id, name: 'Factory Chart', storageKey: 'size-charts/p.png', kind: 'production' },
+    ]);
+    expect(shortsSnap.sizeCharts).toEqual([
+      { id: customerChart.id, name: 'Customer Chart', storageKey: 'size-charts/c.png', kind: 'customer' },
+    ]);
+  });
+
   it('creates the PO with a rev-1 live snapshot, outbox event, and audit row', async () => {
     const supplier = await seedSupplier();
     const staff = await seedStaffUser();
@@ -357,6 +395,17 @@ describe('updatePurchaseOrderStatus', () => {
 describe('sendPurchaseOrder', () => {
   const renderPdf = async () => Buffer.from('%PDF-fake');
 
+  /** Tick every active 0041 pre-send checklist item — sends are gated on it. */
+  async function satisfyPoChecklist(poId: string) {
+    const items = await db.query.poChecklistItems.findMany({
+      where: eq(schema.poChecklistItems.isActive, true),
+    });
+    if (items.length === 0) return;
+    await db.insert(schema.poChecklistCompletions).values(
+      items.map((item) => ({ poId, itemId: item.id, checkedByEmail: 'seed@example.com' })),
+    );
+  }
+
   async function seedSendablePo() {
     const supplier = await seedSupplier({ email: 'factory@example.com' });
     const { orderId, garments } = await seedOrder();
@@ -365,6 +414,7 @@ describe('sendPurchaseOrder', () => {
       supplierId: supplier.id,
       garmentIds: [garments[0].id],
     });
+    await satisfyPoChecklist(po.id);
     // Open the po_send gate: deactivate the migration-seeded order checklist
     // tasks (artwork/sizing/fabric). resetTestDb restores them per test.
     await db.update(schema.workflowStageTasks).set({ isActive: false });
@@ -471,7 +521,16 @@ describe('sendPurchaseOrder — attachments', () => {
       supplierId: supplier.id,
       garmentIds: [hoodie.id],
     });
-    // Open the po_send gate, same as seedSendablePo above.
+    // Tick the 0041 pre-send checklist + open the po_send gate, same as
+    // seedSendablePo above.
+    const items = await db.query.poChecklistItems.findMany({
+      where: eq(schema.poChecklistItems.isActive, true),
+    });
+    if (items.length > 0) {
+      await db.insert(schema.poChecklistCompletions).values(
+        items.map((item) => ({ poId: po.id, itemId: item.id, checkedByEmail: 'seed@example.com' })),
+      );
+    }
     await db.update(schema.workflowStageTasks).set({ isActive: false });
     await updatePurchaseOrderStatus(po.id, 'approved');
     return { po, orderId, hoodie };

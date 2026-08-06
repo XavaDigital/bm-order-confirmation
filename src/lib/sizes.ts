@@ -3,7 +3,25 @@
  * roster flow. Size lists live on size charts (size_charts.sizes); a garment's
  * allowed sizes are the union of its linked charts' lists.
  */
-import type { SizeChartSize } from '@/db/schema';
+import type { SizeChartKind, SizeChartSize } from '@/db/schema';
+
+/**
+ * Filter a garment's `sizeChartLinks` down to CUSTOMER charts for the
+ * customer-facing surfaces (order page, roster flows) — production charts
+ * carry factory detail and must never reach a customer. Also drops dangling
+ * link rows (null chart), like the inline `.filter((l) => l.sizeChart)` it
+ * replaces. A chart without a loaded `kind` counts as customer — the column
+ * defaults to 'customer', so absence only means an old caller didn't select it.
+ */
+export function customerChartLinks<
+  C extends { kind?: SizeChartKind | null },
+  L extends { sizeChart: C | null },
+>(links: L[]): (L & { sizeChart: C })[] {
+  return links.filter(
+    (l): l is L & { sizeChart: C } =>
+      l.sizeChart != null && (l.sizeChart.kind ?? 'customer') === 'customer',
+  );
+}
 
 /**
  * Union the size lists of several charts, preserving chart order. Duplicate

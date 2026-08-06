@@ -61,20 +61,45 @@ export interface LiveGarment {
   /** The garment's user-defined sizing-column definitions. */
   sizingColumns?: GarmentTypeOption[] | null;
   /** Linked reference charts, as drizzle's relation shape. Optional so pure
-   *  callers that never loaded the relation keep working. */
-  sizeChartLinks?: { sizeChart: { id: string; name: string; storageKey: string | null } | null }[];
+   *  callers that never loaded the relation keep working. `kind` optional for
+   *  the same reason — absent means the caller predates the two-set feature,
+   *  and every chart then counts as customer. */
+  sizeChartLinks?: {
+    sizeChart: {
+      id: string;
+      name: string;
+      storageKey: string | null;
+      kind?: 'customer' | 'production' | null;
+    } | null;
+  }[];
   /** Mock-up images, as drizzle's relation shape (already sorted by the loader). */
   images?: { id: string; storageKey: string; thumbnailStorageKey: string | null; caption: string | null }[];
   notes: string | null;
   sizing: LiveSizingRow[];
 }
 
-/** Chart links → the snapshot shape, dropping any dangling link rows. */
+/**
+ * Chart links → the snapshot shape, dropping any dangling link rows.
+ *
+ * Two chart sets per garment (David, 2026-08-06): the factory document PREFERS
+ * the garment's kind='production' charts; when it has none, it falls back to
+ * ALL its charts (customer kind — how every pre-feature garment is linked), so
+ * old orders keep producing the same PO they always did. A chart with no
+ * loaded `kind` counts as customer (the column default).
+ */
 function toSnapshotSizeCharts(g: LiveGarment): PoSnapshotSizeChart[] {
-  return (g.sizeChartLinks ?? [])
+  const charts = (g.sizeChartLinks ?? [])
     .map((link) => link.sizeChart)
-    .filter((chart): chart is NonNullable<typeof chart> => chart !== null)
-    .map((chart) => ({ id: chart.id, name: chart.name, storageKey: chart.storageKey ?? null }))
+    .filter((chart): chart is NonNullable<typeof chart> => chart !== null);
+  const production = charts.filter((chart) => chart.kind === 'production');
+  const chosen = production.length > 0 ? production : charts;
+  return chosen
+    .map((chart) => ({
+      id: chart.id,
+      name: chart.name,
+      storageKey: chart.storageKey ?? null,
+      kind: (chart.kind ?? 'customer') as NonNullable<PoSnapshotSizeChart['kind']>,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
 

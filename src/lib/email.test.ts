@@ -24,6 +24,7 @@ vi.mock('@/lib/env', () => ({
 
 import { env } from '@/lib/env';
 import {
+  composeSupplierPoEmail,
   isEmailConfigured,
   sendInviteEmail,
   sendMagicLink,
@@ -478,6 +479,84 @@ describe('sendSupplierPoEmail', () => {
     expect(call.text).toContain('supersedes all previous versions');
     expect(call.text).toContain('Two sizes changed after customer review');
     expect(call.html).toContain('Two sizes changed after customer review');
+  });
+
+  it('delivers the staff messageIntro through the composed email', async () => {
+    configureSmtp();
+    await sendSupplierPoEmail({ ...base, revisionNumber: 1, messageIntro: 'Rush job — ship by Friday' });
+
+    const call = sendMail.mock.calls[0][0] as Record<string, unknown>;
+    expect(call.html).toContain('Rush job — ship by Friday');
+    expect(call.text).toContain('Rush job — ship by Friday');
+  });
+});
+
+// The pure composer behind sendSupplierPoEmail AND the send-preview endpoint —
+// the preview shows exactly what the send would say because both call this.
+describe('composeSupplierPoEmail', () => {
+  const base = {
+    toName: 'Golden Stitch',
+    poNumber: 'GS12',
+    orderNumber: 'OC-ABCD1234',
+  };
+
+  it('uses the plain subject for revision 1 and the amended subject beyond', () => {
+    expect(composeSupplierPoEmail({ ...base, revisionNumber: 1 }).subject).toBe(
+      'Purchase order GS12 — BeastMode',
+    );
+    expect(composeSupplierPoEmail({ ...base, revisionNumber: 2 }).subject).toBe(
+      'Amended purchase order GS12 (revision 2) — BeastMode',
+    );
+  });
+
+  it('greets the recipient and names both the PO and the order in html and text', () => {
+    const { html, text } = composeSupplierPoEmail({ ...base, revisionNumber: 1 });
+    expect(html).toContain('Hi Golden Stitch,');
+    expect(html).toContain('GS12');
+    expect(html).toContain('OC-ABCD1234');
+    expect(text).toContain('purchase order GS12 (our order OC-ABCD1234)');
+    expect(text).not.toContain('supersedes');
+  });
+
+  it('places the messageIntro at the top of the body, before the standard intro', () => {
+    const { html, text } = composeSupplierPoEmail({
+      ...base,
+      revisionNumber: 1,
+      messageIntro: 'Rush job — ship by Friday',
+    });
+    expect(html.indexOf('Rush job — ship by Friday')).toBeGreaterThan(html.indexOf('Hi Golden Stitch,'));
+    expect(html.indexOf('Rush job — ship by Friday')).toBeLessThan(html.indexOf('Please find attached'));
+    expect(text.indexOf('Rush job — ship by Friday')).toBeLessThan(text.indexOf('Please find attached'));
+  });
+
+  it('escapes the messageIntro — staff type prose, not markup', () => {
+    const { html } = composeSupplierPoEmail({
+      ...base,
+      revisionNumber: 1,
+      messageIntro: 'Sizes are <strong> & "final"',
+    });
+    expect(html).toContain('Sizes are &lt;strong&gt; &amp; &quot;final&quot;');
+    expect(html).not.toContain('Sizes are <strong>');
+  });
+
+  it('omits the intro block for an absent or whitespace-only messageIntro', () => {
+    const plain = composeSupplierPoEmail({ ...base, revisionNumber: 1 });
+    const blank = composeSupplierPoEmail({ ...base, revisionNumber: 1, messageIntro: '   ' });
+    expect(blank.html).toBe(plain.html);
+    expect(blank.text).toBe(plain.text);
+  });
+
+  it('includes the portal link block only when a portalUrl is given', () => {
+    const withPortal = composeSupplierPoEmail({
+      ...base,
+      revisionNumber: 1,
+      portalUrl: 'https://x.example/supplier/GS/po/GS12',
+    });
+    expect(withPortal.html).toContain('Open Supplier Portal');
+    expect(withPortal.text).toContain('https://x.example/supplier/GS/po/GS12');
+    expect(composeSupplierPoEmail({ ...base, revisionNumber: 1 }).html).not.toContain(
+      'Open Supplier Portal',
+    );
   });
 });
 

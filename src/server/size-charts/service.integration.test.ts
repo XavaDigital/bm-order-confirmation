@@ -96,6 +96,33 @@ describe('listSizeCharts', () => {
 });
 
 describe('createSizeChart', () => {
+  it('defaults kind to customer when not supplied', async () => {
+    const result = await createSizeChart({
+      name: 'Default Kind Chart',
+      buffer: Buffer.from('x'),
+      mimeType: 'image/png',
+      ext: 'png',
+    });
+
+    expect(result.kind).toBe('customer');
+    const row = await db.query.sizeCharts.findFirst({ where: eq(schema.sizeCharts.id, result.id) });
+    expect(row!.kind).toBe('customer');
+  });
+
+  it('persists kind: production when supplied', async () => {
+    const result = await createSizeChart({
+      name: 'Factory Chart',
+      kind: 'production',
+      buffer: Buffer.from('x'),
+      mimeType: 'image/png',
+      ext: 'png',
+    });
+
+    expect(result.kind).toBe('production');
+    const row = await db.query.sizeCharts.findFirst({ where: eq(schema.sizeCharts.id, result.id) });
+    expect(row!.kind).toBe('production');
+  });
+
   it('calls uploadFile with the constructed key, inserts a row, and returns it with a resolved url', async () => {
     const result = await createSizeChart({
       name: 'Youth Chart',
@@ -129,6 +156,18 @@ describe('updateSizeChart', () => {
 
     expect(updated.name).toBe('New Name');
     expect(updated.description).toBe('Original desc');
+  });
+
+  it('patches kind and leaves it alone when not provided', async () => {
+    const chart = await seedSizeChart({ name: 'Kindful' });
+    expect(chart.kind).toBe('customer'); // column default
+
+    const updated = await updateSizeChart(chart.id, { kind: 'production' });
+    expect(updated.kind).toBe('production');
+
+    // A patch without kind must not reset it.
+    const renamed = await updateSizeChart(chart.id, { name: 'Kindful v2' });
+    expect(renamed.kind).toBe('production');
   });
 
   it('throws SizeChartNotFoundError for an unknown id', async () => {

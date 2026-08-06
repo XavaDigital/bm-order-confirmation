@@ -36,14 +36,38 @@ import {
   type SignedPoImage,
   type SignedPoSizeChart,
 } from './po-view-helpers';
+import type { GarmentDiff, PoSnapshotDiff } from './po-diff';
 
 const { Text } = Typography;
 
 const dash = <Text style={{ color: 'rgba(255,255,255,0.45)' }}>—</Text>;
 
-function LabelValue({ label, value }: { label: string; value: string }) {
+/**
+ * Revision-diff highlight tints (subtle, on the dark surface): amber for a
+ * value that CHANGED since the previous revision, green for something ADDED
+ * in this revision. Removed content renders nowhere — it lives only in the
+ * stepper's "what changed" summary.
+ */
+export const CHANGED_HIGHLIGHT_STYLE = {
+  background: 'rgba(250, 173, 20, 0.14)',
+  boxShadow: 'inset 2px 0 0 rgba(250, 173, 20, 0.55)',
+} as const;
+export const ADDED_HIGHLIGHT_STYLE = {
+  background: 'rgba(82, 196, 26, 0.12)',
+  boxShadow: 'inset 2px 0 0 rgba(82, 196, 26, 0.5)',
+} as const;
+
+function LabelValue({ label, value, changed }: { label: string; value: string; changed?: boolean }) {
   return (
-    <div style={{ display: 'flex', gap: 12, marginBottom: 2 }}>
+    <div
+      data-changed={changed ? 'true' : undefined}
+      style={{
+        display: 'flex',
+        gap: 12,
+        marginBottom: 2,
+        ...(changed ? { ...CHANGED_HIGHLIGHT_STYLE, borderRadius: 4, padding: '1px 6px 1px 8px' } : {}),
+      }}
+    >
       <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, width: 140, flexShrink: 0 }}>
         {label}
       </Text>
@@ -169,12 +193,32 @@ function GarmentSizeCharts({ charts }: { charts: SignedPoSizeChart[] }) {
   );
 }
 
-function GarmentBlock({ garment }: { garment: PoSnapshotGarment }) {
+function GarmentBlock({
+  garment,
+  garmentDiff,
+  isNew,
+}: {
+  garment: PoSnapshotGarment;
+  /** Set when a revision diff is being shown and THIS garment changed. */
+  garmentDiff?: GarmentDiff;
+  /** The garment is new in the displayed revision. */
+  isNew?: boolean;
+}) {
   const units = garmentUnits(garment);
+  const addedLineIds = new Set(garmentDiff?.addedLineIds ?? []);
   const columns: ColumnType<PoSnapshotLine>[] = lineColumnDescriptors(garment).map(
     (descriptor) => ({
       title: descriptor.label,
       key: descriptor.key,
+      // Cell-level highlight: exactly the changed columns of a changed line
+      // (row-level green for lines added in this revision).
+      onCell: (line: PoSnapshotLine) => {
+        if (isNew || addedLineIds.has(line.sizingRowId)) {
+          return { style: { background: ADDED_HIGHLIGHT_STYLE.background } };
+        }
+        const changedFields = garmentDiff?.changedLineFields[line.sizingRowId];
+        return changedFields?.includes(descriptor.key) ? { style: CHANGED_HIGHLIGHT_STYLE } : {};
+      },
       render: (_: unknown, line: PoSnapshotLine) => {
         const value = descriptor.getValue(line);
         return value.trim() ? value : dash;
@@ -190,8 +234,16 @@ function GarmentBlock({ garment }: { garment: PoSnapshotGarment }) {
     (img) => img.url || img.thumbnailUrl,
   );
 
+  const changedFabricLabels = new Set(garmentDiff?.changedFabricLabels ?? []);
+  const changedOptionLabels = new Set(garmentDiff?.changedOptionLabels ?? []);
+
   return (
-    <div style={GARMENT_BOX_STYLE}>
+    <div
+      style={{
+        ...GARMENT_BOX_STYLE,
+        ...(isNew ? { borderColor: 'rgba(82, 196, 26, 0.45)' } : {}),
+      }}
+    >
       <div style={{ marginBottom: 4 }}>
         <Text strong style={{ color: 'rgba(255,255,255,0.92)', fontSize: 15 }}>
           {garment.name}
@@ -204,9 +256,21 @@ function GarmentBlock({ garment }: { garment: PoSnapshotGarment }) {
         <Text style={{ color: 'rgba(255,255,255,0.5)', marginLeft: 10, fontSize: 12 }}>
           {units} unit{units === 1 ? '' : 's'}
         </Text>
+        {isNew && (
+          <Tag color="green" style={{ marginLeft: 10 }}>
+            New in this revision
+          </Tag>
+        )}
+        {garmentDiff?.renamedFrom && (
+          <Tag color="gold" style={{ marginLeft: 10 }}>
+            Renamed from {garmentDiff.renamedFrom}
+          </Tag>
+        )}
       </div>
 
-      {garment.notes && <LabelValue label="Notes" value={garment.notes} />}
+      {garment.notes && (
+        <LabelValue label="Notes" value={garment.notes} changed={garmentDiff?.notesChanged} />
+      )}
 
       {/* Fabrics and Options side by side on wide screens (auto-fit collapses
           them to a single column when the space isn't there). */}
@@ -224,10 +288,24 @@ function GarmentBlock({ garment }: { garment: PoSnapshotGarment }) {
               <SectionHeading>Fabrics</SectionHeading>
               {/* Labeled picks (typed garments) plus the legacy free-text list. */}
               {fabricEntries.map(({ label, value }) => (
-                <LabelValue key={`fabric:${label}`} label={label} value={value} />
+                <LabelValue
+                  key={`fabric:${label}`}
+                  label={label}
+                  value={value}
+                  changed={changedFabricLabels.has(label)}
+                />
               ))}
               {garment.fabrics.length > 0 && (
-                <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, display: 'block' }}>
+                <Text
+                  style={{
+                    color: 'rgba(255,255,255,0.9)',
+                    fontSize: 13,
+                    display: 'block',
+                    ...(garmentDiff?.fabricsListChanged
+                      ? { ...CHANGED_HIGHLIGHT_STYLE, borderRadius: 4, padding: '1px 6px 1px 8px' }
+                      : {}),
+                  }}
+                >
                   {garment.fabrics.join(', ')}
                 </Text>
               )}
@@ -238,7 +316,12 @@ function GarmentBlock({ garment }: { garment: PoSnapshotGarment }) {
               <SectionHeading>Options</SectionHeading>
               {/* EVERY garment option, blank or not. */}
               {optionEntriesList.map(({ label, value }) => (
-                <LabelValue key={`option:${label}`} label={label} value={value} />
+                <LabelValue
+                  key={`option:${label}`}
+                  label={label}
+                  value={value}
+                  changed={changedOptionLabels.has(label)}
+                />
               ))}
             </div>
           )}
@@ -308,11 +391,19 @@ function AssetRow({ asset }: { asset: SignedPoAsset }) {
 
 export interface SupplierPoContentProps {
   snapshot: PoSnapshot;
+  /**
+   * Diff of this snapshot against the PREVIOUS revision (po-diff.ts). When
+   * set, changed option values / sizing cells get a subtle amber highlight
+   * and added lines/garments a green one. Omitted on revision 1 and on the
+   * legacy /s/[token] surface.
+   */
+  diff?: PoSnapshotDiff | null;
 }
 
 /** The garments card + the design/font files card for one PO snapshot. */
-export function SupplierPoContent({ snapshot }: SupplierPoContentProps) {
+export function SupplierPoContent({ snapshot, diff }: SupplierPoContentProps) {
   const assets = (snapshot.assets ?? []) as SignedPoAsset[];
+  const addedGarmentIds = new Set(diff?.addedGarments.map((g) => g.garmentId) ?? []);
   return (
     <>
       <Card title="Order contents" style={CARD_STYLE} styles={CARD_BODY_STYLES}>
@@ -324,7 +415,12 @@ export function SupplierPoContent({ snapshot }: SupplierPoContentProps) {
           </div>
         )}
         {snapshot.garments.map((garment) => (
-          <GarmentBlock key={garment.garmentId} garment={garment} />
+          <GarmentBlock
+            key={garment.garmentId}
+            garment={garment}
+            garmentDiff={diff?.changedGarments[garment.garmentId]}
+            isNew={addedGarmentIds.has(garment.garmentId)}
+          />
         ))}
       </Card>
 

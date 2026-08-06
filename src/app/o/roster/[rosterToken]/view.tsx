@@ -23,6 +23,8 @@ import { SectionHeading } from '@/components/customer/SectionHeading';
 import { LockedRosterAlert } from '@/components/customer/LockedRosterAlert';
 import { RosterSizeEntry, buildSizeDraft } from '@/components/customer/RosterSizeEntry';
 import { NameListPreview } from '@/components/customer/NameListPreview';
+import { BulkNameListUpload, type BulkUploadOutcome } from '@/components/customer/BulkNameListUpload';
+import { mergeNameListEntries, type ParsedNameRow } from '@/components/customer/bulk-name-list';
 import { SizeChartPreviewModal } from '@/components/customer/SizeChartPreviewModal';
 import {
   CARD_STYLE,
@@ -233,6 +235,39 @@ export function RosterCustomerView({ rosterToken, roster }: RosterCustomerViewPr
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Failed to save the row count');
     }
+  }
+
+  /**
+   * Bulk upload (BulkNameListUpload): merge the parsed sheet into the draft,
+   * then persist through the SAME name-list route the Save button uses. Throws
+   * customer-readable errors — the upload box renders them inline.
+   */
+  async function bulkImportNames(
+    garmentId: string,
+    rows: ParsedNameRow[],
+  ): Promise<BulkUploadOutcome> {
+    const draft = nameLists[garmentId] ?? { entries: [], rows: null };
+    const merged = mergeNameListEntries(draft.entries, rows); // throws over the 300 cap
+
+    const res = await fetch(`/api/o/roster/${rosterToken}/garments/${garmentId}/name-list`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(
+        merged.entries
+          .filter((e) => e.name.trim())
+          .map((e, i) => ({ ...(e.id ? { id: e.id } : {}), name: e.name.trim(), playerNumber: e.playerNumber || undefined, sortOrder: i })),
+      ),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 409 && data.code === 'roster_locked') {
+      setLocked(true);
+      throw new Error(data.error ?? 'This roster is locked.');
+    }
+    if (!res.ok) throw new Error(data.error ?? 'Failed to save the uploaded names');
+
+    setNameLists((prev) => ({ ...prev, [garmentId]: { ...prev[garmentId], entries: data.entries ?? [] } }));
+    message.success(`Uploaded ${merged.added} name${merged.added === 1 ? '' : 's'} to ${roster.garments.find((g) => g.id === garmentId)?.name ?? 'the list'}`);
+    return { added: merged.added, duplicates: merged.duplicates };
   }
 
   async function importNameListFromRoster(garmentId: string) {
@@ -510,6 +545,11 @@ export function RosterCustomerView({ rosterToken, roster }: RosterCustomerViewPr
                 </Button>
               </Tooltip>
             </Space>
+            <BulkNameListUpload
+              garmentName={garment.name}
+              disabled={locked}
+              onImport={(rows) => bulkImportNames(garment.id, rows)}
+            />
             <Space direction="vertical" style={{ width: '100%' }} size={8}>
               {draft.entries.map((entry, i) => (
                 <Space key={entry.id || `new-${i}`} wrap>

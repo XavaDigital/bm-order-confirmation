@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { updateSizeChart, deleteSizeChart } from '@/server/size-charts/service';
-import { sizeChartSizesSchema } from '@/server/size-charts/contract';
+import { sizeChartKindSchema, sizeChartSizesSchema } from '@/server/size-charts/contract';
 import { defineRoute } from '@/lib/route-handler';
 
 const patchSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
+  kind: sizeChartKindSchema.optional(),
   sizes: sizeChartSizesSchema.optional(),
 });
 

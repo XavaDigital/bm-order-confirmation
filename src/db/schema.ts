@@ -611,6 +611,13 @@ export interface SizeChartSize {
   tall: boolean;
 }
 
+/**
+ * Which surface a chart is for (David, 2026-08-06): 'customer' charts are what
+ * the customer sees and picks sizes from; 'production' charts carry the fuller
+ * factory detail for PO/supplier surfaces. See sizeCharts.kind below.
+ */
+export type SizeChartKind = 'customer' | 'production';
+
 export const garmentTypes = confirmation.table(
   'garment_types',
   {
@@ -796,6 +803,12 @@ export const sizeCharts = confirmation.table('size_charts', {
   name: text('name').notNull(),
   storageKey: text('storage_key'),
   description: text('description'),
+  // Two chart sets per garment (David, 2026-08-06): 'customer' charts are
+  // what the customer picks sizes from; 'production' charts carry the fuller
+  // factory detail and are what the PO/supplier surfaces show. Existing
+  // charts default to 'customer'; supplier surfaces fall back to customer
+  // charts when a garment has no production one, so old orders keep working.
+  kind: text('kind').notNull().$type<SizeChartKind>().default('customer'),
   // Ordered structured size list — drives the size dropdowns in the staff
   // sizing table and the customer roster flow for garments linked to this
   // chart. The uploaded file stays the visual reference.
@@ -1085,6 +1098,12 @@ export interface PoSnapshotSizeChart {
   name: string;
   /** Signed at render time from the storage key — never stored as a URL. */
   storageKey: string | null;
+  /**
+   * Which chart set this came from (additive, 2026-08-06): 'production' when
+   * the garment had production charts, else the customer-chart fallback.
+   * Absent on snapshots cut before the field existed.
+   */
+  kind?: SizeChartKind;
 }
 
 /** A garment mock-up image captured at revision time (David, 2026-08-05: the
@@ -1255,6 +1274,49 @@ export const poFiles = confirmation.table(
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [index('po_files_po_idx').on(t.poId, t.createdAt)],
+);
+
+/**
+ * The pre-send checklist (David, 2026-08-06): a configurable list of checks
+ * the production-prep team works through before a PO may be sent. Some items
+ * auto-tick from data (`autoRule`), the rest are manual ticks recorded with
+ * who/when. Items are config (admin-managed, deactivate-never-delete);
+ * completions are per-PO facts.
+ */
+export const poChecklistItems = confirmation.table(
+  'po_checklist_items',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    label: text('label').notNull(),
+    /**
+     * Auto-satisfied when the rule holds; null = manual tick only.
+     * 'design_file_attached' — a live po_file in the Design file category or
+     * a design asset in the snapshot; 'color_book_set' — po.colorBookId set.
+     * Vocabulary is code (evaluated in checklist-service) — adding a rule is
+     * a deploy, adding an ITEM is config.
+     */
+    autoRule: text('auto_rule').$type<'design_file_attached' | 'color_book_set'>(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('po_checklist_items_active_idx').on(t.isActive, t.sortOrder)],
+);
+
+export const poChecklistCompletions = confirmation.table(
+  'po_checklist_completions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    poId: uuid('po_id')
+      .notNull()
+      .references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => poChecklistItems.id, { onDelete: 'cascade' }),
+    checkedByEmail: text('checked_by_email'),
+    checkedAt: timestamp('checked_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('po_checklist_completions_po_item_uq').on(t.poId, t.itemId)],
 );
 
 // --- supplier portal access (magic link, SUPPLIER_PORTAL_PLAN.md) -----------

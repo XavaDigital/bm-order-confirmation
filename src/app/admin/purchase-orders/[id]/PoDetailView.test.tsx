@@ -138,10 +138,40 @@ function varianceSummary() {
   };
 }
 
+/** A checklist row (GET /checklist shape); the base mock serves an empty list. */
+function checklistItem(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'chk-1',
+    label: 'Design file includes colours',
+    autoRule: null,
+    satisfied: false,
+    auto: false,
+    checkedByEmail: null,
+    checkedAt: null,
+    ...overrides,
+  };
+}
+
+function sendPreview() {
+  return {
+    to: 'factory@example.com',
+    toName: 'Li Wei',
+    subject: 'Purchase order PO-2607-VA01-JANECOACH — BeastMode',
+    html: '<!DOCTYPE html><html><body><p>Hi Li Wei,</p></body></html>',
+    portalUrl: 'https://orders.example.com/supplier/VA/PO-2607-VA01-JANECOACH',
+    attachments: [{ filename: 'PO-2607-VA01-JANECOACH.pdf' }, { filename: 'PO-2607-VA01-JANECOACH.xlsx' }],
+  };
+}
+
 function baseRoutes(
   d = detail(),
   summary: unknown = noVarianceSummary(),
-  opts: { portalPassword?: string | null; comments?: unknown[]; orderNotes?: unknown[] } = {},
+  opts: {
+    portalPassword?: string | null;
+    comments?: unknown[];
+    orderNotes?: unknown[];
+    checklist?: unknown[];
+  } = {},
 ): MockRoute[] {
   return [
     { match: `/api/admin/purchase-orders/${PO_ID}`, method: 'GET', response: d },
@@ -150,6 +180,12 @@ function baseRoutes(
       match: `/api/admin/purchase-orders/${PO_ID}/files`,
       method: 'GET',
       response: { items: [] },
+    },
+    // The pre-send checklist card fetches on mount too.
+    {
+      match: `/api/admin/purchase-orders/${PO_ID}/checklist`,
+      method: 'GET',
+      response: { items: opts.checklist ?? [] },
     },
     { match: /\/api\/admin\/orders\/order-1\/purchase-orders/, method: 'GET', response: summary },
     {
@@ -361,9 +397,14 @@ describe('PoDetailView', () => {
     expect(screen.getByRole('button', { name: /send to supplier/i })).toBeDisabled();
   });
 
-  it('sends to the supplier through the Popconfirm and surfaces the response', async () => {
+  it('sends via the preview modal — shows the composed email, sends with the typed intro, and surfaces the response', async () => {
     const user = userEvent.setup();
     const { fetchMock, addRoute } = installMockFetch(baseRoutes());
+    addRoute({
+      match: `/api/admin/purchase-orders/${PO_ID}/send-preview`,
+      method: 'GET',
+      response: sendPreview(),
+    });
     addRoute({
       match: `/api/admin/purchase-orders/${PO_ID}/send`,
       method: 'POST',
@@ -378,20 +419,33 @@ describe('PoDetailView', () => {
     await screen.findByText('PO-2607-VA01-JANECOACH');
 
     await user.click(screen.getByRole('button', { name: /send to supplier/i }));
-    await user.click(await screen.findByRole('button', { name: 'Send' }));
+
+    // The modal previews what's actually being sent before anything fires.
+    expect(await screen.findByText(/Li Wei <factory@example.com>/)).toBeInTheDocument();
+    expect(screen.getByText('PO-2607-VA01-JANECOACH.pdf')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Message to the supplier'), 'Ship by Friday');
+    await user.click(screen.getByRole('button', { name: /send email/i }));
 
     await vi.waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        `/api/admin/purchase-orders/${PO_ID}/send`,
-        expect.objectContaining({ method: 'POST' }),
+      const post = fetchMock.mock.calls.find(
+        ([url, init]) =>
+          url === `/api/admin/purchase-orders/${PO_ID}/send` && init?.method === 'POST',
       );
+      expect(post).toBeTruthy();
+      expect(JSON.parse(post![1]!.body as string)).toEqual({ messageIntro: 'Ship by Friday' });
     });
     expect(await screen.findByText(/emailed to factory@example.com/i)).toBeInTheDocument();
   });
 
-  it('surfaces the 503 email-unconfigured message on send', async () => {
+  it('surfaces the 503 email-unconfigured message inside the send modal', async () => {
     const user = userEvent.setup();
     const { addRoute } = installMockFetch(baseRoutes());
+    addRoute({
+      match: `/api/admin/purchase-orders/${PO_ID}/send-preview`,
+      method: 'GET',
+      response: sendPreview(),
+    });
     addRoute({
       match: `/api/admin/purchase-orders/${PO_ID}/send`,
       method: 'POST',
@@ -402,11 +456,88 @@ describe('PoDetailView', () => {
     await screen.findByText('PO-2607-VA01-JANECOACH');
 
     await user.click(screen.getByRole('button', { name: /send to supplier/i }));
-    await user.click(await screen.findByRole('button', { name: 'Send' }));
+    await user.click(await screen.findByRole('button', { name: /send email/i }));
 
     expect(
       await screen.findByText('Email delivery is not configured on this server.'),
     ).toBeInTheDocument();
+  });
+
+  it('renders the pre-send checklist card above the internal order notes with its items', async () => {
+    installMockFetch(
+      baseRoutes(detail(), noVarianceSummary(), {
+        checklist: [
+          checklistItem({
+            id: 'chk-auto',
+            label: 'At least one design file attached',
+            autoRule: 'design_file_attached',
+            satisfied: true,
+            auto: true,
+          }),
+          checklistItem(),
+        ],
+      }),
+    );
+    renderView();
+
+    expect(await screen.findByText('Pre-send checklist')).toBeInTheDocument();
+    expect(screen.getByTestId('checklist-progress')).toHaveTextContent('1 of 2 complete');
+    expect(screen.getByText('auto')).toBeInTheDocument();
+    // Above "Internal order notes" in the right rail.
+    const cards = screen.getAllByText(/Pre-send checklist|Internal order notes/);
+    expect(cards[0]).toHaveTextContent('Pre-send checklist');
+  });
+
+  it('ticks a manual checklist item from the card', async () => {
+    const user = userEvent.setup();
+    const { fetchMock, addRoute } = installMockFetch(
+      baseRoutes(detail(), noVarianceSummary(), { checklist: [checklistItem()] }),
+    );
+    addRoute({
+      match: `/api/admin/purchase-orders/${PO_ID}/checklist`,
+      method: 'POST',
+      response: {
+        items: [
+          checklistItem({
+            satisfied: true,
+            checkedByEmail: 'staff@example.com',
+            checkedAt: '2026-08-06T10:00:00Z',
+          }),
+        ],
+      },
+    });
+    renderView();
+    await screen.findByText('Design file includes colours');
+
+    await user.click(screen.getByRole('checkbox', { name: /design file includes colours/i }));
+
+    await vi.waitFor(() => {
+      const post = fetchMock.mock.calls.find(
+        ([url, init]) =>
+          url === `/api/admin/purchase-orders/${PO_ID}/checklist` && init?.method === 'POST',
+      );
+      expect(post).toBeTruthy();
+      expect(JSON.parse(post![1]!.body as string)).toEqual({ itemId: 'chk-1', checked: true });
+    });
+    expect(await screen.findByText('staff@example.com — 6 Aug 2026')).toBeInTheDocument();
+  });
+
+  it('hints at outstanding checklist items on the enabled Send button', async () => {
+    const user = userEvent.setup();
+    installMockFetch(
+      baseRoutes(detail(), noVarianceSummary(), { checklist: [checklistItem()] }),
+    );
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    const send = screen.getByRole('button', { name: /send to supplier/i });
+    // Still enabled — the server is the enforcement; the modal shows blockers.
+    expect(send).toBeEnabled();
+    await user.hover(send);
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Pre-send checklist incomplete: Design file includes colours',
+    );
   });
 
   it('shows the variance banner with counts and the expandable diff', async () => {

@@ -26,8 +26,8 @@ afterEach(async () => {
   await resetTestDb(db);
 });
 
-async function seedSizeChart(name = 'Adult Unisex') {
-  const [chart] = await db.insert(schema.sizeCharts).values({ name }).returning();
+async function seedSizeChart(name = 'Adult Unisex', kind: schema.SizeChartKind = 'customer') {
+  const [chart] = await db.insert(schema.sizeCharts).values({ name, kind }).returning();
   return chart;
 }
 
@@ -110,6 +110,33 @@ describe('getRosterForMember', () => {
       where: and(eq(schema.rosterAccess.orderId, created.orderId), isNull(schema.rosterAccess.revokedAt)),
     });
     expect(access!.lastViewedAt).not.toBeNull();
+  });
+
+  // Two chart sets (David, 2026-08-06): production charts are factory detail
+  // and never reach the roster surface — neither the chart list nor the size
+  // dropdown union.
+  it('excludes production charts (and their sizes) from the roster read model', async () => {
+    const customerChart = await seedSizeChart('Customer Chart', 'customer');
+    const productionChart = await seedSizeChart('Factory Chart', 'production');
+    await db
+      .update(schema.sizeCharts)
+      .set({ sizes: [{ label: 'M', tall: false }] })
+      .where(eq(schema.sizeCharts.id, customerChart.id));
+    await db
+      .update(schema.sizeCharts)
+      .set({ sizes: [{ label: 'FACTORY-XL', tall: false }] })
+      .where(eq(schema.sizeCharts.id, productionChart.id));
+    const created = await createOrder(
+      minimalInput({
+        garments: [{ name: 'Jersey', sizeChartIds: [customerChart.id, productionChart.id] }],
+      }),
+    );
+    const { token } = await generateRosterToken(created.orderId);
+
+    const result = await getRosterForMember(token);
+
+    expect(result!.order.garments[0].sizeCharts.map((c) => c.name)).toEqual(['Customer Chart']);
+    expect(result!.order.garments[0].sizes).toEqual([{ label: 'M', tall: false }]);
   });
 });
 

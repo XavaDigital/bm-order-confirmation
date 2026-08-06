@@ -726,8 +726,8 @@ describe('asset variance', () => {
  * produce variance against a live garment that has them.
  */
 describe('size charts in the snapshot', () => {
-  const chartLink = (id: string, name: string) => ({
-    sizeChart: { id, name, storageKey: `size-charts/${id}.png` },
+  const chartLink = (id: string, name: string, kind?: 'customer' | 'production') => ({
+    sizeChart: { id, name, storageKey: `size-charts/${id}.png`, ...(kind ? { kind } : {}) },
   });
 
   it('captures linked charts, sorted and without dangling links', () => {
@@ -742,9 +742,66 @@ describe('size charts in the snapshot', () => {
     ]);
 
     expect(snapshot.garments[0].sizeCharts).toEqual([
-      { id: 'c1', name: 'Adult Unisex', storageKey: 'size-charts/c1.png' },
-      { id: 'c2', name: 'Womens Fitted', storageKey: 'size-charts/c2.png' },
+      // No kind on the live rows (older caller) — counts as customer.
+      { id: 'c1', name: 'Adult Unisex', storageKey: 'size-charts/c1.png', kind: 'customer' },
+      { id: 'c2', name: 'Womens Fitted', storageKey: 'size-charts/c2.png', kind: 'customer' },
     ]);
+  });
+
+  /**
+   * Two chart sets per garment (David, 2026-08-06): the factory document
+   * prefers production charts, and falls back to the customer set when a
+   * garment has no production chart, so pre-feature orders keep cutting the
+   * same PO they always did.
+   */
+  it('prefers production charts when the garment has any', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({
+        sizeChartLinks: [
+          chartLink('c1', 'Adult Unisex', 'customer'),
+          chartLink('p1', 'Adult Unisex Factory', 'production'),
+        ],
+      }),
+    ]);
+
+    expect(snapshot.garments[0].sizeCharts).toEqual([
+      { id: 'p1', name: 'Adult Unisex Factory', storageKey: 'size-charts/p1.png', kind: 'production' },
+    ]);
+  });
+
+  it('falls back to the customer charts when the garment has no production chart', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({
+        sizeChartLinks: [chartLink('c1', 'Adult Unisex', 'customer')],
+      }),
+    ]);
+
+    expect(snapshot.garments[0].sizeCharts).toEqual([
+      { id: 'c1', name: 'Adult Unisex', storageKey: 'size-charts/c1.png', kind: 'customer' },
+    ]);
+  });
+
+  // Linking a production chart to a garment changes what the factory document
+  // would contain — that MUST surface as variance on an already-cut revision.
+  it('reports a newly linked production chart as variance against a customer-chart snapshot', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({ sizeChartLinks: [chartLink('c1', 'Adult Unisex', 'customer')] }),
+    ]);
+    const live = liveGarment({
+      sizeChartLinks: [
+        chartLink('c1', 'Adult Unisex', 'customer'),
+        chartLink('p1', 'Adult Unisex Factory', 'production'),
+      ],
+    });
+
+    const variance = detectVariance([live], snapshot);
+
+    expect(variance.hasVariance).toBe(true);
+    expect(variance.garments[0].fieldChanges).toContainEqual({
+      field: 'sizeCharts',
+      from: ['Adult Unisex'],
+      to: ['Adult Unisex Factory'],
+    });
   });
 
   it('snapshots an empty list when the relation was loaded and empty', () => {

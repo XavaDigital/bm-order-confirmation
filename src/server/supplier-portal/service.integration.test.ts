@@ -16,6 +16,7 @@ import { createOrderSchema } from '@/server/orders/contract';
 import { addOrderNote } from '@/server/orders/notes-service';
 import {
   createPurchaseOrder,
+  issueRevision,
   updatePurchaseOrderStatus,
 } from '@/server/purchase-orders/service';
 import { generateToken } from '@/lib/tokens';
@@ -385,6 +386,69 @@ describe('resolveSupplierPoViewByNumber', () => {
     await expect(resolveSupplierPoViewByNumber(supplier.id, 'VA999')).rejects.toThrow('po_not_found');
     const rival = await seedSupplier({ name: 'Goal Sports', supplierCode: 'GOAL' });
     await expect(resolveSupplierPoViewByNumber(rival.id, po.poNumber)).rejects.toThrow('po_not_found');
+  });
+});
+
+describe('revision stepping (SupplierPortalViewDto.revisions + the revisionNumber param)', () => {
+  /** Revision 2 with real content drift: the sizing row's size changes M → L. */
+  async function seedRevisedPo() {
+    const seeded = await seedPoWithToken();
+    await db
+      .update(schema.garmentSizing)
+      .set({ size: 'L' })
+      .where(eq(schema.garmentSizing.size, 'M'));
+    await issueRevision(seeded.po.id, { reason: 'Size fix' });
+    return seeded;
+  }
+
+  it('lists all revisions ascending (reason, createdAt) and serves the latest by default', async () => {
+    const { po, supplier } = await seedRevisedPo();
+
+    const view = await resolveSupplierPoViewByNumber(supplier.id, po.poNumber);
+    expect(view.revisionNumber).toBe(2);
+    expect(view.revisions.map((r) => r.revisionNumber)).toEqual([1, 2]);
+    expect(view.revisions[0].reason).toBeNull(); // rev 1 is the original
+    expect(view.revisions[1].reason).toBe('Size fix');
+    for (const rev of view.revisions) {
+      expect(new Date(rev.createdAt).getTime()).not.toBeNaN();
+    }
+    expect(view.snapshot.garments[0].lines[0].size).toBe('L');
+  });
+
+  it('serves an EARLIER revision snapshot when asked, with the full revision list intact', async () => {
+    const { po, supplier } = await seedRevisedPo();
+
+    const rev1 = await resolveSupplierPoViewByNumber(supplier.id, po.poNumber, 1);
+    expect(rev1.revisionNumber).toBe(1);
+    expect(rev1.snapshot.garments[0].lines[0].size).toBe('M');
+    // The stepper needs the whole list no matter which revision is shown.
+    expect(rev1.revisions.map((r) => r.revisionNumber)).toEqual([1, 2]);
+    // Live PO state (status, dates) is unaffected by which snapshot is shown.
+    expect(rev1.status).toBe('sent');
+
+    const rev2 = await resolveSupplierPoViewByNumber(supplier.id, po.poNumber, 2);
+    expect(rev2.revisionNumber).toBe(2);
+    expect(rev2.snapshot.garments[0].lines[0].size).toBe('L');
+  });
+
+  it('throws revision_not_found for a revision that does not exist', async () => {
+    const { po, supplier } = await seedRevisedPo();
+
+    await expect(resolveSupplierPoViewByNumber(supplier.id, po.poNumber, 3)).rejects.toThrow(
+      'revision_not_found',
+    );
+    await expect(resolveSupplierPoViewByNumber(supplier.id, po.poNumber, 0)).rejects.toThrow(
+      'revision_not_found',
+    );
+  });
+
+  it('the legacy token view carries the revision list too and always shows the latest', async () => {
+    const { rawToken } = await seedRevisedPo();
+
+    const view = await resolveSupplierPortalView(rawToken);
+    expect(view.revisionNumber).toBe(2);
+    expect(view.revisions.map((r) => r.revisionNumber)).toEqual([1, 2]);
+    expect(view.snapshot.garments[0].lines[0].size).toBe('L');
   });
 });
 

@@ -65,10 +65,11 @@ async function setSession(role: StaffRole) {
   session.role = role;
 }
 
-function multipartRequest(fields: { name?: string; description?: string; file?: File; sizes?: string }) {
+function multipartRequest(fields: { name?: string; description?: string; kind?: string; file?: File; sizes?: string }) {
   const formData = new FormData();
   if (fields.name !== undefined) formData.set('name', fields.name);
   if (fields.description !== undefined) formData.set('description', fields.description);
+  if (fields.kind !== undefined) formData.set('kind', fields.kind);
   if (fields.sizes !== undefined) formData.set('sizes', fields.sizes);
   if (fields.file) formData.set('file', fields.file);
   return new NextRequest('http://localhost/api/admin/size-charts', { method: 'POST', body: formData });
@@ -183,6 +184,29 @@ describe('POST /api/admin/size-charts', () => {
 
     const rows = await db.select().from(schema.sizeCharts);
     expect(rows).toHaveLength(1);
+  });
+
+  it('defaults kind to customer and persists an explicit kind: production', async () => {
+    await setSession('admin');
+    const pdf = () => new File(['abc'], 'chart.pdf', { type: 'application/pdf' });
+
+    const defaulted = await POST(multipartRequest({ name: 'Customer Chart', file: pdf() }));
+    expect(defaulted.status).toBe(201);
+    expect((await defaulted.json()).kind).toBe('customer');
+
+    const explicit = await POST(
+      multipartRequest({ name: 'Factory Chart', kind: 'production', file: pdf() }),
+    );
+    expect(explicit.status).toBe(201);
+    expect((await explicit.json()).kind).toBe('production');
+  });
+
+  it('returns 400 for an unknown kind, uploading nothing', async () => {
+    await setSession('admin');
+    const file = new File(['abc'], 'chart.pdf', { type: 'application/pdf' });
+    const res = await POST(multipartRequest({ name: 'Chart', kind: 'internal', file }));
+    expect(res.status).toBe(400);
+    expect(uploadFile).not.toHaveBeenCalled();
   });
 
   it('persists a structured size list sent as a JSON form field', async () => {

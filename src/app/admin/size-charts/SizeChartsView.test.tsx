@@ -65,6 +65,21 @@ describe('SizeChartsView', () => {
     expect(screen.getByText('PDF')).toBeInTheDocument();
   });
 
+  it('shows a kind tag per chart (production and defaulted customer)', async () => {
+    installMockFetch([
+      chartsRoute([
+        chart(), // no kind on the fixture — legacy rows read as customer
+        chart({ id: 'chart-2', name: 'Factory Chart', kind: 'production' }),
+      ]),
+    ]);
+    renderView();
+
+    const customerRow = (await screen.findByText('Adult Unisex')).closest('tr')!;
+    expect(within(customerRow).getByText('Customer')).toBeInTheDocument();
+    const productionRow = screen.getByText('Factory Chart').closest('tr')!;
+    expect(within(productionRow).getByText('Production')).toBeInTheDocument();
+  });
+
   it('shows an "Image" type tag for a non-PDF storage key', async () => {
     installMockFetch([chartsRoute([chart({ storageKey: 'charts/kids.png' })])]);
     renderView();
@@ -148,6 +163,8 @@ describe('SizeChartsView', () => {
     expect(url).toBe('/api/admin/size-charts');
     expect(init).toMatchObject({ method: 'POST' });
     expect((init!.body as FormData).get('name')).toBe('Youth Unisex');
+    // Kind rides along, defaulting to customer.
+    expect((init!.body as FormData).get('kind')).toBe('customer');
     expect((init!.body as FormData).get('file')).toBeInstanceOf(File);
     expect(await screen.findByText('"Youth Unisex" uploaded')).toBeInTheDocument();
     expect(screen.getByText('Youth Unisex')).toBeInTheDocument();
@@ -199,7 +216,8 @@ describe('SizeChartsView', () => {
     expect(fetchMock).toHaveBeenLastCalledWith('/api/admin/size-charts/chart-1', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Adult Unisex V2', description: '', sizes: [] }),
+      // kind falls back to 'customer' for a fixture chart that predates kinds.
+      body: JSON.stringify({ name: 'Adult Unisex V2', description: '', kind: 'customer', sizes: [] }),
     });
     expect(await screen.findByText('Chart updated')).toBeInTheDocument();
     expect(screen.getByText('Adult Unisex V2')).toBeInTheDocument();

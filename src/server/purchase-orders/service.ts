@@ -122,8 +122,10 @@ async function loadOrderGarments(orderId: string) {
       garmentType: { columns: { name: true, orderOptions: true } },
       // The reference charts the factory cuts to — captured into the revision
       // snapshot, and compared by variance so a re-linked chart flags the PO.
+      // `kind` rides along so the snapshot can prefer production charts and
+      // fall back to customer ones (toSnapshotSizeCharts).
       sizeChartLinks: {
-        with: { sizeChart: { columns: { id: true, name: true, storageKey: true } } },
+        with: { sizeChart: { columns: { id: true, name: true, storageKey: true, kind: true } } },
       },
       // Mock-up images ride the snapshot too (David, 2026-08-05: the supplier
       // PO must show the garment images).
@@ -840,6 +842,13 @@ export async function sendPurchaseOrder(
   id: string,
   meta: ActorMeta,
   renderPdf: (props: RenderPoPdfProps) => Promise<Buffer>,
+  options?: {
+    /**
+     * Staff paragraph inserted at the top of the supplier email (David,
+     * 2026-08-06 send-preview modal). Plain text; the email layer escapes it.
+     */
+    messageIntro?: string | null;
+  },
 ) {
   const po = await db.query.purchaseOrders.findFirst({
     where: eq(purchaseOrders.id, id),
@@ -874,6 +883,15 @@ export async function sendPurchaseOrder(
       : undefined,
     context: { poId: po.id, poNumber: po.poNumber },
   });
+
+  // The PO's own pre-send checklist (David, 2026-08-06) — every active item
+  // satisfied (auto or ticked) before the factory sees anything. The same
+  // admin override that bypasses the workflow gate bypasses this (already
+  // audited as workflow.gate_overridden above).
+  if (!meta.gateOverrideReason) {
+    const { assertChecklistComplete } = await import('./checklist-service');
+    await assertChecklistComplete(id);
+  }
 
   // FIRST send: the draft snapshot tracked the order loosely (David,
   // 2026-08-06 — no revision history while unsent), so re-cut it from live
@@ -953,6 +971,7 @@ export async function sendPurchaseOrder(
       orderNumber: po.order.orderNumber,
       revisionNumber: latest.revisionNumber,
       reason: latest.reason,
+      messageIntro: options?.messageIntro ?? null,
       pdf,
       xlsx,
       sizeReduced,

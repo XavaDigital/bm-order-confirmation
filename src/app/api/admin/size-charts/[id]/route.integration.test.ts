@@ -147,6 +147,24 @@ describe('PATCH /api/admin/size-charts/[id]', () => {
     expect(row!.name).toBe('Youth Unisex');
   });
 
+  it('updates kind and rejects an unknown kind', async () => {
+    await setSession('admin');
+    const chart = await seedChart();
+
+    const ok = await PATCH(patchRequest({ kind: 'production' }), {
+      params: Promise.resolve({ id: chart.id }),
+    });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).kind).toBe('production');
+    const row = await db.query.sizeCharts.findFirst({ where: eq(schema.sizeCharts.id, chart.id) });
+    expect(row!.kind).toBe('production');
+
+    const bad = await PATCH(patchRequest({ kind: 'internal' }), {
+      params: Promise.resolve({ id: chart.id }),
+    });
+    expect(bad.status).toBe(400);
+  });
+
   it('updates the structured size list', async () => {
     await setSession('admin');
     const chart = await seedChart();

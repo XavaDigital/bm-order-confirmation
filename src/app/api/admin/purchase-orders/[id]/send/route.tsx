@@ -10,13 +10,22 @@ import { defineRoute } from '@/lib/route-handler';
 import { logger } from '@/lib/logger';
 
 /**
- * Optional override for the `po_send` gate. Absent body = a normal send, so the
+ * Optional override for the `po_send` gate, and the optional staff message
+ * paragraph from the send-preview modal. Absent body = a normal send, so the
  * existing callers keep working unchanged.
  */
 const sendPoSchema = z.preprocess(
   (value) => value ?? {},
   z.object({
     overrideReason: z.string().trim().min(1).max(500).optional(),
+    // Empty-after-trim collapses to undefined so "typed nothing" and "no
+    // field" are the same send.
+    messageIntro: z
+      .string()
+      .trim()
+      .max(2000)
+      .optional()
+      .transform((v) => (v ? v : undefined)),
   }),
 );
 
@@ -50,6 +59,7 @@ export const POST = defineRoute<{ id: string }, typeof sendPoSchema._type>({
           gateOverrideReason: body.overrideReason ?? null,
         },
         (props) => renderToBuffer((<PoPdf {...props} />) as Parameters<typeof renderToBuffer>[0]),
+        { messageIntro: body.messageIntro ?? null },
       );
       return NextResponse.json({ ok: true, ...result }, { status: 200 });
     } catch (err) {

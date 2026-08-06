@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { eq, count } from 'drizzle-orm';
 import { db } from '@/db';
-import { sizeCharts, garmentSizeChartLinks, type SizeChartSize } from '@/db/schema';
+import { sizeCharts, garmentSizeChartLinks, type SizeChartKind, type SizeChartSize } from '@/db/schema';
 import { uploadFile, getSignedUrl, deleteFile, sizeChartKey } from '@/lib/storage';
 import { logger } from '@/lib/logger';
 
@@ -34,6 +34,8 @@ export async function listSizeCharts() {
 export async function createSizeChart(params: {
   name: string;
   description?: string | null;
+  /** Defaults to 'customer' — the safe kind: visible to customers, PO fallback. */
+  kind?: SizeChartKind;
   sizes?: SizeChartSize[];
   buffer: Buffer;
   mimeType: string;
@@ -49,6 +51,7 @@ export async function createSizeChart(params: {
     .values({
       name: params.name,
       description: params.description ?? null,
+      kind: params.kind ?? 'customer',
       sizes: params.sizes ?? [],
       storageKey: key,
     })
@@ -59,7 +62,7 @@ export async function createSizeChart(params: {
 
 export async function updateSizeChart(
   id: string,
-  patch: { name?: string; description?: string | null; sizes?: SizeChartSize[] },
+  patch: { name?: string; description?: string | null; kind?: SizeChartKind; sizes?: SizeChartSize[] },
 ) {
   const existing = await db.query.sizeCharts.findFirst({ where: eq(sizeCharts.id, id) });
   if (!existing) throw new SizeChartNotFoundError();
@@ -69,6 +72,7 @@ export async function updateSizeChart(
     .set({
       ...(patch.name !== undefined && { name: patch.name }),
       ...(patch.description !== undefined && { description: patch.description }),
+      ...(patch.kind !== undefined && { kind: patch.kind }),
       ...(patch.sizes !== undefined && { sizes: patch.sizes }),
       updatedAt: new Date(),
     })

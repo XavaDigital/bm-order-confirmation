@@ -20,7 +20,7 @@
  * A 401 shows the same login card as the portal home; only AFTER a successful
  * sign-in does an unknown number reveal itself as "not found".
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { App, Button, Card, DatePicker, Space, Spin, Tag, Typography } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -33,6 +33,7 @@ import {
 import { ApiError, getJson, postJson } from '@/lib/api-fetch';
 import { formatDate } from '@/lib/format';
 import { poStatusMeta } from '@/lib/status';
+import type { PoSnapshot } from '@/db/schema';
 import type { SupplierAllowedStatus } from '@/server/supplier-portal/contract';
 import type { SupplierPortalViewDto } from '@/server/supplier-portal/service';
 import { CustomerPageShell } from '@/components/customer/CustomerPageShell';
@@ -41,6 +42,8 @@ import { SupplierLoginCard } from '@/components/supplier/SupplierLoginCard';
 import { SupplierPoContent } from '@/components/supplier/SupplierPoContent';
 import { SupplierPoFiles, type PoFileItem } from '@/components/supplier/SupplierPoFiles';
 import { SupplierActivityFeed } from '@/components/supplier/SupplierActivityFeed';
+import { PoRevisionStepper } from '@/components/supplier/PoRevisionStepper';
+import { diffPoSnapshots } from '@/components/supplier/po-diff';
 import { isShipDateLocked, type SupplierComment } from '@/components/supplier/po-view-helpers';
 
 const { Text } = Typography;
@@ -69,6 +72,12 @@ export function SupplierPoDetailView({ code, poNumber }: { code: string; poNumbe
   const [updatingStatus, setUpdatingStatus] = useState<SupplierAllowedStatus | null>(null);
   const [shipDate, setShipDate] = useState<Dayjs | null>(null);
   const [savingShipDate, setSavingShipDate] = useState(false);
+  // Revision stepping: null = the latest revision. Fetched snapshots are
+  // cached per revision number (they are immutable; only the signed media
+  // URLs differ per fetch, and a session-lifetime URL is fine).
+  const [viewedRev, setViewedRev] = useState<number | null>(null);
+  const [revSnapshots, setRevSnapshots] = useState<Record<number, PoSnapshot>>({});
+  const [revLoading, setRevLoading] = useState(false);
 
   const apiBase = `/api/supplier/${encodeURIComponent(code)}/po/${encodeURIComponent(poNumber)}`;
 
@@ -79,6 +88,7 @@ export function SupplierPoDetailView({ code, poNumber }: { code: string; poNumbe
         'Failed to load purchase order',
       );
       setView(data.view);
+      setRevSnapshots((prev) => ({ ...prev, [data.view.revisionNumber]: data.view.snapshot }));
       setShipDate(data.view.expectedShipDate ? dayjs(data.view.expectedShipDate) : null);
       setPhase('ready');
     } catch (err) {
@@ -102,6 +112,58 @@ export function SupplierPoDetailView({ code, poNumber }: { code: string; poNumbe
     void load();
     void loadFiles();
   }, [load, loadFiles]);
+
+  const latestRev = view?.revisionNumber ?? null;
+  const currentRev = viewedRev ?? latestRev;
+
+  // Make sure the displayed revision AND its predecessor are cached — the
+  // predecessor feeds the change highlighting (rev 1 has no predecessor).
+  useEffect(() => {
+    if (phase !== 'ready' || currentRev === null) return;
+    const wanted = [currentRev, currentRev - 1].filter(
+      (n) => n >= 1 && revSnapshots[n] === undefined,
+    );
+    if (wanted.length === 0) return;
+
+    let cancelled = false;
+    setRevLoading(true);
+    void Promise.all(
+      wanted.map(async (n) => {
+        try {
+          const data = await getJson<{ view: PortalPoView }>(
+            `${apiBase}?rev=${n}`,
+            'Failed to load revision',
+          );
+          if (!cancelled) {
+            setRevSnapshots((prev) => ({ ...prev, [n]: data.view.snapshot }));
+          }
+        } catch (err) {
+          if (!cancelled && err instanceof ApiError && err.status === 401) setPhase('login');
+          // Any other failure: the stepper simply shows no highlights/snapshot
+          // for that revision — the latest view stays fully usable.
+        }
+      }),
+    ).finally(() => {
+      if (!cancelled) setRevLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, currentRev, revSnapshots, apiBase]);
+
+  const displayedSnapshot =
+    currentRev === null
+      ? null
+      : (revSnapshots[currentRev] ?? (currentRev === latestRev ? (view?.snapshot ?? null) : null));
+  const previousSnapshot = currentRev !== null && currentRev > 1 ? (revSnapshots[currentRev - 1] ?? null) : null;
+
+  const diff = useMemo(
+    () =>
+      displayedSnapshot && previousSnapshot
+        ? diffPoSnapshots(previousSnapshot, displayedSnapshot)
+        : null,
+    [displayedSnapshot, previousSnapshot],
+  );
 
   async function applyStatus(next: SupplierAllowedStatus) {
     setUpdatingStatus(next);
@@ -194,7 +256,7 @@ export function SupplierPoDetailView({ code, poNumber }: { code: string; poNumbe
     <CustomerPageShell
       label="Supplier Portal"
       title={view.poNumber}
-      subtitle={`Revision ${view.revisionNumber} — ${view.supplier.name}`}
+      subtitle={`Revision ${currentRev ?? view.revisionNumber} — ${view.supplier.name}`}
       maxWidth={1320}
     >
       <style>{COLUMNS_CSS}</style>
@@ -305,7 +367,23 @@ export function SupplierPoDetailView({ code, poNumber }: { code: string; poNumbe
             )}
           </Card>
 
-          <SupplierPoContent snapshot={view.snapshot} />
+          <PoRevisionStepper
+            revisions={view.revisions ?? []}
+            current={currentRev ?? view.revisionNumber}
+            loading={revLoading}
+            summary={diff ? diff.summary : null}
+            onChange={(rev) => setViewedRev(rev)}
+          />
+
+          {displayedSnapshot ? (
+            <SupplierPoContent snapshot={displayedSnapshot} diff={diff} />
+          ) : (
+            <Card style={CARD_STYLE} styles={CARD_BODY_STYLES}>
+              <div style={{ textAlign: 'center', padding: 24 }}>
+                <Spin />
+              </div>
+            </Card>
+          )}
 
           <SupplierPoFiles code={code} poNumber={poNumber} items={files} onUploaded={loadFiles} />
         </div>
