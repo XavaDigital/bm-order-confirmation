@@ -101,7 +101,7 @@ describe('GET /api/admin/purchase-orders/[id]/send-preview', () => {
     const json = await res.json();
 
     expect(res.status).toBe(409);
-    expect(json.error).toBe('Approve the purchase order before sending it');
+    expect(json.error).toBe('Move the purchase order to Review before sending it');
   });
 
   it('mirrors the send guard for a terminal status', async () => {

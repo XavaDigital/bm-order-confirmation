@@ -294,6 +294,28 @@ async function handleHubNoteTimelinePush(event: DomainEvent, tx: Transaction): P
   });
 }
 
+/**
+ * Configurable automations (David, 2026-08-06). One handler per supported
+ * trigger, running inside the batch transaction like every other handler —
+ * the rules service never throws, so a bad rule cannot fail its event.
+ */
+function automationHandler(
+  trigger: 'po_status_changed' | 'po_file_uploaded',
+): EventHandler {
+  return async (event, tx) => {
+    const p = event.payload as { poId?: string; poNumber?: string };
+    if (!p.poId) return;
+    const { runAutomations } = await import('@/server/automations/service');
+    await runAutomations(trigger, {
+      tx,
+      orderId: event.aggregateId,
+      poId: p.poId,
+      poNumber: p.poNumber ?? '',
+      payload: event.payload as Record<string, unknown>,
+    });
+  };
+}
+
 const EVENT_HANDLERS: Record<string, EventHandler[]> = {
   'order.confirmed': [handleGoogleAdsConversion, handleConfirmationEmail, handleCustomerReceiptEmail, handleHubOrderIndexSync, handleHubTimelinePush],
   'order.changes_requested': [handleChangesRequestedEmail, handleHubOrderIndexSync, handleHubTimelinePush],
@@ -311,8 +333,9 @@ const EVENT_HANDLERS: Record<string, EventHandler[]> = {
   'order.cancelled': [handleHubOrderIndexSync],
   'order.status_changed': [handleHubOrderIndexSync],
   'po.created': [handleHubOrderIndexSync],
-  'po.status_changed': [handleHubOrderIndexSync],
+  'po.status_changed': [handleHubOrderIndexSync, automationHandler('po_status_changed')],
   'po.cancelled': [handleHubOrderIndexSync],
+  'po.file_uploaded': [automationHandler('po_file_uploaded')],
 };
 
 // ---------------------------------------------------------------------------

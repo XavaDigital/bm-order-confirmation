@@ -13,9 +13,19 @@ export const GET = defineRoute<{ id: string }>({
   handler: async ({ params }) => NextResponse.json({ items: await getPoChecklist(params.id) }),
 });
 
-const tickSchema = z.object({ itemId: z.string().uuid(), checked: z.boolean() });
+const tickSchema = z.object({
+  itemId: z.string().uuid(),
+  checked: z.boolean(),
+  /**
+   * Present = this is a SIDESTEP acknowledgement, not a "done" tick (David,
+   * 2026-08-06). Only legal on items configured to allow it; the service
+   * 409s otherwise. Min length is the point: an unreasoned acknowledgement
+   * is the silent skip the checklist exists to prevent.
+   */
+  sidestepReason: z.string().trim().min(3).max(500).optional(),
+});
 
-/** Tick/untick a manual item — recorded with who/when. */
+/** Tick/untick/sidestep a manual item — recorded with who/when. */
 export const POST = defineRoute<{ id: string }, typeof tickSchema._type>({
   auth: 'staff',
   tag: 'purchase-orders/[id]/checklist POST',
@@ -23,6 +33,7 @@ export const POST = defineRoute<{ id: string }, typeof tickSchema._type>({
   handler: async ({ params, body, session }) => {
     await setChecklistItem(params.id, body.itemId, body.checked, {
       actorEmail: session!.email,
+      sidestepReason: body.sidestepReason ?? null,
     });
     return NextResponse.json({ items: await getPoChecklist(params.id) });
   },

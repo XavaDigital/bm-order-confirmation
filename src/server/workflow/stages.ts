@@ -38,8 +38,11 @@ export const PROTECTED_STAGE_SLUGS: Readonly<Record<WorkflowBoardKey, readonly s
     'quality_control', // seeded in 0038
     'in_transit',
     'received',
-    'completed',
+    // Remake before completed (David, 2026-08-06) — matches the board column
+    // order set in migration 0042. This list is a membership check, so the
+    // order here is documentation, not behaviour.
     'remake',
+    'completed',
     'cancelled',
   ],
 };

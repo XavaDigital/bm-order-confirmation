@@ -128,6 +128,16 @@ export type DomainEventType =
   | 'po.file_removed'
   // Audit-only: a pre-send checklist tick/untick, with who and which item.
   | 'po.check_changed'
+  // Audit-only: the CHECKS themselves being configured (added, renamed,
+  // retired, made sidesteppable). Staff action history on config, not a tick.
+  | 'po.check_item_created'
+  | 'po.check_item_updated'
+  // Configurable automations (David, 2026-08-06). Audit-only: `automation.fired`
+  // names the rule and what it did, so an automatic status move is never
+  // anonymous; the *.rule_* types are config history.
+  | 'automation.fired'
+  | 'automation.rule_created'
+  | 'automation.rule_updated'
   | 'supplier_link.generated'
   | 'supplier_link.revoked';
 
@@ -178,7 +188,9 @@ export async function recordAuditEvent(
       | 'shipment'
       // The column is plain text, so widening this union is a type-only change.
       | 'workflow_stage'
-      | 'acknowledgement_setting';
+      | 'acknowledgement_setting'
+      | 'po_checklist_item'
+      | 'automation_rule';
     actorEmail?: string | null;
   },
   tx?: Transaction,

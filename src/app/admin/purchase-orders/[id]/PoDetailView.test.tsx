@@ -146,6 +146,9 @@ function checklistItem(overrides: Record<string, unknown> = {}) {
     autoRule: null,
     satisfied: false,
     auto: false,
+    allowSidestep: false,
+    sidestepped: false,
+    sidestepReason: null,
     checkedByEmail: null,
     checkedAt: null,
     ...overrides,
@@ -358,7 +361,8 @@ describe('PoDetailView', () => {
     }
     // ...but never backwards or into remake from 'sent'.
     expect(within(menu).queryByText('Draft')).not.toBeInTheDocument();
-    expect(within(menu).queryByText('Approved')).not.toBeInTheDocument();
+    // `approved` displays as "Review" (David, 2026-08-06).
+    expect(within(menu).queryByText('Review')).not.toBeInTheDocument();
     expect(within(menu).queryByText('Remake')).not.toBeInTheDocument();
   });
 
@@ -537,6 +541,49 @@ describe('PoDetailView', () => {
 
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
       'Pre-send checklist incomplete: Design file includes colours',
+    );
+  });
+
+  it('a sidestepped check does not count as outstanding on the Send button', async () => {
+    const user = userEvent.setup();
+    installMockFetch(
+      baseRoutes(detail(), noVarianceSummary(), {
+        // Satisfied by an acknowledgement rather than a tick — the server
+        // treats it as satisfied, so nothing is left blocking the send.
+        checklist: [
+          checklistItem({
+            satisfied: true,
+            allowSidestep: true,
+            sidestepped: true,
+            sidestepReason: 'no fonts on this job',
+            checkedByEmail: 'ana@example.com',
+            checkedAt: '2026-08-06T10:00:00Z',
+          }),
+        ],
+      }),
+    );
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    expect(await screen.findByText('Sidestepped')).toBeInTheDocument();
+    await user.hover(screen.getByRole('button', { name: /send to supplier/i }));
+
+    // No tooltip at all — the hint only exists while something is outstanding
+    // (antd's own mouse-enter delay is 100ms, so wait past it).
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('blocks sending a draft and says to move it to Review first', async () => {
+    const user = userEvent.setup();
+    installMockFetch(baseRoutes(detail({ status: 'draft' })));
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    await user.hover(screen.getByRole('button', { name: /send to supplier/i }));
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Move the purchase order to Review before sending it',
     );
   });
 
@@ -779,16 +826,16 @@ describe('PoDetailView', () => {
     expect(await screen.findByText('Customer ref saved')).toBeInTheDocument();
   });
 
-  it('shows Approve for a draft PO and blocks sending until approved', async () => {
+  it('shows Move to review for a draft PO and blocks sending until it is in review', async () => {
     installMockFetch(baseRoutes(detail({ status: 'draft' })));
     renderView();
     await screen.findByText('PO-2607-VA01-JANECOACH');
 
-    expect(screen.getByRole('button', { name: /approve/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /move to review/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /send to supplier/i })).toBeDisabled();
   });
 
-  it('Approve posts the approved status', async () => {
+  it('Move to review posts the approved status (the value behind the Review label)', async () => {
     const user = userEvent.setup();
     const { fetchMock, addRoute } = installMockFetch(baseRoutes(detail({ status: 'draft' })));
     addRoute({
@@ -799,7 +846,7 @@ describe('PoDetailView', () => {
     renderView();
     await screen.findByText('PO-2607-VA01-JANECOACH');
 
-    await user.click(screen.getByRole('button', { name: /approve/i }));
+    await user.click(screen.getByRole('button', { name: /move to review/i }));
 
     await vi.waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -884,7 +931,7 @@ describe('PoDetailView', () => {
 
     expect(await screen.findByText('Status changed')).toBeInTheDocument();
     // Statuses render their display labels, not the raw keys.
-    expect(screen.getByText('Approved → Unconfirmed')).toBeInTheDocument();
+    expect(screen.getByText('Review → Unconfirmed')).toBeInTheDocument();
     expect(screen.getByText('Created')).toBeInTheDocument();
     expect(screen.getAllByText('sam@example.com')).toHaveLength(2);
   });

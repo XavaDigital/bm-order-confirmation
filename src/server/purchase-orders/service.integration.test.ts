@@ -425,7 +425,7 @@ describe('sendPurchaseOrder', () => {
     const { po } = await seedSendablePo();
 
     await expect(sendPurchaseOrder(po.id, {}, renderPdf)).rejects.toThrow(
-      'Approve the purchase order before sending it',
+      'Move the purchase order to Review before sending it',
     );
     expect(sendSupplierPoEmailMock).not.toHaveBeenCalled();
   });

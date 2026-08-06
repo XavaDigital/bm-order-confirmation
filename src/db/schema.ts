@@ -959,7 +959,7 @@ export const auditEvents = confirmation.table(
     id: uuid('id').defaultRandom().primaryKey(),
     // Plain text in the database, so widening this union is a type-only change
     // and needs no migration.
-    aggregateType: text('aggregate_type').notNull().$type<'order' | 'staff_user' | 'garment_type' | 'purchase_order' | 'supplier' | 'shipment' | 'workflow_stage' | 'acknowledgement_setting'>(),
+    aggregateType: text('aggregate_type').notNull().$type<'order' | 'staff_user' | 'garment_type' | 'purchase_order' | 'supplier' | 'shipment' | 'workflow_stage' | 'acknowledgement_setting' | 'po_checklist_item' | 'automation_rule'>(),
     aggregateId: uuid('aggregate_id').notNull(),
     eventType: text('event_type').notNull(),
     actorEmail: text('actor_email'),
@@ -1296,6 +1296,13 @@ export const poChecklistItems = confirmation.table(
      * a deploy, adding an ITEM is config.
      */
     autoRule: text('auto_rule').$type<'design_file_attached' | 'color_book_set'>(),
+    /**
+     * May this check be SIDESTEPPED (David, 2026-08-06)? A sidestep is not a
+     * silent skip: it demands an explicit acknowledgement with a reason,
+     * recorded against the person who gave it. Items left false must actually
+     * be done — no acknowledgement will satisfy them.
+     */
+    allowSidestep: boolean('allow_sidestep').notNull().default(false),
     sortOrder: integer('sort_order').notNull().default(0),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -1315,8 +1322,60 @@ export const poChecklistCompletions = confirmation.table(
       .references(() => poChecklistItems.id, { onDelete: 'cascade' }),
     checkedByEmail: text('checked_by_email'),
     checkedAt: timestamp('checked_at', { withTimezone: true }).defaultNow().notNull(),
+    /**
+     * True = this row is a SIDESTEP acknowledgement rather than a "done" tick
+     * (David, 2026-08-06). The reason is mandatory for a sidestep — an
+     * acknowledgement with no stated why is indistinguishable from having no
+     * check at all, the same reasoning as the po_send gate override.
+     */
+    sidestepped: boolean('sidestepped').notNull().default(false),
+    sidestepReason: text('sidestep_reason'),
   },
   (t) => [uniqueIndex('po_checklist_completions_po_item_uq').on(t.poId, t.itemId)],
+);
+
+/**
+ * Configurable automations (David, 2026-08-06): "automatic actions in certain
+ * conditions", including ones that MOVE the PO.
+ *
+ * Deliberately a small closed vocabulary rather than a general rules engine:
+ * a trigger the system already emits, an optional condition on it, and an
+ * action from a fixed list. Every firing writes an audit row naming the rule,
+ * so an automatic move is never anonymous — the single most important
+ * property when software changes state on its own.
+ *
+ * Triggers (all already exist as outbox events):
+ *  - po_status_changed      → config.to = the status it moved INTO
+ *  - po_file_uploaded       → config.category = the file category (optional)
+ *  - po_checklist_complete  → every active check satisfied or sidestepped
+ * Actions:
+ *  - notify   → config.recipients (role | 'po_creator' | 'supplier')
+ *  - set_status → config.status (guarded by canTransition; illegal moves are
+ *                 skipped and logged, never forced)
+ *  - add_note → config.body, written as a system note on the order
+ */
+export const automationRules = confirmation.table(
+  'automation_rules',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    name: text('name').notNull(),
+    trigger: text('trigger')
+      .notNull()
+      .$type<'po_status_changed' | 'po_file_uploaded' | 'po_checklist_complete'>(),
+    /** Trigger-specific match, e.g. {to: 'in_transit'} or {category: 'Test print'}. */
+    triggerConfig: jsonb('trigger_config').$type<Record<string, string>>().notNull().default({}),
+    action: text('action').notNull().$type<'notify' | 'set_status' | 'add_note'>(),
+    /** Action-specific payload, e.g. {status: 'quality_control'} or {recipients: ['admin']}. */
+    actionConfig: jsonb('action_config').$type<Record<string, unknown>>().notNull().default({}),
+    isActive: boolean('is_active').notNull().default(true),
+    createdBy: uuid('created_by').references(() => staffUsers.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [index('automation_rules_trigger_idx').on(t.trigger, t.isActive)],
 );
 
 // --- supplier portal access (magic link, SUPPLIER_PORTAL_PLAN.md) -----------

@@ -63,7 +63,10 @@ export type PoStatus =
  */
 export const PO_STATUS: Record<PoStatus, StatusMeta> = {
   draft: { label: 'Draft', tag: 'default', hex: '#8c8c8c' },
-  approved: { label: 'Approved', tag: 'cyan', hex: '#13c2c2' },
+  // Value stays `approved` (pg enum values cannot be renamed); the LABEL is
+  // David's 2026-08-06 vocabulary: the PO sits in Review with the production
+  // team — checklist worked, files gathered — after sales finish the draft.
+  approved: { label: 'Review', tag: 'cyan', hex: '#13c2c2' },
   sent: { label: 'Unconfirmed', tag: 'blue', hex: '#1677ff' },
   confirmed: { label: 'Confirmed', tag: 'cyan', hex: '#13c2c2' }, // legacy rows only
   pre_production: { label: 'Design prep', tag: 'purple', hex: '#722ed1' },

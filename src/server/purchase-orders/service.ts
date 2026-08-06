@@ -977,7 +977,7 @@ export async function sendPurchaseOrder(
   // signed off before it can go to the factory. Resending an already-sent PO
   // (or one further along) after a revision stays legal.
   if (po.status === 'draft') {
-    throw new ConflictError('Approve the purchase order before sending it');
+    throw new ConflictError('Move the purchase order to Review before sending it');
   }
   if (po.status === 'cancelled' || po.status === 'completed' || po.status === 'received') {
     throw new ConflictError(`Cannot send a ${po.status} purchase order`);

@@ -491,10 +491,13 @@ export function PoDetailView({ poId }: { poId: string }) {
     await load();
   }
 
-  /** Tick/untick a manual checklist item from the rail card. */
-  async function handleChecklistToggle(itemId: string, checked: boolean) {
-    const error = await toggleChecklistItem(itemId, checked);
-    if (error) message.error(error);
+  /** Tick/untick/sidestep a manual checklist item from the rail card. */
+  async function handleChecklistToggle(itemId: string, checked: boolean, sidestepReason?: string) {
+    const error = await toggleChecklistItem(itemId, checked, sidestepReason);
+    // A refused SIDESTEP is reported inside the modal, which stays open — a
+    // toast as well would say the same thing twice.
+    if (error && !sidestepReason) message.error(error);
+    return error;
   }
 
   async function applyStatus(next: PoStatus) {
@@ -845,7 +848,7 @@ export function PoDetailView({ poId }: { poId: string }) {
                 icon={<CheckOutlined />}
                 onClick={() => applyStatus('approved')}
               >
-                Approve
+                Move to review
               </Button>
             )}
             {supplierHasEmail && canSend ? (
@@ -868,7 +871,7 @@ export function PoDetailView({ poId }: { poId: string }) {
                   !supplierHasEmail
                     ? 'Supplier has no email address'
                     : isDraft
-                      ? 'Approve the purchase order before sending it'
+                      ? 'Move the purchase order to Review before sending it'
                       : `A ${PO_STATUS[detail.status as PoStatus]?.label.toLowerCase() ?? detail.status} purchase order cannot be sent`
                 }
               >
@@ -1583,7 +1586,7 @@ export function PoDetailView({ poId }: { poId: string }) {
           <PoChecklistCard
             items={checklistItems}
             loadError={checklistError}
-            onToggle={(itemId, checked) => void handleChecklistToggle(itemId, checked)}
+            onToggle={handleChecklistToggle}
           />
 
           {/* Retitled from "Order notes (from the order)" (David, 2026-08-06)

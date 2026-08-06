@@ -205,13 +205,13 @@ describe('SendPoModal', () => {
         match: `/api/admin/purchase-orders/${PO_ID}/send-preview`,
         method: 'GET',
         status: 409,
-        response: { error: 'Approve the purchase order before sending it' },
+        response: { error: 'Move the purchase order to Review before sending it' },
       },
     ]);
     renderModal();
 
     expect(
-      await screen.findByText('Approve the purchase order before sending it'),
+      await screen.findByText('Move the purchase order to Review before sending it'),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /send email/i })).toBeDisabled();
   });

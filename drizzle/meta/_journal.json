@@ -300,6 +300,20 @@
       "tag": "0039_abandoned_violations",
 >>>>>>> Stashed changes
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1786009276847,
+      "tag": "0042_handy_shriek",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1786010603890,
+      "tag": "0043_strange_the_hunter",
+      "breakpoints": true
     }
   ]
 }

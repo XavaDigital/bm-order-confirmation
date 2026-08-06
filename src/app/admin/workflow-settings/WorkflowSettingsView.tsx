@@ -1,12 +1,15 @@
 'use client';
 
 /**
- * Workflow settings — the shape of the boards.
+ * Workflow settings — the shape of the boards, and the checks that gate them.
  *
  * Stages are grouped by the STATUS they sit under, because that grouping is the
  * design: a status is fixed (the state machine every consumer depends on) and a
  * stage is a step you can add inside it. Presenting a flat list would invite
  * people to expect they can add statuses, which they cannot.
+ *
+ * The PO pre-send checklist shares this page because it is the same species of
+ * configuration: the steps work has to pass through before it moves on.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -23,6 +26,7 @@ import {
   Skeleton,
   Space,
   Switch,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -30,7 +34,10 @@ import {
 import { PlusOutlined, LockOutlined } from '@ant-design/icons';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { getJson, patchJson, postJson, putJson, ApiError } from '@/lib/api-fetch';
+import type { StaffRole } from '@/lib/roles';
 import { ORDER_STATUS, PO_STATUS } from '@/lib/status';
+import { PoChecklistSettings } from './PoChecklistSettings';
+import { AutomationsSettings } from '@/components/admin/workflow-settings/AutomationsSettings';
 
 type BoardKey = 'order' | 'purchase_order';
 
@@ -69,8 +76,13 @@ function statusLabel(boardKey: BoardKey, statusKey: string): string {
   return registry[statusKey]?.label ?? statusKey;
 }
 
-export function WorkflowSettingsView() {
+type TabKey = 'stages' | 'checklist' | 'automations';
+
+export function WorkflowSettingsView({ role }: { role: StaffRole }) {
   const { message } = App.useApp();
+  // Convention: admins mutate, everyone else gets the read-only view.
+  const canMutate = role === 'admin';
+  const [tab, setTab] = useState<TabKey>('stages');
   const [boardKey, setBoardKey] = useState<BoardKey>('purchase_order');
   const [stages, setStages] = useState<Stage[] | null>(null);
   const [statusKeys, setStatusKeys] = useState<string[]>([]);
@@ -120,61 +132,89 @@ export function WorkflowSettingsView() {
     <div>
       <AdminPageHeader
         title="Workflow settings"
-        subtitle="The steps each board is made of, and who is responsible for them"
+        subtitle="The steps each board is made of, who is responsible for them, and what has to be checked"
         extra={
-          <Space>
-            <Segmented
-              value={boardKey}
-              onChange={(v) => setBoardKey(v as BoardKey)}
-              size="large"
-              options={[
-                { label: 'Purchase Orders', value: 'purchase_order' },
-                { label: 'Orders', value: 'order' },
-              ]}
-            />
-            <Button type="primary" icon={<PlusOutlined />} size="large" onClick={() => setCreating(true)}>
-              Add stage
-            </Button>
-          </Space>
+          // Board controls belong to the board tab — showing them beside the
+          // checklist would suggest they act on it.
+          tab === 'stages' && (
+            <Space>
+              <Segmented
+                value={boardKey}
+                onChange={(v) => setBoardKey(v as BoardKey)}
+                size="large"
+                options={[
+                  { label: 'Purchase Orders', value: 'purchase_order' },
+                  { label: 'Orders', value: 'order' },
+                ]}
+              />
+              <Button type="primary" icon={<PlusOutlined />} size="large" onClick={() => setCreating(true)}>
+                Add stage
+              </Button>
+            </Space>
+          )
         }
       />
 
-      <Typography.Paragraph type="secondary">
-        Statuses are fixed — they are the state machine the rest of the system reacts to. Stages are
-        the steps inside a status, and those are yours to change. A card entering a stage notifies
-        that stage&rsquo;s owners.
-      </Typography.Paragraph>
+      <Tabs
+        activeKey={tab}
+        onChange={(key) => setTab(key as TabKey)}
+        items={[
+          {
+            key: 'stages',
+            label: 'Board stages',
+            children: (
+              <>
+                <Typography.Paragraph type="secondary">
+                  Statuses are fixed — they are the state machine the rest of the system reacts to.
+                  Stages are the steps inside a status, and those are yours to change. A card
+                  entering a stage notifies that stage&rsquo;s owners.
+                </Typography.Paragraph>
 
-      {stages === null ? (
-        <Skeleton active paragraph={{ rows: 8 }} />
-      ) : (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          {[...byStatus.entries()].map(([status, group]) => (
-            <Card
-              key={status}
-              size="small"
-              title={
-                <Space>
-                  <span>{statusLabel(boardKey, status)}</span>
-                  <Typography.Text type="secondary" style={{ fontWeight: 400, fontSize: 12 }}>
-                    status
-                  </Typography.Text>
-                </Space>
-              }
-            >
-              {group.length === 0 ? (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No stages" />
-              ) : (
-                <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                  {group.map((stage) => (
-                    <StageRow key={stage.id} stage={stage} onEdit={() => setEditing(stage)} />
-                  ))}
-                </Space>
-              )}
-            </Card>
-          ))}
-        </Space>
-      )}
+                {stages === null ? (
+                  <Skeleton active paragraph={{ rows: 8 }} />
+                ) : (
+                  <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                    {[...byStatus.entries()].map(([status, group]) => (
+                      <Card
+                        key={status}
+                        size="small"
+                        title={
+                          <Space>
+                            <span>{statusLabel(boardKey, status)}</span>
+                            <Typography.Text type="secondary" style={{ fontWeight: 400, fontSize: 12 }}>
+                              status
+                            </Typography.Text>
+                          </Space>
+                        }
+                      >
+                        {group.length === 0 ? (
+                          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No stages" />
+                        ) : (
+                          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                            {group.map((stage) => (
+                              <StageRow key={stage.id} stage={stage} onEdit={() => setEditing(stage)} />
+                            ))}
+                          </Space>
+                        )}
+                      </Card>
+                    ))}
+                  </Space>
+                )}
+              </>
+            ),
+          },
+          {
+            key: 'checklist',
+            label: 'PO pre-send checklist',
+            children: <PoChecklistSettings canMutate={canMutate} />,
+          },
+          {
+            key: 'automations',
+            label: 'Automations',
+            children: <AutomationsSettings canMutate={canMutate} />,
+          },
+        ]}
+      />
 
       <CreateStageDrawer
         open={creating}

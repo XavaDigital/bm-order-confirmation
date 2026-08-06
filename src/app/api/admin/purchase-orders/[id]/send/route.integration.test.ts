@@ -181,7 +181,7 @@ describe('POST /api/admin/purchase-orders/[id]/send', () => {
     const json = await res.json();
 
     expect(res.status).toBe(409);
-    expect(json.error).toBe('Approve the purchase order before sending it');
+    expect(json.error).toBe('Move the purchase order to Review before sending it');
     expect(sendSupplierPoEmail).not.toHaveBeenCalled();
   });
 

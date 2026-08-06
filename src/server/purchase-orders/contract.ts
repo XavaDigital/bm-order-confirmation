@@ -17,7 +17,7 @@ import { z } from 'zod';
 // but existing rows hold it and it stays in the chain.
 export const PO_STATUSES = [
   'draft',
-  'approved', // internal sign-off before sending (2026-08-05); supplier never sees it
+  'approved', // renders "Review" — the production team's prep phase (2026-08-06)
   'sent',
   'confirmed',
   'pre_production',
@@ -27,8 +27,12 @@ export const PO_STATUSES = [
   'quality_control',
   'in_transit',
   'received',
-  'completed',
+  // Remake before completed (David, 2026-08-06): it is work still in flight,
+  // so it reads beside Received rather than past the terminal column. DISPLAY
+  // order only — FORWARD_CHAIN below is the behavioural ordering, and remake
+  // is not on it (it branches off received/completed).
   'remake',
+  'completed',
   'cancelled',
 ] as const;
 

@@ -85,7 +85,7 @@ export const GET = defineRoute<{ id: string }>({
     // The send's own cheap guards, mirrored (sendPurchaseOrder): behind these
     // the modal never opens, so a preview would only mislead.
     if (po.status === 'draft') {
-      throw new ConflictError('Approve the purchase order before sending it');
+      throw new ConflictError('Move the purchase order to Review before sending it');
     }
     if (po.status === 'cancelled' || po.status === 'completed' || po.status === 'received') {
       throw new ConflictError(`Cannot send a ${po.status} purchase order`);
