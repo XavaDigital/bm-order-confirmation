@@ -1,5 +1,5 @@
 {
-  "id": "9ad4eb29-279b-47d1-96ec-4abe4e90f6cd",
+  "id": "fd042505-116b-48ab-a2c6-8a13e3a95488",
   "prevId": "461f1d7a-ed72-4d73-a7e6-7739d70dcfcc",
   "version": "7",
   "dialect": "postgresql",
@@ -5597,6 +5597,134 @@
         }
       },
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "confirmation.workflow_status_reminders": {
+      "name": "workflow_status_reminders",
+      "schema": "confirmation",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trigger_status": {
+          "name": "trigger_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by_staff_user_id": {
+          "name": "created_by_staff_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fired_at": {
+          "name": "fired_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "workflow_status_reminders_entity_idx": {
+          "name": "workflow_status_reminders_entity_idx",
+          "columns": [
+            {
+              "expression": "entity_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"confirmation\".\"workflow_status_reminders\".\"resolved_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workflow_status_reminders_creator_idx": {
+          "name": "workflow_status_reminders_creator_idx",
+          "columns": [
+            {
+              "expression": "created_by_staff_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "resolved_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workflow_status_reminders_created_by_staff_user_id_staff_users_id_fk": {
+          "name": "workflow_status_reminders_created_by_staff_user_id_staff_users_id_fk",
+          "tableFrom": "workflow_status_reminders",
+          "tableTo": "staff_users",
+          "schemaTo": "confirmation",
+          "columnsFrom": [
+            "created_by_staff_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
