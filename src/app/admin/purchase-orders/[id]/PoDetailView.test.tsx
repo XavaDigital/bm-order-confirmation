@@ -261,11 +261,11 @@ describe('PoDetailView', () => {
       installMockFetch(baseRoutes());
       renderView();
 
-      // The garment NAME dominates its section (17px/700). Text strong nests
+      // The garment NAME dominates its section (18px/700). Text strong nests
       // a <strong>; the inline style sits on the outer typography span.
       const name = await screen.findByText('Team Hoodie');
       expect(name.closest('.ant-typography')).toHaveStyle({
-        fontSize: '17px',
+        fontSize: '18px',
         fontWeight: '700',
       });
       // ...card titles outrank the text inside them (16px/600)...

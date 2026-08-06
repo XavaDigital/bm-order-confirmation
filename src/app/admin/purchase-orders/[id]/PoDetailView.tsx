@@ -1121,8 +1121,9 @@ export function PoDetailView({ poId }: { poId: string }) {
                 <div key={g.garmentId}>
                   <div style={{ marginBottom: 4 }}>
                     {/* The garment NAME leads the hierarchy (David, round
-                        three): clearly larger than the section labels below. */}
-                    <Text strong style={{ fontSize: 17, fontWeight: 700 }}>
+                        three; 18px round four — more daylight between it and
+                        the section labels below). */}
+                    <Text strong style={{ fontSize: 18, fontWeight: 700 }}>
                       {g.name}
                     </Text>
                     {g.garmentTypeName && (
