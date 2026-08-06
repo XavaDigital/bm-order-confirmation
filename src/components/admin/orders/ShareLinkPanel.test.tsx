@@ -238,7 +238,13 @@ describe('ShareLinkPanel', () => {
 
     await user.click(screen.getByRole('button', { name: /generate link/i }));
 
-    expect(await screen.findByText(/add at least one garment before generating a customer link/i)).toBeInTheDocument();
+    // findAll, not find: the panel auto-generates on mount when there is no
+    // token, so a failing generate legitimately surfaces the server's message
+    // twice (mount attempt + this click). The assertion is that it is shown.
+    const shown = await screen.findAllByText(
+      /add at least one garment before generating a customer link/i,
+    );
+    expect(shown.length).toBeGreaterThan(0);
   });
 
   it('renders the url with antd\'s built-in copy affordance (roster-page style)', async () => {
