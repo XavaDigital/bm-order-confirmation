@@ -130,6 +130,22 @@ export const NOTIFICATION_CATALOG: readonly NotificationDefinition[] = [
     defaultEmailEnabled: true,
     defaultRules: [{ kind: 'role', roleKey: 'admin' }],
   },
+  {
+    key: 'automation.notify',
+    label: 'An automation says someone should know',
+    description:
+      'The delivery channel for every configurable automation whose action is "notify" ' +
+      '(David, 2026-08-06). The RULE decides who — its recipients are passed straight ' +
+      'through as forceRecipientIds — so this entry exists to make automation ' +
+      'notifications switchable as a class, not to route them. Disable it here and every ' +
+      'automation goes quiet at once, which is the off-switch you want at 2am.',
+    eventType: 'automation.fired',
+    defaultEnabled: true,
+    defaultEmailEnabled: true,
+    // Never reached in practice (the rule always supplies recipients); admins
+    // are the honest fallback if one ever names none.
+    defaultRules: [{ kind: 'role', roleKey: 'admin' }],
+  },
 ] as const;
 
 export function findNotification(key: string): NotificationDefinition | undefined {

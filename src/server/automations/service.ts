@@ -16,12 +16,13 @@
  *    written directly here rather than through the public status service, so
  *    it emits its own audit row without spawning a fresh trigger cascade.
  */
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { Transaction } from '@/db';
 import { db } from '@/db';
 import { automationRules, orderNotes, purchaseOrders } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { recordAuditEvent } from '@/server/events/outbox';
+import { dispatchNotification, resolveRecipients } from '@/server/notifications/dispatch';
 import { canTransition, type PoStatus } from '@/server/purchase-orders/contract';
 
 export type AutomationTrigger =
@@ -32,7 +33,14 @@ export type AutomationAction = 'notify' | 'set_status' | 'add_note';
 
 export type AutomationRule = typeof automationRules.$inferSelect;
 
-/** Active rules for one trigger, in creation order. */
+/**
+ * Active rules for one trigger, in creation order — which the settings screen
+ * promises ("rules run in the order they were created"), so the engine has to
+ * actually impose it rather than take whatever order the database returns.
+ * `id` breaks ties: two rules created in the same instant would otherwise run
+ * in an undefined order, and an automation set whose behaviour depends on the
+ * planner is not configurable in any meaningful sense.
+ */
 export async function rulesFor(
   trigger: AutomationTrigger,
   executor: Transaction | typeof db = db,
@@ -40,7 +48,8 @@ export async function rulesFor(
   return executor
     .select()
     .from(automationRules)
-    .where(and(eq(automationRules.trigger, trigger), eq(automationRules.isActive, true)));
+    .where(and(eq(automationRules.trigger, trigger), eq(automationRules.isActive, true)))
+    .orderBy(asc(automationRules.createdAt), asc(automationRules.id));
 }
 
 /** Does this rule's trigger config match the event payload? Empty config = always. */
@@ -203,9 +212,68 @@ async function applyAction(rule: AutomationRule, ctx: RunContext): Promise<void>
     return;
   }
 
-  // notify — dispatch is the notifications module's job; recording the
-  // intention here keeps this service free of its transaction rules (the
-  // dispatcher claims recipients before sending, see notifications/dispatch).
+  // notify — two genuinely different audiences, delivered two different ways
+  // rather than pretending one channel reaches both.
+  const recipients = Array.isArray(config.recipients)
+    ? (config.recipients as string[])
+    : [];
+  const title = String(config.title ?? `${ctx.poNumber || 'A purchase order'}: ${rule.name}`);
+
+  // STAFF: the notification system (inbox + email), with the rule's own
+  // recipients resolved and passed as forced ids — the rule decides who, the
+  // catalog entry only decides whether automation notifications are on at all.
+  const staffRules = recipients
+    .filter((r) => r !== 'supplier')
+    .map((r) =>
+      r === 'po_creator' ? { kind: 'po_creator' as const } : { kind: 'role' as const, roleKey: r },
+    );
+  let notifiedStaff = 0;
+  if (staffRules.length > 0) {
+    const people = await resolveRecipients(
+      staffRules,
+      {
+        dedupeKey: `${rule.id}:${ctx.poId}`,
+        entityType: 'purchase_order',
+        entityId: ctx.poId,
+        title,
+      },
+      ctx.tx,
+    );
+    const ids = people.map((p) => p.staffUserId);
+    if (ids.length > 0) {
+      const result = await dispatchNotification(
+        'automation.notify',
+        {
+          dedupeKey: `${rule.id}:${ctx.poId}:${ctx.payload.eventKey ?? ''}`,
+          entityType: 'purchase_order',
+          entityId: ctx.poId,
+          forceRecipientIds: ids,
+          title,
+          body: `Automation: ${rule.name}`,
+          href: `/admin/purchase-orders/${ctx.poId}`,
+        },
+        ctx.tx,
+      );
+      notifiedStaff = result.notified.length;
+    }
+  }
+
+  // SUPPLIER: they have no staff inbox and the notification module does not
+  // email them, so "notify the supplier" posts to the SHARED thread — which
+  // is exactly where their portal activity feed reads from. A real delivery,
+  // not a pretend one.
+  const notifiedSupplier = recipients.includes('supplier');
+  if (notifiedSupplier) {
+    await ctx.tx.insert(orderNotes).values({
+      orderId: ctx.orderId,
+      body: title,
+      kind: 'comment',
+      authorKind: 'system',
+      authorLabel: actor,
+      visibility: 'shared',
+    });
+  }
+
   await recordAuditEvent(
     {
       aggregateId: ctx.orderId,
@@ -216,7 +284,9 @@ async function applyAction(rule: AutomationRule, ctx: RunContext): Promise<void>
         poNumber: ctx.poNumber,
         outcome: 'applied',
         action: 'notify',
-        recipients: config.recipients ?? [],
+        recipients,
+        notifiedStaff,
+        notifiedSupplier,
       },
       actorEmail: actor,
     },

@@ -1,5 +1,5 @@
 import type { StaffRole } from '@/lib/roles';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 import { asc, eq } from 'drizzle-orm';
 
@@ -44,6 +44,44 @@ afterEach(async () => {
   const session = (await getSession()) as unknown as Record<string, unknown>;
   for (const key of Object.keys(session)) delete session[key];
 });
+
+/**
+ * Migration 0045 seeds David's starter rules, and resetTestDb restores
+ * migration-seeded rows (see CLAUDE.md) — so every test here would otherwise
+ * see six rules it did not create. The CRUD tests below are about THEIR OWN
+ * rows, so start each from an empty table; the seed itself is asserted in its
+ * own describe, which deliberately runs before any clearing.
+ */
+describe('starter rules (migration 0045)', () => {
+  it('seeds the approval hand-off set, with the status-moving rule paused', async () => {
+    const rules = await db
+      .select()
+      .from(schema.automationRules)
+      .orderBy(asc(schema.automationRules.createdAt), asc(schema.automationRules.id));
+
+    expect(rules).toHaveLength(6);
+    // Every notify rule is live; the only rule that MOVES a purchase order
+    // ships paused, so nothing starts driving without being switched on.
+    const moving = rules.filter((r) => r.action === 'set_status');
+    expect(moving).toHaveLength(1);
+    expect(moving[0].isActive).toBe(false);
+    expect(rules.filter((r) => r.action === 'notify').every((r) => r.isActive)).toBe(true);
+    expect(rules.map((r) => r.trigger)).toEqual(
+      expect.arrayContaining(['po_file_uploaded', 'po_checklist_complete', 'po_status_changed']),
+    );
+  });
+});
+
+/**
+ * Empty the table for the CRUD suites. Scoped per-describe rather than
+ * top-level on purpose: a file-level hook would also wipe the seed before the
+ * describe above could see it.
+ */
+function withEmptyRules() {
+  beforeEach(async () => {
+    await db.delete(schema.automationRules);
+  });
+}
 
 /** createdBy is a real FK, so the session has to name a real staff row. */
 async function seedStaff(role: StaffRole = 'admin') {
@@ -100,6 +138,8 @@ async function seedRule(overrides: Partial<typeof schema.automationRules.$inferI
 }
 
 describe('GET /api/admin/automations', () => {
+  withEmptyRules();
+
   it('401s without a session', async () => {
     const res = await GET(jsonRequest('GET'));
     expect(res.status).toBe(401);
@@ -140,6 +180,8 @@ describe('GET /api/admin/automations', () => {
 });
 
 describe('POST /api/admin/automations', () => {
+  withEmptyRules();
+
   it('401s without a session', async () => {
     const res = await POST(jsonRequest('POST', NEW_RULE));
     expect(res.status).toBe(401);
@@ -224,6 +266,8 @@ describe('POST /api/admin/automations', () => {
 });
 
 describe('PATCH /api/admin/automations', () => {
+  withEmptyRules();
+
   it('401s without a session', async () => {
     const rule = await seedRule();
     const res = await PATCH(jsonRequest('PATCH', { id: rule.id, isActive: false }));
@@ -318,7 +362,7 @@ describe('PATCH /api/admin/automations', () => {
     const rows = await db
       .select()
       .from(schema.automationRules)
-      .orderBy(asc(schema.automationRules.createdAt));
+      .orderBy(asc(schema.automationRules.createdAt), asc(schema.automationRules.id));
     expect(rows.map((r) => r.isActive)).toEqual([false, true]);
   });
 });

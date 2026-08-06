@@ -21,7 +21,11 @@ export const GET = defineRoute<Record<string, never>>({
   tag: 'admin/automations GET',
   handler: async () =>
     NextResponse.json({
-      items: await db.select().from(automationRules).orderBy(asc(automationRules.createdAt)),
+      items: await db
+        .select()
+        .from(automationRules)
+        // Same stable ordering the engine runs them in (createdAt, then id).
+        .orderBy(asc(automationRules.createdAt), asc(automationRules.id)),
     }),
 });
 
