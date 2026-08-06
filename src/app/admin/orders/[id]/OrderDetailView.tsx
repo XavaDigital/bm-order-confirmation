@@ -59,7 +59,6 @@ import { OrderNotesPanel } from '@/components/admin/orders/OrderNotesPanel';
 import { ProductionPanel } from '@/components/admin/orders/ProductionPanel';
 import { OrderAssetsPanel } from '@/components/admin/orders/OrderAssetsPanel';
 import { DesignProjectLinkControl } from '@/components/admin/orders/DesignProjectLinkControl';
-import { SectionTitle } from '@/components/admin/SectionTitle';
 import { NotesThread } from '@/components/admin/orders/NotesThread';
 import { StageChecklist } from '@/components/admin/workflow/StageChecklist';
 import { useProductionSummary } from '@/lib/use-production-summary';
@@ -362,6 +361,20 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
     </>
   );
 
+  // The notes + comments as two distinct CARDS (David, 2026-08-06, matching
+  // the PO page's right rail) — shown in the sticky rail on wide screens and
+  // stacked inside the Notes tab when narrow. Never both at once.
+  const notesCards = (
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Card title="Order notes" size="small">
+        <OrderNotesPanel orderId={order.id} currentUserId={currentUserId} isAdmin={isAdmin} />
+      </Card>
+      <Card title={noteCount === null ? 'Comments' : `Comments (${noteCount})`} size="small">
+        {notesThread}
+      </Card>
+    </Space>
+  );
+
   const sections = [
     {
       key: 'details',
@@ -428,46 +441,64 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
               }
             />
           )}
-          <div>
-            <SectionTitle>Order</SectionTitle>
+          {/* Distinct section CARDS (David, 2026-08-06, matching the PO page):
+              "order name would be in a section, then a customer section, then
+              an order details section — our titles are more obvious because
+              they're a card title." */}
+          <Card title="Order name" size="small">
             <Input
               placeholder="Order name — e.g. Winter hoodies 2026"
               value={orderName}
               onChange={(e) => setOrderName(e.target.value)}
               maxLength={200}
             />
-          </div>
+          </Card>
 
-          <div>
-            <SectionTitle>Customer</SectionTitle>
-            {/* Renders nothing unless the Sales Hub integration is configured */}
-            <CustomerHubSelect
-              value={hubCustomer}
-              onSelect={(customer) => {
-                setHubCustomer(customer);
-                // A contact only means something inside its customer — changing
-                // or clearing the customer invalidates the contact pick.
-                if (customer?.id !== hubCustomer?.id) setHubContact(null);
-              }}
+          <Card title="Customer" size="small">
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              {/* Renders nothing unless the Sales Hub integration is configured */}
+              <CustomerHubSelect
+                value={hubCustomer}
+                onSelect={(customer) => {
+                  setHubCustomer(customer);
+                  // A contact only means something inside its customer — changing
+                  // or clearing the customer invalidates the contact pick.
+                  if (customer?.id !== hubCustomer?.id) setHubContact(null);
+                }}
+              />
+              <ContactHubSelect
+                customerId={hubCustomer?.id ?? null}
+                value={hubContact}
+                onSelect={(contact) => {
+                  setHubContact(contact);
+                  // The order-page contact fields are the person's details —
+                  // picking a contact expresses "this is the person", so prefill
+                  // them (same behaviour as the new-order form).
+                  if (contact) {
+                    form.setFieldsValue({
+                      customerName: contact.name,
+                      ...(contact.email && { customerEmail: contact.email }),
+                    });
+                  }
+                }}
+              />
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {contact.customerName}
+                {contact.clubName ? ` · ${contact.clubName}` : ''} — contact details for the
+                customer-facing page are edited in the Team order page section.
+              </Typography.Text>
+            </Space>
+          </Card>
+
+          <Card title="Order details" size="small">
+            <OrderForm
+              form={form}
+              initialValues={initialValues}
+              hubLinked={hubCustomer !== null}
+              hideContactFields
+              hideSectionTitle
             />
-          </div>
-          <ContactHubSelect
-            customerId={hubCustomer?.id ?? null}
-            value={hubContact}
-            onSelect={(contact) => {
-              setHubContact(contact);
-              // The order-page contact fields are the person's details —
-              // picking a contact expresses "this is the person", so prefill
-              // them (same behaviour as the new-order form).
-              if (contact) {
-                form.setFieldsValue({
-                  customerName: contact.name,
-                  ...(contact.email && { customerEmail: contact.email }),
-                });
-              }
-            }}
-          />
-          <OrderForm form={form} initialValues={initialValues} hubLinked={hubCustomer !== null} hideContactFields />
+          </Card>
           {/* The internal-notes textarea moved to the attributed notes thread
               (right rail / Notes tab) — one place to write, with who and when.
               Legacy text saved here before the change shows above the thread. */}
@@ -601,16 +632,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
           key: 'notes',
           label: noteCount === null ? 'Notes' : `Notes (${noteCount})`,
           icon: <MessageOutlined />,
-          children: (
-            <>
-              <SectionTitle style={{ marginBottom: 12 }}>Order notes</SectionTitle>
-              <OrderNotesPanel orderId={order.id} currentUserId={currentUserId} isAdmin={isAdmin} />
-              <SectionTitle style={{ margin: '20px 0 12px' }}>
-                Comments{noteCount !== null ? ` (${noteCount})` : ''}
-              </SectionTitle>
-              {notesThread}
-            </>
-          ),
+          children: notesCards,
         }]
       : []),
     {
@@ -658,7 +680,10 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
   ));
 
   return (
-    <div style={{ maxWidth: 1200 }}>
+    // No maximum width (David, 2026-08-06): the PO page's pattern — a fluid
+    // main column plus a fixed-width rail — replaces the old 1200px cap that
+    // cramped big screens, especially the garments sizing table.
+    <div>
       <Breadcrumb
         style={{ marginBottom: 16 }}
         items={[
@@ -820,8 +845,8 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
         </div>
       </div>
 
-      <Card styles={{ body: { padding: 0 } }}>
-        {isNarrow ? (
+      {isNarrow ? (
+        <Card styles={{ body: { padding: 0 } }}>
           <div style={{ padding: 16 }}>
             <Segmented
               block
@@ -832,51 +857,52 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
             />
             {panelBodies}
           </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'stretch', minHeight: 480 }}>
-            {/* Left rail — vertical section nav, stays visible while the content scrolls */}
-            <Menu
-              mode="inline"
-              selectedKeys={[activeTab]}
-              onClick={({ key }) => selectTab(key)}
-              items={sections.map(({ key, label, icon }) => ({ key, label, icon }))}
-              style={{
-                width: 200,
-                flexShrink: 0,
-                paddingTop: 8,
-                position: 'sticky',
-                top: 88,
-                alignSelf: 'flex-start',
-              }}
-            />
-            <div style={{ flex: 1, minWidth: 0, padding: 12 }}>{panelBodies}</div>
-            {/* Right rail — the order's notes, visible whatever section is open
-                (David, 2026-08-03: the third column of the order view). */}
-            <div
-              style={{
-                width: 320,
-                flexShrink: 0,
-                borderLeft: '1px solid var(--ant-color-border-secondary, rgba(128,128,128,0.2))',
-                padding: 16,
-                position: 'sticky',
-                top: 88,
-                alignSelf: 'flex-start',
-                maxHeight: 'calc(100vh - 104px)',
-                overflowY: 'auto',
-              }}
-            >
-              {/* Order notes first — the finalisation points (David,
-                  2026-08-04) — then the discussion thread below them. */}
-              <SectionTitle style={{ marginBottom: 12 }}>Order notes</SectionTitle>
-              <OrderNotesPanel orderId={order.id} currentUserId={currentUserId} isAdmin={isAdmin} />
-              <SectionTitle style={{ margin: '20px 0 12px' }}>
-                Comments{noteCount !== null ? ` (${noteCount})` : ''}
-              </SectionTitle>
-              {notesThread}
-            </div>
+        </Card>
+      ) : (
+        // Two-column layout matching the PO page (David, 2026-08-06): a fluid
+        // main column plus a sticky right rail of cards carrying the order
+        // notes and comments alongside whatever section is open.
+        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 640px', minWidth: 0 }}>
+            <Card styles={{ body: { padding: 0 } }}>
+              <div style={{ display: 'flex', alignItems: 'stretch', minHeight: 480 }}>
+                {/* Left rail — vertical section nav, stays visible while the content scrolls */}
+                <Menu
+                  mode="inline"
+                  selectedKeys={[activeTab]}
+                  onClick={({ key }) => selectTab(key)}
+                  items={sections.map(({ key, label, icon }) => ({ key, label, icon }))}
+                  style={{
+                    width: 200,
+                    flexShrink: 0,
+                    paddingTop: 8,
+                    position: 'sticky',
+                    top: 88,
+                    alignSelf: 'flex-start',
+                  }}
+                />
+                <div style={{ flex: 1, minWidth: 0, padding: 16 }}>{panelBodies}</div>
+              </div>
+            </Card>
           </div>
-        )}
-      </Card>
+          {/* Right rail — order notes first (the finalisation points, David,
+              2026-08-04), then the discussion thread, each as its own card. */}
+          <div
+            style={{
+              flex: '1 1 360px',
+              maxWidth: 400,
+              minWidth: 320,
+              position: 'sticky',
+              top: 88,
+              alignSelf: 'flex-start',
+              maxHeight: 'calc(100vh - 104px)',
+              overflowY: 'auto',
+            }}
+          >
+            {notesCards}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

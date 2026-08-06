@@ -30,7 +30,10 @@ import { postForm } from '@/lib/api-fetch';
 import { poStatusMeta } from '@/lib/status';
 import { CARD_STYLE, CARD_BODY_STYLES, FIELD_LABEL_STYLE } from '@/components/customer/customerStyles';
 import { formatCommentWhen } from './po-view-helpers';
-import { PO_FILE_CATEGORY_SUGGESTIONS, formatFileSize, groupPoFiles } from './po-files-helpers';
+// The shared category vocabulary — one list with the admin card, so the two
+// surfaces cannot drift (David, 2026-08-06).
+import { PO_FILE_CATEGORIES } from '@/server/purchase-orders/files-contract';
+import { formatFileSize, groupPoFiles } from './po-files-helpers';
 
 const { Text } = Typography;
 
@@ -192,7 +195,7 @@ export function SupplierPoFiles({ code, poNumber, items, onUploaded }: SupplierP
               <AutoComplete
                 value={category}
                 onChange={(value) => setCategory(value)}
-                options={PO_FILE_CATEGORY_SUGGESTIONS.map((s) => ({ value: s }))}
+                options={PO_FILE_CATEGORIES.map((s) => ({ value: s }))}
                 style={{ width: 200 }}
                 disabled={uploading}
               >

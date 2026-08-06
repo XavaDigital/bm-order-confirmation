@@ -875,7 +875,14 @@ export async function sendPurchaseOrder(
     context: { poId: po.id, poNumber: po.poNumber },
   });
 
-  const latest = po.revisions[0]; // rev 1 always exists
+  // FIRST send: the draft snapshot tracked the order loosely (David,
+  // 2026-08-06 — no revision history while unsent), so re-cut it from live
+  // data now. What the factory receives is live-at-send, by construction.
+  let latest = po.revisions[0]; // rev 1 always exists
+  if (po.status === 'approved') {
+    const refreshed = await refreshDraftSnapshot(id, meta);
+    latest = { ...latest, snapshot: refreshed };
+  }
 
   const pdf = await renderPdf({
     poNumber: po.poNumber,
@@ -995,6 +1002,67 @@ export async function sendPurchaseOrder(
  * Garment scope defaults to the previous revision's garments (minus any that
  * were removed from the order); pass `garmentIds` to change the scope.
  */
+/**
+ * Re-cut the CURRENT revision in place from live order data — the draft-phase
+ * snapshot rule (David, 2026-08-06): while a PO has not been sent, its
+ * snapshot silently tracks the order (no revision-history spam); the send
+ * itself refreshes one final time, so what the factory receives is always
+ * live-at-send. After the first send this is refused — post-send changes go
+ * through issueRevision, which is the whole point of revisions.
+ */
+export async function refreshDraftSnapshot(id: string, meta?: ActorMeta) {
+  const po = await loadPoOrThrow(id);
+  if (po.status !== 'draft' && po.status !== 'approved') {
+    throw new ConflictError('A sent purchase order changes through revisions, not refreshes');
+  }
+
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, po.orderId),
+    with: { sourceOrder: { columns: { orderNumber: true } } },
+  });
+  if (!order) throw new NotFoundError('Order');
+
+  const latest = await db.query.purchaseOrderRevisions.findFirst({
+    where: eq(purchaseOrderRevisions.poId, id),
+    orderBy: (r, { desc: d }) => [d(r.revisionNumber)],
+  });
+  if (!latest) throw new NotFoundError('Purchase order revision');
+
+  const liveGarments = await loadOrderGarments(po.orderId);
+  const liveById = new Map(liveGarments.map((g) => [g.id, g]));
+  // Same scope rule as issueRevision's default: previous scope ∩ still-live.
+  const selected = latest.snapshot.garments.flatMap((g) => {
+    const live = liveById.get(g.garmentId);
+    return live ? [live] : [];
+  });
+  if (selected.length === 0) {
+    throw new ConflictError('No garments to snapshot — the previous scope is no longer on the order');
+  }
+
+  const snapshot = buildPoSnapshot(
+    {
+      orderNumber: order.orderNumber,
+      reprintOfOrderNumber: order.sourceOrder?.orderNumber ?? null,
+      preparedByEmail: meta?.actorEmail ?? null,
+    },
+    selected,
+    await loadPoAssets(order.id),
+    await loadOrderChecks(order.id),
+  );
+
+  await db
+    .update(purchaseOrderRevisions)
+    .set({ snapshot })
+    .where(eq(purchaseOrderRevisions.id, latest.id));
+  await recordAuditEvent({
+    aggregateId: po.orderId,
+    eventType: 'po.updated',
+    payload: { poId: id, poNumber: po.poNumber, refreshedSnapshot: true },
+    actorEmail: meta?.actorEmail ?? null,
+  });
+  return snapshot;
+}
+
 export async function issueRevision(id: string, input: IssueRevisionInput, meta?: ActorMeta) {
   const po = await loadPoOrThrow(id);
   if (po.status === 'cancelled' || po.status === 'completed') {

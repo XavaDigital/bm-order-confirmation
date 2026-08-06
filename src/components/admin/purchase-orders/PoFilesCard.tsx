@@ -10,6 +10,10 @@
  * chip) — the file's place in the production story — plus a shared comment
  * thread the supplier also sees on their portal. Hiding a file soft-deletes it
  * (the stored object is kept forever).
+ *
+ * Since the 2026-08-06 feedback the PAGE owns the files data (usePoFiles) and
+ * passes it in — the Comments rail feed renders the same items, so a comment
+ * or an upload on either card refreshes both (the supplier page's pattern).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -36,11 +40,9 @@ import {
 import { ApiError, deleteJson, getJson, postForm, postJson } from '@/lib/api-fetch';
 import { formatDate } from '@/lib/format';
 import { poStatusMeta } from '@/lib/status';
+import { PO_FILE_CATEGORIES } from '@/server/purchase-orders/files-contract';
 
 const { Text } = Typography;
-
-/** Free text, but these cover the normal production progression. */
-const CATEGORY_SUGGESTIONS = ['Layout', 'Test print', 'Production layout'];
 
 const UNCATEGORISED = 'Uncategorised';
 
@@ -75,17 +77,20 @@ function commentAuthor(c: PoFileComment): string {
   return c.authorName ?? c.authorEmail ?? c.authorLabel ?? 'Unknown';
 }
 
-export function PoFilesCard({ poId }: { poId: string }) {
-  const { message } = App.useApp();
+/**
+ * The page-level owner of a PO's production-files data, shared between
+ * PoFilesCard (the structured category/version lens) and the Comments rail
+ * feed (the chronological lens) so a change in one refreshes the other.
+ */
+export function usePoFiles(poId: string): {
+  items: PoFileItem[] | null;
+  loadError: boolean;
+  reload: () => Promise<void>;
+} {
   const [items, setItems] = useState<PoFileItem[] | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [category, setCategory] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
-  const [postingCommentFor, setPostingCommentFor] = useState<string | null>(null);
-  const [hidingId, setHidingId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const reload = useCallback(async () => {
     try {
       const res = await getJson<{ items: PoFileItem[] }>(
         `/api/admin/purchase-orders/${poId}/files`,
@@ -100,8 +105,28 @@ export function PoFilesCard({ poId }: { poId: string }) {
   }, [poId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void reload();
+  }, [reload]);
+
+  return { items, loadError, reload };
+}
+
+export interface PoFilesCardProps {
+  poId: string;
+  /** The page owns the data (usePoFiles) — null = still loading. */
+  items: PoFileItem[] | null;
+  loadError: boolean;
+  /** Called after any mutation (upload / comment / hide) so the page refreshes. */
+  onChanged: () => Promise<void>;
+}
+
+export function PoFilesCard({ poId, items, loadError, onChanged }: PoFilesCardProps) {
+  const { message } = App.useApp();
+  const [category, setCategory] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [postingCommentFor, setPostingCommentFor] = useState<string | null>(null);
+  const [hidingId, setHidingId] = useState<string | null>(null);
 
   // Category groups in first-upload order; files inside each stay oldest
   // first (the API serves oldest first), so index+1 is the version number.
@@ -129,7 +154,7 @@ export function PoFilesCard({ poId }: { poId: string }) {
         'Failed to upload the file',
       );
       message.success(`${file.name} uploaded`);
-      await load();
+      await onChanged();
     } catch (err) {
       // 503 (storage unconfigured) and 400 (file type/size) carry messages.
       message.error(err instanceof ApiError ? err.message : 'Failed to upload the file');
@@ -143,17 +168,15 @@ export function PoFilesCard({ poId }: { poId: string }) {
     if (!body) return;
     setPostingCommentFor(file.id);
     try {
-      const note = await postJson<PoFileComment>(
+      await postJson<PoFileComment>(
         `/api/admin/purchase-orders/${poId}/files/${file.id}`,
         { body },
         'Failed to post the comment',
       );
       setCommentDrafts((prev) => ({ ...prev, [file.id]: '' }));
-      setItems((prev) =>
-        (prev ?? []).map((f) =>
-          f.id === file.id ? { ...f, comments: [...f.comments, note] } : f,
-        ),
-      );
+      // Reload rather than patching local state — the Comments rail feed
+      // renders the same shared items, so both lenses must see the new comment.
+      await onChanged();
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Failed to post the comment');
     } finally {
@@ -170,7 +193,7 @@ export function PoFilesCard({ poId }: { poId: string }) {
         'Failed to hide the file',
       );
       message.success(`${file.fileName} hidden`);
-      await load();
+      await onChanged();
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Failed to hide the file');
     } finally {
@@ -199,7 +222,7 @@ export function PoFilesCard({ poId }: { poId: string }) {
         <Space wrap size={8}>
           <AutoComplete
             aria-label="File category"
-            options={CATEGORY_SUGGESTIONS.map((c) => ({ value: c }))}
+            options={PO_FILE_CATEGORIES.map((c) => ({ value: c }))}
             value={category}
             onChange={setCategory}
             placeholder="Category — e.g. Test print"

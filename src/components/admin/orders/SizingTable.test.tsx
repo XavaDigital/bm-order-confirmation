@@ -262,4 +262,75 @@ describe('SizingTable', () => {
       expect(onColumnsChange).toHaveBeenCalledWith([sponsor]);
     });
   });
+
+  // Paste import (David, 2026-08-06): fill the table from rows copied out of
+  // Excel/Sheets — parsed client-side, persisted via the normal save path.
+  describe('paste import', () => {
+    async function openAndPaste(user: ReturnType<typeof userEvent.setup>, text: string) {
+      // The icon's aria-label joins the accessible name ("import Import"), so
+      // match loosely — unique because the modal (and its OK button) is closed.
+      await user.click(screen.getByRole('button', { name: /import/i }));
+      const textarea = await screen.findByLabelText('Pasted sizing rows');
+      await user.click(textarea);
+      await user.paste(text);
+    }
+
+    it('imports pasted TSV with headers, appending to the existing rows', async () => {
+      const user = userEvent.setup();
+      renderTable({
+        initialRows: [{ id: 'row-1', size: 'S', playerName: 'Zoe', playerNumber: '1', notes: '' }],
+      });
+
+      await openAndPaste(user, 'Size\tPlayer Name\tNumber\nM\tAlice\t7\nL\tBob\t9');
+      await user.click(screen.getByRole('button', { name: 'Import 2 rows' }));
+
+      // Existing row kept (append is the default), imported rows now editable
+      // table inputs — unsaved until "Save sizing".
+      expect(screen.getByDisplayValue('Zoe')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('Alice')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('Bob')).toBeInTheDocument();
+      expect(await screen.findByText(/2 rows added/i)).toBeInTheDocument();
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('maps header-less rows positionally (size, player, number)', async () => {
+      const user = userEvent.setup();
+      renderTable({ initialRows: [] });
+
+      await openAndPaste(user, 'M\tAlice\t7');
+      await user.click(screen.getByRole('button', { name: 'Import 1 row' }));
+
+      expect(screen.getByDisplayValue('M')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('Alice')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('7')).toBeInTheDocument();
+    });
+
+    it('replace mode swaps out the existing rows', async () => {
+      const user = userEvent.setup();
+      renderTable({
+        initialRows: [{ id: 'row-1', size: 'S', playerName: 'Zoe', playerNumber: '1', notes: '' }],
+      });
+
+      await openAndPaste(user, 'M\tAlice\t7');
+      await user.click(screen.getByText('Replace existing rows'));
+      await user.click(screen.getByRole('button', { name: 'Import 1 row' }));
+
+      expect(screen.queryByDisplayValue('Zoe')).not.toBeInTheDocument();
+      expect(screen.getByDisplayValue('Alice')).toBeInTheDocument();
+    });
+
+    it('lands a header matching a custom column in that column', async () => {
+      const user = userEvent.setup();
+      renderTable({
+        initialRows: [],
+        sizingColumns: [{ label: 'Sponsor', type: 'text' as const }],
+      });
+
+      await openAndPaste(user, 'Size\tSponsor\nM\tAcme');
+      await user.click(screen.getByRole('button', { name: 'Import 1 row' }));
+
+      // The Sponsor cell input carries the imported custom value.
+      expect(screen.getByDisplayValue('Acme')).toBeInTheDocument();
+    });
+  });
 });

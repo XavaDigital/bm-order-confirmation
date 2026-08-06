@@ -3,7 +3,8 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
 import { installMockFetch, type MockRoute } from '@/test/mockFetch';
-import { PoFilesCard, type PoFileItem } from './PoFilesCard';
+import { PO_FILE_CATEGORIES } from '@/server/purchase-orders/files-contract';
+import { PoFilesCard, usePoFiles, type PoFileItem } from './PoFilesCard';
 
 const PO_ID = 'po-1';
 const FILES_URL = `/api/admin/purchase-orders/${PO_ID}/files`;
@@ -29,10 +30,20 @@ function filesRoute(items: PoFileItem[]): MockRoute {
   return { match: FILES_URL, method: 'GET', response: { items } };
 }
 
+/**
+ * The page owns the files data since 2026-08-06 (shared with the Comments rail
+ * feed) — this harness stands in for the page, wiring usePoFiles to the card
+ * exactly as PoDetailView does.
+ */
+function Harness() {
+  const { items, loadError, reload } = usePoFiles(PO_ID);
+  return <PoFilesCard poId={PO_ID} items={items} loadError={loadError} onChanged={reload} />;
+}
+
 function renderCard() {
   return render(
     <AntdApp>
-      <PoFilesCard poId={PO_ID} />
+      <Harness />
     </AntdApp>,
   );
 }
@@ -91,7 +102,7 @@ describe('PoFilesCard', () => {
     expect(screen.getByText('Production')).toBeInTheDocument();
   });
 
-  it('posts a comment on a file thread and appends the returned note', async () => {
+  it('posts a comment on a file thread and shows it after the reload', async () => {
     const user = userEvent.setup();
     const { fetchMock, addRoute } = installMockFetch([filesRoute([file()])]);
     addRoute({
@@ -110,6 +121,25 @@ describe('PoFilesCard', () => {
     });
     renderCard();
     await screen.findByText('layout.pdf');
+
+    // The card reloads the shared data after posting — serve the new comment.
+    addRoute(
+      filesRoute([
+        file({
+          comments: [
+            {
+              id: 'note-1',
+              body: 'Looks good, print it',
+              authorKind: 'staff',
+              authorName: 'Dana Sales',
+              authorEmail: 'dana@example.com',
+              authorLabel: null,
+              createdAt: '2026-07-20T10:00:00Z',
+            },
+          ],
+        }),
+      ]),
+    );
 
     await user.type(screen.getByLabelText('Comment on layout.pdf'), 'Looks good, print it');
     await user.click(screen.getByRole('button', { name: 'Post comment on layout.pdf' }));
@@ -214,6 +244,20 @@ describe('PoFilesCard', () => {
     expect(
       await screen.findByText('File storage is not configured on this server'),
     ).toBeInTheDocument();
+  });
+
+  it('suggests the SHARED category vocabulary (files-contract) on upload', async () => {
+    const user = userEvent.setup();
+    installMockFetch([filesRoute([])]);
+    renderCard();
+    await screen.findByText('No production files yet.');
+
+    await user.click(screen.getByRole('combobox'));
+
+    // The one list both surfaces use — including the 2026-08-06 additions.
+    for (const category of PO_FILE_CATEGORIES) {
+      expect(await screen.findByTitle(category)).toBeInTheDocument();
+    }
   });
 
   it('links Download all as ZIP to the bundle route when files exist', async () => {

@@ -25,6 +25,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Alert,
   App,
+  AutoComplete,
   Button,
   Card,
   Collapse,
@@ -40,6 +41,7 @@ import {
   Timeline,
   Tooltip,
   Typography,
+  Upload,
 } from 'antd';
 import {
   CheckOutlined,
@@ -53,17 +55,29 @@ import {
   MailOutlined,
   PaperClipOutlined,
   SendOutlined,
+  SyncOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
 import dayjs, { type Dayjs } from 'dayjs';
 import type { ColumnType } from 'antd/es/table';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { ColorBookSelect } from '@/components/admin/purchase-orders/ColorBookSelect';
-import { PoFilesCard } from '@/components/admin/purchase-orders/PoFilesCard';
+import {
+  PoFilesCard,
+  usePoFiles,
+  type PoFileItem,
+} from '@/components/admin/purchase-orders/PoFilesCard';
 import { PoStatusBadge } from '@/components/admin/purchase-orders/PoStatusBadge';
 import { ShipmentStatusBadge } from '@/components/admin/purchase-orders/ShipmentStatusBadge';
 import { VarianceDiff } from '@/components/admin/purchase-orders/VarianceDiff';
+import { RichTextEditor } from '@/components/admin/RichTextEditor';
+// Pure merge/thumbnail helpers shared with the supplier activity feed — one
+// chronology rule for both sides of the conversation.
+import { buildActivityFeed, isImageFileName } from '@/components/supplier/po-view-helpers';
+import { isNoteEmpty, sanitizeNoteHtml } from '@/lib/rich-text';
 import { PO_STATUSES, canTransition, type PoStatus } from '@/server/purchase-orders/contract';
+import { PO_FILE_CATEGORIES } from '@/server/purchase-orders/files-contract';
 import {
   sizeSummary,
   type PoVariance,
@@ -81,7 +95,7 @@ import { PO_STATUS, poStatusMeta } from '@/lib/status';
 import { ASSET_KIND_COLOR, ASSET_KIND_LABEL } from '@/lib/asset-kind';
 import { formatDate } from '@/lib/format';
 import { poDisplayTitle } from '@/lib/po-title';
-import { getJson, postJson, patchJson } from '@/lib/api-fetch';
+import { ApiError, getJson, postForm, postJson, patchJson } from '@/lib/api-fetch';
 
 const { Text } = Typography;
 
@@ -129,6 +143,8 @@ const HISTORY_EVENT_LABEL: Record<string, string> = {
 interface PoOrderNote {
   id: string;
   body: string;
+  /** Rich body for staff comments; sanitised again at render (NoteBody's rule). */
+  bodyHtml?: string | null;
   authorKind: 'staff' | 'email_flow' | 'system' | 'supplier';
   authorName: string | null;
   authorEmail: string | null;
@@ -195,24 +211,42 @@ interface ProductionSummary {
 const dash = <Text type="secondary">—</Text>;
 
 /**
- * Heading separator for the per-garment snapshot sections (David, 2026-08-06:
- * "the labels don't pop out") — a small-caps label with a rule running to the
- * card edge, so Fabrics / Options / Size charts / Images / Sizing read as
- * distinct blocks.
+ * Heading for the per-garment snapshot sections (David, 2026-08-06 round two:
+ * an UNDERLINE beneath the title, not a rule running off to the side) — a
+ * slightly larger small-caps label with a border-bottom hugging the text, so
+ * Fabrics / Options / Size charts / Images / Sizing clearly differ from the
+ * body text under them.
  */
 function SnapshotSectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0 6px' }}>
+    <div style={{ margin: '12px 0 6px' }}>
       <Text
-        strong
-        style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, whiteSpace: 'nowrap' }}
+        style={{
+          display: 'inline-block',
+          fontSize: 13,
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: 0.8,
+          paddingBottom: 3,
+          borderBottom: '2px solid var(--ant-color-border, #d9d9d9)',
+        }}
       >
         {children}
       </Text>
-      <div aria-hidden style={{ flex: 1, borderTop: '1px solid var(--ant-color-border-secondary, #d9d9d9)' }} />
     </div>
   );
 }
+
+/**
+ * Fabrics/Options detail pairs render TWO-UP on wide screens (David,
+ * 2026-08-06: "the lines have just gone all the way across") — auto-fill grid
+ * so narrow rails still collapse to one column.
+ */
+const DETAIL_GRID_STYLE: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+  gap: '2px 32px',
+};
 
 /**
  * Line-table columns for one snapshot garment: the fixed columns plus one per
@@ -308,6 +342,25 @@ export function PoDetailView({ poId }: { poId: string }) {
   const [orderNotes, setOrderNotes] = useState<PoOrderNote[]>([]);
   const [commentDraft, setCommentDraft] = useState('');
   const [postingComment, setPostingComment] = useState(false);
+
+  // Internal order-notes composer (David, 2026-08-06: add notes from here too).
+  const [noteDraft, setNoteDraft] = useState('');
+  const [postingNote, setPostingNote] = useState(false);
+
+  // Production files — page-owned, shared between PoFilesCard (structured
+  // lens) and the Comments rail feed (chronological lens).
+  const { items: files, loadError: filesError, reload: reloadFiles } = usePoFiles(poId);
+
+  // Attach-a-file next to the comment composer (defaults to Reference image).
+  const [attachCategory, setAttachCategory] = useState('Reference image');
+  const [attaching, setAttaching] = useState(false);
+
+  // Per-garment "Add image" (posts to the ORDER, then refreshes the draft PO).
+  const [imageCaptions, setImageCaptions] = useState<Record<string, string>>({});
+  const [uploadingImageFor, setUploadingImageFor] = useState<string | null>(null);
+
+  // "Refresh from order" for unsent POs.
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadThreads = useCallback(
     async (orderId: string) => {
@@ -520,12 +573,14 @@ export function PoDetailView({ poId }: { poId: string }) {
   }
 
   async function postComment() {
-    if (!detail || !commentDraft.trim()) return;
+    // The composer is a contenteditable — an emptied one still posts
+    // `<p><br></p>`, so ask the shared emptiness check, never String.trim().
+    if (!detail || isNoteEmpty(commentDraft)) return;
     setPostingComment(true);
     try {
       await postJson(
         `/api/admin/orders/${detail.orderId}/notes`,
-        { body: commentDraft.trim(), visibility: 'shared' },
+        { body: commentDraft, kind: 'comment', visibility: 'shared' },
         'Failed to post the comment',
       );
       setCommentDraft('');
@@ -534,6 +589,114 @@ export function PoDetailView({ poId }: { poId: string }) {
       message.error(err instanceof Error ? err.message : 'Failed to post the comment');
     } finally {
       setPostingComment(false);
+    }
+  }
+
+  /** Add an internal order note (kind 'note') from the rail — plain text. */
+  async function postOrderNote() {
+    if (!detail || !noteDraft.trim()) return;
+    setPostingNote(true);
+    try {
+      await postJson(
+        `/api/admin/orders/${detail.orderId}/notes`,
+        { body: noteDraft.trim(), kind: 'note' },
+        'Failed to add the note',
+      );
+      setNoteDraft('');
+      await loadThreads(detail.orderId);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to add the note');
+    } finally {
+      setPostingNote(false);
+    }
+  }
+
+  /** Attach a production file from the Comments rail (shared with the supplier). */
+  async function attachFile(file: File) {
+    setAttaching(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const cat = attachCategory.trim();
+      if (cat) form.append('category', cat);
+      await postForm(
+        `/api/admin/purchase-orders/${poId}/files`,
+        form,
+        'Failed to attach the file',
+      );
+      message.success(`${file.name} attached`);
+      await reloadFiles();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to attach the file');
+    } finally {
+      setAttaching(false);
+    }
+  }
+
+  /** Re-cut an UNSENT PO's snapshot from live order data (409 once sent). */
+  async function refreshFromOrder() {
+    setRefreshing(true);
+    try {
+      await postJson(
+        `/api/admin/purchase-orders/${poId}/refresh`,
+        {},
+        'Failed to refresh the purchase order',
+      );
+      message.success('Purchase order refreshed from the live order');
+      await load();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to refresh the purchase order');
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  /**
+   * Add a team-only image to one garment ON THE ORDER (internalOnly — hidden
+   * from the customer), then fold it into this PO: a draft/approved PO re-cuts
+   * its snapshot via the refresh route; once sent the refresh 409s and the
+   * change needs a revision instead.
+   */
+  async function addGarmentImage(garmentId: string, file: File) {
+    if (!detail) return;
+    setUploadingImageFor(garmentId);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const caption = (imageCaptions[garmentId] ?? '').trim();
+      if (caption) form.append('caption', caption);
+      form.append('internalOnly', 'true');
+      await postForm(
+        `/api/admin/orders/${detail.orderId}/garments/${garmentId}/images`,
+        form,
+        'Failed to upload the image',
+      );
+      setImageCaptions((prev) => ({ ...prev, [garmentId]: '' }));
+      try {
+        await postJson(
+          `/api/admin/purchase-orders/${poId}/refresh`,
+          {},
+          'Failed to refresh the purchase order',
+        );
+        message.success('Image added — purchase order refreshed from the order');
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          // The image is safely on the order; the sent snapshot just doesn't
+          // include it yet — that is what revisions are for.
+          message.warning(
+            'Image saved to the order, but this purchase order has already been sent — issue a revision to include it.',
+          );
+        } else {
+          message.error(
+            err instanceof Error ? err.message : 'Failed to refresh the purchase order',
+          );
+        }
+      }
+      await load();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Failed to upload the image');
+    } finally {
+      setUploadingImageFor(null);
     }
   }
 
@@ -560,6 +723,29 @@ export function PoDetailView({ poId }: { poId: string }) {
   // Mirrors sendPurchaseOrder's guards: a draft must be approved first, and a
   // received/completed/cancelled PO has nothing left to send.
   const canSend = !['draft', 'received', 'completed', 'cancelled'].includes(detail.status);
+  // Mirrors refreshDraftSnapshot's guard: an UNSENT (draft/approved) PO tracks
+  // the live order via refresh; once sent, changes go through revisions.
+  const canRefresh = detail.status === 'draft' || detail.status === 'approved';
+  // No revision noise before sending (David, 2026-08-06) — the history card
+  // only appears from 'sent' onward, exactly when refresh stops being legal.
+  const showRevisionHistory = !canRefresh;
+
+  // Dirty checks — the save buttons only render when something actually
+  // changed against what the last load brought back (David, 2026-08-06).
+  const fmtDay = (d: Dayjs | null) => (d ? d.format('YYYY-MM-DD') : null);
+  const datesDirty =
+    fmtDay(deadline) !== detail.deadlineDate ||
+    fmtDay(expectedShip) !== detail.expectedShipDate ||
+    fmtDay(actualShip) !== detail.actualShipDate;
+  const notesDirty = notes !== (detail.notes ?? '');
+
+  // The Comments rail is ONE chronological stream of shared comments and
+  // production-file uploads — the same merge rule as the supplier's activity
+  // feed, so both sides read the same story.
+  const commentFeed = buildActivityFeed<PoOrderNote, PoFileItem>({
+    comments,
+    files: files ?? [],
+  });
 
   const sendButton = (
     <Button icon={<MailOutlined />} loading={sending} disabled={!supplierHasEmail || !canSend}>
@@ -691,9 +877,22 @@ export function PoDetailView({ poId }: { poId: string }) {
           style={{ marginBottom: 16 }}
           message={`Order has changed since revision ${latest.revisionNumber} — ${varianceInfo.counts.added} added / ${varianceInfo.counts.modified} modified / ${varianceInfo.counts.removed} removed`}
           action={
-            <Button size="small" type="primary" onClick={() => setRevisionModalOpen(true)}>
-              Issue revision
-            </Button>
+            // Unsent POs refresh in place — revisions are for after sending.
+            canRefresh ? (
+              <Button
+                size="small"
+                type="primary"
+                icon={<SyncOutlined />}
+                loading={refreshing}
+                onClick={() => void refreshFromOrder()}
+              >
+                Refresh from order
+              </Button>
+            ) : (
+              <Button size="small" type="primary" onClick={() => setRevisionModalOpen(true)}>
+                Issue revision
+              </Button>
+            )
           }
           description={
             <Collapse
@@ -783,11 +982,15 @@ export function PoDetailView({ poId }: { poId: string }) {
                   placeholder="Anything the supplier needs to know"
                 />
               </div>
-              <div style={{ marginTop: 12, textAlign: 'right' }}>
-                <Button type="primary" loading={savingSummary} onClick={saveSummary}>
-                  Save notes
-                </Button>
-              </div>
+              {/* Dirty-only (David, 2026-08-06): no save button unless the
+                  notes differ from what the last load brought back. */}
+              {notesDirty && (
+                <div style={{ marginTop: 12, textAlign: 'right' }}>
+                  <Button type="primary" loading={savingSummary} onClick={saveSummary}>
+                    Save notes
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </Card>
@@ -820,6 +1023,7 @@ export function PoDetailView({ poId }: { poId: string }) {
                 format="DD MMM YYYY"
                 value={expectedShip}
                 onChange={setExpectedShip}
+                aria-label="Required ship date"
               />
             </div>
             <div>
@@ -831,23 +1035,41 @@ export function PoDetailView({ poId }: { poId: string }) {
                 format="DD MMM YYYY"
                 value={actualShip}
                 onChange={setActualShip}
+                aria-label="Actual ship date"
               />
             </div>
           </div>
-          <div style={{ marginTop: 12, textAlign: 'right' }}>
-            <Button type="primary" loading={savingSummary} onClick={saveSummary}>
-              Save dates
-            </Button>
-          </div>
+          {/* Dirty-only (David, 2026-08-06): appears when a date changed. */}
+          {datesDirty && (
+            <div style={{ marginTop: 12, textAlign: 'right' }}>
+              <Button type="primary" loading={savingSummary} onClick={saveSummary}>
+                Save dates
+              </Button>
+            </div>
+          )}
         </Card>
 
         <Card
           title={`Lines — revision ${latest.revisionNumber}`}
           size="small"
           extra={
-            <Text type="secondary">
-              {summary.grandTotal} piece{summary.grandTotal === 1 ? '' : 's'} total
-            </Text>
+            <Space size={12}>
+              {/* Unsent POs re-cut their snapshot from the live order in place
+                  (David, 2026-08-06) — gone once sent, when refresh 409s. */}
+              {canRefresh && (
+                <Button
+                  size="small"
+                  icon={<SyncOutlined />}
+                  loading={refreshing}
+                  onClick={() => void refreshFromOrder()}
+                >
+                  Refresh from order
+                </Button>
+              )}
+              <Text type="secondary">
+                {summary.grandTotal} piece{summary.grandTotal === 1 ? '' : 's'} total
+              </Text>
+            </Space>
           }
         >
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -880,19 +1102,29 @@ export function PoDetailView({ poId }: { poId: string }) {
                   {(fabricPairs.length > 0 || g.fabrics.length > 0) && (
                     <>
                       <SnapshotSectionLabel>Fabrics</SnapshotSectionLabel>
-                      <Text style={{ fontSize: 13 }}>
-                        {fabricPairs.length > 0
-                          ? fabricPairs.map(([part, fabric]) => `${part}: ${fabric}`).join(' · ')
-                          : g.fabrics.join(', ')}
-                      </Text>
+                      {fabricPairs.length > 0 ? (
+                        <div style={DETAIL_GRID_STYLE}>
+                          {fabricPairs.map(([part, fabric]) => (
+                            <Text key={part} style={{ fontSize: 13 }}>
+                              {`${part}: ${fabric}`}
+                            </Text>
+                          ))}
+                        </div>
+                      ) : (
+                        <Text style={{ fontSize: 13 }}>{g.fabrics.join(', ')}</Text>
+                      )}
                     </>
                   )}
                   {optionPairs.length > 0 && (
                     <>
                       <SnapshotSectionLabel>Options</SnapshotSectionLabel>
-                      <Text style={{ fontSize: 13 }}>
-                        {optionPairs.map(([label, value]) => `${label}: ${value}`).join(' · ')}
-                      </Text>
+                      <div style={DETAIL_GRID_STYLE}>
+                        {optionPairs.map(([label, value]) => (
+                          <Text key={label} style={{ fontSize: 13 }}>
+                            {`${label}: ${value}`}
+                          </Text>
+                        ))}
+                      </div>
                     </>
                   )}
                   {charts.length > 0 && (
@@ -975,6 +1207,47 @@ export function PoDetailView({ poId }: { poId: string }) {
                       </Space>
                     </>
                   )}
+                  {/* Supplement the order's images with production-grade shots
+                      (David, 2026-08-06): posted to the ORDER as internalOnly
+                      (never customer-visible), then an unsent PO re-cuts its
+                      snapshot so the image appears above; a sent PO needs a
+                      revision instead. */}
+                  <div style={{ marginTop: 8 }}>
+                    <Space size={6} wrap>
+                      <Input
+                        size="small"
+                        maxLength={200}
+                        placeholder="Caption (optional)"
+                        aria-label={`Image caption for ${g.name}`}
+                        value={imageCaptions[g.garmentId] ?? ''}
+                        onChange={(e) =>
+                          setImageCaptions((prev) => ({ ...prev, [g.garmentId]: e.target.value }))
+                        }
+                        style={{ width: 200 }}
+                      />
+                      <Upload
+                        showUploadList={false}
+                        accept="image/*"
+                        beforeUpload={(file) => {
+                          void addGarmentImage(g.garmentId, file as unknown as File);
+                          return false;
+                        }}
+                      >
+                        <Button
+                          size="small"
+                          icon={<UploadOutlined />}
+                          loading={uploadingImageFor === g.garmentId}
+                          aria-label={`Add image to ${g.name}`}
+                        >
+                          Add image
+                        </Button>
+                      </Upload>
+                    </Space>
+                    <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+                      Order images not ideal for production? Add a team-only image here — it rides
+                      the purchase order to the factory and is never shown to the customer.
+                    </Text>
+                  </div>
                   <SnapshotSectionLabel>Sizing</SnapshotSectionLabel>
                   <Table
                     dataSource={g.lines}
@@ -998,8 +1271,9 @@ export function PoDetailView({ poId }: { poId: string }) {
         </Card>
 
         {/* Production files: layouts / test prints / production layouts,
-            shared both ways with the supplier (David, 2026-08-05). */}
-        <PoFilesCard poId={poId} />
+            shared both ways with the supplier (David, 2026-08-05). The page
+            owns the data so the Comments rail feed renders the same items. */}
+        <PoFilesCard poId={poId} items={files} loadError={filesError} onChanged={reloadFiles} />
 
         {(latest.snapshot.assets ?? []).length > 0 && (
           <Card title="Design files" size="small">
@@ -1154,6 +1428,9 @@ export function PoDetailView({ poId }: { poId: string }) {
           </Space>
         </Card>
 
+        {/* Hidden while draft/approved (David, 2026-08-06: no revision noise
+            before sending) — appears from 'sent' onward. */}
+        {showRevisionHistory && (
         <Card title="Revision history" size="small">
           <Timeline
             items={detail.revisions.map((r) => ({
@@ -1180,6 +1457,7 @@ export function PoDetailView({ poId }: { poId: string }) {
             }))}
           />
         </Card>
+        )}
 
         <Card title="History" size="small">
           {detail.history.length === 0 ? (
@@ -1236,11 +1514,13 @@ export function PoDetailView({ poId }: { poId: string }) {
           {/* INSERTION POINT: the PO checklist card lands HERE, above the
               notes, when the workflow checklist reaches this page. */}
 
-          <Card title="Order notes (from the order)" size="small">
+          {/* Retitled from "Order notes (from the order)" (David, 2026-08-06)
+              and given a composer — production points can be added right here. */}
+          <Card title="Internal order notes" size="small">
             <Space direction="vertical" size={10} style={{ width: '100%' }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 The team&apos;s order notes, brought through so production can check every point
-                has been dealt with. Add or edit them on the order page.
+                has been dealt with. Staff-only — never shown to the supplier or the customer.
               </Text>
               {orderNotes.length === 0 ? (
                 <Text type="secondary">No order notes.</Text>
@@ -1259,60 +1539,200 @@ export function PoDetailView({ poId }: { poId: string }) {
                   </div>
                 ))
               )}
-            </Space>
-          </Card>
-
-          <Card title="Comments" size="small">
-            <Space direction="vertical" size={12} style={{ width: '100%' }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                The conversation shared with the supplier on their portal — their comments and
-                staff replies. Anything posted here is visible to the supplier.
-              </Text>
-              {comments.length === 0 ? (
-                <Text type="secondary">No shared comments yet.</Text>
-              ) : (
-                <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                  {comments.map((note) => (
-                    <div key={note.id}>
-                      <Space size={6} wrap>
-                        <Text strong style={{ fontSize: 13 }}>
-                          {noteAuthor(note)}
-                        </Text>
-                        {note.authorKind === 'supplier' && (
-                          <Tag color="gold" style={{ marginInlineEnd: 0 }}>
-                            Supplier
-                          </Tag>
-                        )}
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          {formatDate(note.createdAt)}
-                        </Text>
-                      </Space>
-                      <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{note.body}</div>
-                    </div>
-                  ))}
-                </Space>
-              )}
               <div>
                 <Input.TextArea
                   rows={2}
                   maxLength={2000}
-                  value={commentDraft}
-                  onChange={(e) => setCommentDraft(e.target.value)}
-                  placeholder="Reply to the supplier…"
-                  aria-label="New supplier comment"
+                  value={noteDraft}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                  placeholder="Add an order note…"
+                  aria-label="New order note"
                 />
                 <div style={{ marginTop: 6 }}>
+                  <Button
+                    size="small"
+                    icon={<SendOutlined />}
+                    loading={postingNote}
+                    disabled={!noteDraft.trim()}
+                    onClick={() => void postOrderNote()}
+                  >
+                    Add note
+                  </Button>
+                </div>
+              </div>
+            </Space>
+          </Card>
+
+          {/* One chronological stream of shared comments AND production-file
+              uploads (David, 2026-08-06) — mirrors the supplier's activity
+              feed, image files rendering as inline thumbnails. */}
+          <Card title="Comments" size="small">
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                The conversation shared with the supplier on their portal — comments and file
+                uploads in one stream. Anything posted here is visible to the supplier.
+              </Text>
+              {commentFeed.length === 0 ? (
+                <Text type="secondary">No shared comments yet.</Text>
+              ) : (
+                <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                  {commentFeed.map((entry) => {
+                    if (entry.kind === 'comment') {
+                      const note = entry.comment;
+                      return (
+                        <div key={note.id}>
+                          <Space size={6} wrap>
+                            <Text strong style={{ fontSize: 13 }}>
+                              {noteAuthor(note)}
+                            </Text>
+                            {note.authorKind === 'supplier' && (
+                              <Tag color="gold" style={{ marginInlineEnd: 0 }}>
+                                Supplier
+                              </Tag>
+                            )}
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {formatDate(note.createdAt)}
+                            </Text>
+                          </Space>
+                          {note.bodyHtml ? (
+                            <div
+                              className="bm-note-body"
+                              style={{ fontSize: 13, lineHeight: 1.5 }}
+                              // Sanitised again at the LAST point before the
+                              // DOM (NotesThread's NoteBody rule) — rows can
+                              // predate the sanitiser or come from another
+                              // writer.
+                              dangerouslySetInnerHTML={{
+                                __html: sanitizeNoteHtml(note.bodyHtml),
+                              }}
+                            />
+                          ) : (
+                            <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{note.body}</div>
+                          )}
+                        </div>
+                      );
+                    }
+                    if (entry.kind === 'file') {
+                      const f = entry.file;
+                      const showThumb = Boolean(f.downloadUrl) && isImageFileName(f.fileName);
+                      const fileComments = f.comments.filter((c) => !c.deleted);
+                      return (
+                        <div
+                          key={f.id}
+                          style={{
+                            border: '1px solid var(--ant-color-border-secondary, #d9d9d9)',
+                            borderRadius: 8,
+                            padding: '8px 10px',
+                          }}
+                        >
+                          <Space size={6} wrap>
+                            {f.category && (
+                              <Tag style={{ marginInlineEnd: 0 }}>{f.category}</Tag>
+                            )}
+                            {f.downloadUrl ? (
+                              <a href={f.downloadUrl} target="_blank" rel="noopener noreferrer">
+                                <Space size={4}>
+                                  <PaperClipOutlined />
+                                  {f.fileName}
+                                </Space>
+                              </a>
+                            ) : (
+                              <Text strong style={{ fontSize: 13 }}>
+                                {f.fileName}
+                              </Text>
+                            )}
+                            {f.uploadedByKind === 'supplier' && (
+                              <Tag color="gold" style={{ marginInlineEnd: 0 }}>
+                                Supplier
+                              </Tag>
+                            )}
+                          </Space>
+                          <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                            {[f.uploadedByLabel, formatDate(f.createdAt)]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </Text>
+                          {showThumb && (
+                            <a href={f.downloadUrl!} target="_blank" rel="noopener noreferrer">
+                              {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL; next/image cannot optimise it */}
+                              <img
+                                src={f.downloadUrl!}
+                                alt={f.fileName}
+                                style={{
+                                  display: 'block',
+                                  maxWidth: '100%',
+                                  maxHeight: 200,
+                                  objectFit: 'contain',
+                                  borderRadius: 6,
+                                  border: '1px solid var(--ant-color-border-secondary, #d9d9d9)',
+                                  marginTop: 6,
+                                }}
+                              />
+                            </a>
+                          )}
+                          {fileComments.map((c) => (
+                            <div key={c.id} style={{ marginTop: 4, marginLeft: 8 }}>
+                              <Space size={6} wrap>
+                                <Text strong style={{ fontSize: 12 }}>
+                                  {c.authorName ?? c.authorEmail ?? c.authorLabel ?? 'Unknown'}
+                                </Text>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  {formatDate(c.createdAt)}
+                                </Text>
+                              </Space>
+                              <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{c.body}</div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })}
+                </Space>
+              )}
+              <div>
+                {/* Rich text (David, 2026-08-06): posts HTML, sanitised
+                    server-side and again wherever it renders. */}
+                <RichTextEditor
+                  value={commentDraft}
+                  onChange={setCommentDraft}
+                  disabled={postingComment}
+                  placeholder="Reply to the supplier…"
+                  ariaLabel="New supplier comment"
+                  minHeight={60}
+                  onSubmit={() => void postComment()}
+                />
+                <Space size={6} wrap style={{ marginTop: 6 }}>
                   <Button
                     type="primary"
                     size="small"
                     icon={<SendOutlined />}
                     loading={postingComment}
-                    disabled={!commentDraft.trim()}
-                    onClick={postComment}
+                    disabled={isNoteEmpty(commentDraft)}
+                    onClick={() => void postComment()}
                   >
                     Post to supplier
                   </Button>
-                </div>
+                  <AutoComplete
+                    size="small"
+                    aria-label="Attachment category"
+                    options={PO_FILE_CATEGORIES.map((c) => ({ value: c }))}
+                    value={attachCategory}
+                    onChange={setAttachCategory}
+                    style={{ width: 150 }}
+                  />
+                  <Upload
+                    showUploadList={false}
+                    beforeUpload={(file) => {
+                      void attachFile(file as unknown as File);
+                      return false;
+                    }}
+                  >
+                    <Button size="small" icon={<PaperClipOutlined />} loading={attaching}>
+                      Attach file
+                    </Button>
+                  </Upload>
+                </Space>
               </div>
             </Space>
           </Card>

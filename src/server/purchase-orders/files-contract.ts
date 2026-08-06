@@ -9,7 +9,9 @@
 export const PO_FILE_EXTENSIONS = [
   // design/layout sources
   'ai', 'eps', 'pdf', 'svg', 'psd', 'cdr',
-  // images (test print photos, proofs)
+  // fonts (David, 2026-08-06: design AND font files belong on the PO)
+  'otf', 'ttf', 'woff', 'woff2',
+  // images (test print photos, proofs, reference images)
   'png', 'jpg', 'jpeg', 'webp', 'tif', 'tiff',
   // documents/sheets a factory sends back
   'xlsx', 'csv', 'zip',
@@ -17,3 +19,18 @@ export const PO_FILE_EXTENSIONS = [
 
 /** Layout sources run big; 50 MB covers every file the factories send today. */
 export const PO_FILE_MAX_BYTES = 50 * 1024 * 1024;
+
+/**
+ * The category vocabulary BOTH file surfaces suggest (free text stays legal —
+ * these are the names the team already uses). One list so the admin card and
+ * the supplier portal cannot drift (David, 2026-08-06: design and font
+ * categories were missing).
+ */
+export const PO_FILE_CATEGORIES = [
+  'Design file',
+  'Font file',
+  'Reference image',
+  'Layout',
+  'Test print',
+  'Production layout',
+] as const;

@@ -58,6 +58,17 @@ describe('GarmentsMasterDetail', () => {
     expect(screen.getByText(/no garments added yet/i)).toBeInTheDocument();
   });
 
+  // The 2026-08-06 restructure: the garment editor's sections are distinct
+  // titled cards, matching the PO page's look.
+  it('lays the garment editor out as titled section cards', () => {
+    renderView([garment()]);
+
+    for (const title of ['Garment', 'Mock-up Images', 'Sizing', 'Reference Size Charts']) {
+      const el = screen.getByText(title);
+      expect(el.closest('.ant-card'), `"${title}" should be a card title`).not.toBeNull();
+    }
+  });
+
   it('renders the first garment selected in the list with its editor open', () => {
     renderView([garment({ name: 'Home Jersey' })]);
     expect(screen.getByRole('menuitem', { name: /home jersey/i })).toBeInTheDocument();

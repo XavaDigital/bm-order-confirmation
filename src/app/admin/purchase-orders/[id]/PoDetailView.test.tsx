@@ -1,9 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App as AntdApp } from 'antd';
 import { installMockFetch, type MockRoute } from '@/test/mockFetch';
 import { PoDetailView } from './PoDetailView';
+
+/** Type into a RichTextEditor contenteditable (NotesThread.test's pattern). */
+async function writeInEditor(label: string, html: string) {
+  const editor = await screen.findByRole('textbox', { name: label });
+  editor.innerHTML = html;
+  // React listens for `input` on contenteditable; dispatching it is what a
+  // real keystroke would do.
+  fireEvent.input(editor);
+  return editor;
+}
 
 const PO_ID = 'po-1';
 
@@ -472,14 +482,23 @@ describe('PoDetailView', () => {
     expect(picker.value).toMatch(/15 Sept? 2026/);
   });
 
-  it('Save dates PATCHes the deadline along with the ship dates and notes', async () => {
+  it('Save dates appears only once a date changed, and PATCHes the full summary', async () => {
     const user = userEvent.setup();
     const { fetchMock, addRoute } = installMockFetch(baseRoutes());
     addRoute({ match: `/api/admin/purchase-orders/${PO_ID}`, method: 'PATCH', response: detail() });
     renderView();
     await screen.findByText('PO-2607-VA01-JANECOACH');
 
-    await user.click(screen.getByRole('button', { name: 'Save dates' }));
+    // Nothing changed yet — no save buttons anywhere (David, 2026-08-06).
+    expect(screen.queryByRole('button', { name: 'Save dates' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save notes' })).not.toBeInTheDocument();
+
+    const picker = screen.getByLabelText('Actual ship date');
+    await user.click(picker);
+    await user.type(picker, '20 Aug 2026');
+    await user.keyboard('{Enter}');
+
+    await user.click(await screen.findByRole('button', { name: 'Save dates' }));
 
     await vi.waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
@@ -487,8 +506,33 @@ describe('PoDetailView', () => {
       expect(JSON.parse(patch![1]!.body as string)).toEqual({
         deadlineDate: '2026-09-15',
         expectedShipDate: null,
-        actualShipDate: null,
+        actualShipDate: '2026-08-20',
         notes: null,
+      });
+    });
+  });
+
+  it('Save notes appears only once the notes differ from the loaded value', async () => {
+    const user = userEvent.setup();
+    const { fetchMock, addRoute } = installMockFetch(baseRoutes());
+    addRoute({ match: `/api/admin/purchase-orders/${PO_ID}`, method: 'PATCH', response: detail() });
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    expect(screen.queryByRole('button', { name: 'Save notes' })).not.toBeInTheDocument();
+
+    await user.type(
+      screen.getByPlaceholderText('Anything the supplier needs to know'),
+      'Ship in two boxes',
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Save notes' }));
+
+    await vi.waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
+      expect(patch?.[0]).toBe(`/api/admin/purchase-orders/${PO_ID}`);
+      expect(JSON.parse(patch![1]!.body as string)).toMatchObject({
+        notes: 'Ship in two boxes',
       });
     });
   });
@@ -665,7 +709,7 @@ describe('PoDetailView', () => {
     expect(screen.queryByText('internal grumbling')).not.toBeInTheDocument();
   });
 
-  it('posts a staff reply as a shared note', async () => {
+  it('posts a staff reply as a shared rich-text comment', async () => {
     const user = userEvent.setup();
     const { fetchMock, addRoute } = installMockFetch(baseRoutes());
     addRoute({
@@ -677,20 +721,22 @@ describe('PoDetailView', () => {
     renderView();
     await screen.findByText('PO-2607-VA01-JANECOACH');
 
-    await user.type(screen.getByLabelText('New supplier comment'), 'Thanks, confirmed');
+    await writeInEditor('New supplier comment', '<p>Thanks, <strong>confirmed</strong></p>');
     await user.click(screen.getByRole('button', { name: /post to supplier/i }));
 
     await vi.waitFor(() => {
       const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
       expect(post?.[0]).toBe('/api/admin/orders/order-1/notes');
+      // HTML body, explicit comment kind, shared with the supplier.
       expect(JSON.parse(post![1]!.body as string)).toEqual({
-        body: 'Thanks, confirmed',
+        body: '<p>Thanks, <strong>confirmed</strong></p>',
+        kind: 'comment',
         visibility: 'shared',
       });
     });
   });
 
-  it('brings the team order notes through read-only', async () => {
+  it('brings the team order notes through under the "Internal order notes" title', async () => {
     installMockFetch(
       baseRoutes(detail(), noVarianceSummary(), {
         orderNotes: [note({ id: 'n1', body: 'Sleeves 1cm shorter', visibility: 'internal' })],
@@ -698,8 +744,35 @@ describe('PoDetailView', () => {
     );
     renderView();
 
-    expect(await screen.findByText('Order notes (from the order)')).toBeInTheDocument();
+    expect(await screen.findByText('Internal order notes')).toBeInTheDocument();
+    expect(screen.queryByText('Order notes (from the order)')).not.toBeInTheDocument();
     expect(await screen.findByText('Sleeves 1cm shorter')).toBeInTheDocument();
+  });
+
+  it('adds an internal order note from the rail composer as kind "note"', async () => {
+    const user = userEvent.setup();
+    const { fetchMock, addRoute } = installMockFetch(baseRoutes());
+    addRoute({
+      match: '/api/admin/orders/order-1/notes',
+      method: 'POST',
+      status: 201,
+      response: { id: 'note-10' },
+    });
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    await user.type(screen.getByLabelText('New order note'), 'Sleeves 1cm shorter');
+    await user.click(screen.getByRole('button', { name: /add note/i }));
+
+    await vi.waitFor(() => {
+      const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+      expect(post?.[0]).toBe('/api/admin/orders/order-1/notes');
+      // Plain text, kind 'note', internal by default (no visibility sent).
+      expect(JSON.parse(post![1]!.body as string)).toEqual({
+        body: 'Sleeves 1cm shorter',
+        kind: 'note',
+      });
+    });
   });
 
   it('renders labelled garment sections with chart links, image thumbnails and custom sizing columns', async () => {
@@ -883,10 +956,213 @@ describe('PoDetailView', () => {
     renderView();
 
     expect(await screen.findByText('Production files')).toBeInTheDocument();
-    expect(await screen.findByText('layout-v1.pdf')).toBeInTheDocument();
+    // The file shows in BOTH lenses: the structured card and the Comments feed.
+    expect(await screen.findAllByText('layout-v1.pdf')).toHaveLength(2);
     expect(screen.getByRole('button', { name: /download all as zip/i }).closest('a')).toHaveAttribute(
       'href',
       `/api/admin/purchase-orders/${PO_ID}/files.zip`,
     );
+  });
+
+  it('hides the Revision history card while the PO is unsent', async () => {
+    installMockFetch(baseRoutes(detail({ status: 'draft' })));
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    // No revision noise before sending (David, 2026-08-06).
+    expect(screen.queryByText('Revision history')).not.toBeInTheDocument();
+  });
+
+  it('shows the Revision history card from sent onward', async () => {
+    installMockFetch(baseRoutes()); // default status: 'sent'
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    expect(screen.getByText('Revision history')).toBeInTheDocument();
+  });
+
+  it('offers Refresh from order on an unsent PO and posts the refresh', async () => {
+    const user = userEvent.setup();
+    const { fetchMock, addRoute } = installMockFetch(baseRoutes(detail({ status: 'draft' })));
+    addRoute({
+      match: `/api/admin/purchase-orders/${PO_ID}/refresh`,
+      method: 'POST',
+      response: { ok: true },
+    });
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    await user.click(screen.getByRole('button', { name: /refresh from order/i }));
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/admin/purchase-orders/${PO_ID}/refresh`,
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+    expect(
+      await screen.findByText('Purchase order refreshed from the live order'),
+    ).toBeInTheDocument();
+  });
+
+  it('hides Refresh from order once the PO has been sent', async () => {
+    installMockFetch(baseRoutes()); // default status: 'sent'
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    expect(screen.queryByRole('button', { name: /refresh from order/i })).not.toBeInTheDocument();
+  });
+
+  it('uploads a garment image internal-only and refreshes an unsent PO', async () => {
+    const user = userEvent.setup();
+    const { fetchMock, addRoute } = installMockFetch(baseRoutes(detail({ status: 'draft' })));
+    addRoute({
+      match: '/api/admin/orders/order-1/garments/g1/images',
+      method: 'POST',
+      status: 201,
+      response: { id: 'img-9' },
+    });
+    addRoute({
+      match: `/api/admin/purchase-orders/${PO_ID}/refresh`,
+      method: 'POST',
+      response: { ok: true },
+    });
+    renderView();
+    await screen.findByText('Team Hoodie');
+
+    await user.type(screen.getByLabelText('Image caption for Team Hoodie'), 'Chest logo close-up');
+    const addButton = screen.getByRole('button', { name: 'Add image to Team Hoodie' });
+    const input = addButton
+      .closest('.ant-upload')!
+      .querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(input, new File(['img-bytes'], 'logo.png', { type: 'image/png' }));
+
+    await vi.waitFor(() => {
+      const posts = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST');
+      const imagePost = posts.find(([url]) => url === '/api/admin/orders/order-1/garments/g1/images');
+      expect(imagePost).toBeTruthy();
+      const form = imagePost![1]!.body as FormData;
+      expect(form).toBeInstanceOf(FormData);
+      expect((form.get('file') as File).name).toBe('logo.png');
+      expect(form.get('caption')).toBe('Chest logo close-up');
+      // Team-only: hidden from the customer, still rides the PO snapshot.
+      expect(form.get('internalOnly')).toBe('true');
+      // The draft re-cuts its snapshot so the image appears on the PO.
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/admin/purchase-orders/${PO_ID}/refresh`,
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+    expect(
+      await screen.findByText('Image added — purchase order refreshed from the order'),
+    ).toBeInTheDocument();
+  });
+
+  it('tells the user a revision is needed when the image refresh 409s on a sent PO', async () => {
+    const user = userEvent.setup();
+    const { addRoute } = installMockFetch(baseRoutes()); // default status: 'sent'
+    addRoute({
+      match: '/api/admin/orders/order-1/garments/g1/images',
+      method: 'POST',
+      status: 201,
+      response: { id: 'img-9' },
+    });
+    addRoute({
+      match: `/api/admin/purchase-orders/${PO_ID}/refresh`,
+      method: 'POST',
+      status: 409,
+      response: { error: 'A sent purchase order changes through revisions, not refreshes' },
+    });
+    renderView();
+    await screen.findByText('Team Hoodie');
+
+    const addButton = screen.getByRole('button', { name: 'Add image to Team Hoodie' });
+    const input = addButton
+      .closest('.ant-upload')!
+      .querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(input, new File(['img-bytes'], 'logo.png', { type: 'image/png' }));
+
+    expect(
+      await screen.findByText(/already been sent — issue a revision to include it/i),
+    ).toBeInTheDocument();
+  });
+
+  it('merges file uploads into the Comments feed with inline image thumbnails and rich comment bodies', async () => {
+    const { addRoute } = installMockFetch(
+      baseRoutes(detail(), noVarianceSummary(), {
+        comments: [
+          note({
+            id: 'note-html',
+            body: 'Use the navy thread',
+            bodyHtml: '<p>Use the <strong>navy</strong> thread</p>',
+            createdAt: '2026-07-21T10:00:00Z',
+          }),
+        ],
+      }),
+    );
+    addRoute({
+      match: `/api/admin/purchase-orders/${PO_ID}/files`,
+      method: 'GET',
+      response: {
+        items: [
+          {
+            id: 'file-img',
+            fileName: 'test-print.jpg',
+            contentType: 'image/jpeg',
+            sizeBytes: 2048,
+            category: 'Test print',
+            uploadedByKind: 'supplier',
+            uploadedByLabel: 'Vast Apparel',
+            statusAtUpload: 'test_print',
+            createdAt: '2026-07-22T10:00:00Z',
+            downloadUrl: 'https://signed.example.com/test-print.jpg',
+            comments: [],
+          },
+        ],
+      },
+    });
+    renderView();
+
+    // The file entry renders inline as a thumbnail in the comments stream.
+    const thumb = (await screen.findByAltText('test-print.jpg')) as HTMLImageElement;
+    expect(thumb.src).toBe('https://signed.example.com/test-print.jpg');
+    // Rich comment bodies render as real formatting, sanitised client-side.
+    expect(screen.getByText('navy').tagName).toBe('STRONG');
+  });
+
+  it('attaches a file from the Comments card with the default Reference image category', async () => {
+    const user = userEvent.setup();
+    const { fetchMock, addRoute } = installMockFetch(baseRoutes());
+    addRoute({
+      match: `/api/admin/purchase-orders/${PO_ID}/files`,
+      method: 'POST',
+      status: 201,
+      response: { id: 'file-9' },
+    });
+    renderView();
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+
+    // The category control defaults to the reference-image suggestion.
+    expect(screen.getByRole('combobox', { name: 'Attachment category' })).toHaveValue(
+      'Reference image',
+    );
+
+    const attachButton = screen.getByRole('button', { name: /attach file/i });
+    const input = attachButton
+      .closest('.ant-upload')!
+      .querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(input, new File(['ref-bytes'], 'ref.png', { type: 'image/png' }));
+
+    await vi.waitFor(() => {
+      const post = fetchMock.mock.calls.find(
+        ([url, init]) =>
+          url === `/api/admin/purchase-orders/${PO_ID}/files` && init?.method === 'POST',
+      );
+      expect(post).toBeTruthy();
+      const form = post![1]!.body as FormData;
+      expect((form.get('file') as File).name).toBe('ref.png');
+      expect(form.get('category')).toBe('Reference image');
+    });
+    expect(await screen.findByText('ref.png attached')).toBeInTheDocument();
   });
 });

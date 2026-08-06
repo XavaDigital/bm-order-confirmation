@@ -10,6 +10,7 @@ import {
   Switch,
   Checkbox,
   Button,
+  Card,
   Space,
   App,
   Popconfirm,
@@ -343,8 +344,8 @@ export function GarmentsMasterDetail({
   });
 
   const draftPane = draft && (
+    <Card title="New garment" size="small">
     <Space direction="vertical" style={{ width: '100%' }} size={16}>
-      <Typography.Text strong>New garment</Typography.Text>
       <Form layout="vertical" size="small">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
           <Form.Item label="Garment Name" required>
@@ -409,6 +410,7 @@ export function GarmentsMasterDetail({
         Mock-ups, sizing and size charts are added after saving.
       </Typography.Text>
     </Space>
+    </Card>
   );
 
   const detailPane = draft ? (
@@ -488,6 +490,9 @@ export function GarmentsMasterDetail({
 
         return (
           <>
+            {/* Distinct section CARDS (David, 2026-08-06, matching the PO
+                page): titles are more obvious as card titles. */}
+            <Card title="Garment" size="small">
             <Form layout="vertical" size="small">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
                 <Form.Item label="Garment Name">
@@ -537,8 +542,8 @@ export function GarmentsMasterDetail({
                   </div>
                 </>
               )}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                {fabricFields.length === 0 && (
+              {fabricFields.length === 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
                   <Form.Item label="Fabrics">
                     <Select
                       mode="tags"
@@ -550,41 +555,41 @@ export function GarmentsMasterDetail({
                       suffixIcon={null}
                     />
                   </Form.Item>
-                )}
-                <Form.Item
-                  label="Customer note"
-                  extra="Shown to the customer on their confirmation page, under this garment."
-                >
-                  <Input.TextArea
-                    rows={2}
-                    value={currentNotes ?? ''}
-                    onChange={(e) => setEdit(garment.id, { notes: e.target.value || null })}
-                    placeholder="e.g. Chinese collar, sublimated"
+                </div>
+              )}
+              {/* Full width (David, 2026-08-06): the note and the GYB blurb
+                  hold long text and were cramped at half width. */}
+              <Form.Item
+                label="Customer note"
+                extra="Shown to the customer on their confirmation page, under this garment."
+              >
+                <Input.TextArea
+                  rows={2}
+                  value={currentNotes ?? ''}
+                  onChange={(e) => setEdit(garment.id, { notes: e.target.value || null })}
+                  placeholder="e.g. Chinese collar, sublimated"
+                />
+              </Form.Item>
+              <Form.Item
+                label={'"Got Your Back" style'}
+                extra="Many names printed on one shared design, arranged in rows for the artwork — independent of the sizing table below."
+              >
+                <Switch
+                  checked={currentNameListEnabled}
+                  onChange={(checked) => setEdit(garment.id, { nameListEnabled: checked })}
+                />
+              </Form.Item>
+              {currentNameListEnabled && (
+                <Form.Item label="Rows" extra="Row count for the print layout.">
+                  <InputNumber
+                    min={1}
+                    max={100}
+                    value={currentNameListRows ?? undefined}
+                    onChange={(v) => setEdit(garment.id, { nameListRows: v ?? null })}
+                    style={{ width: 200 }}
                   />
                 </Form.Item>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                <Form.Item
-                  label={'"Got Your Back" style'}
-                  extra="Many names printed on one shared design, arranged in rows for the artwork — independent of the sizing table below."
-                >
-                  <Switch
-                    checked={currentNameListEnabled}
-                    onChange={(checked) => setEdit(garment.id, { nameListEnabled: checked })}
-                  />
-                </Form.Item>
-                {currentNameListEnabled && (
-                  <Form.Item label="Rows" extra="Row count for the print layout.">
-                    <InputNumber
-                      min={1}
-                      max={100}
-                      value={currentNameListRows ?? undefined}
-                      onChange={(v) => setEdit(garment.id, { nameListRows: v ?? null })}
-                      style={{ width: '100%' }}
-                    />
-                  </Form.Item>
-                )}
-              </div>
+              )}
               {(() => {
                 if (!currentType || currentType.orderOptions.length === 0) return null;
                 const visibleLabels = visibleOptionLabels(currentType.orderOptions, currentOptions);
@@ -631,7 +636,7 @@ export function GarmentsMasterDetail({
             </Form>
 
             {hasEdits && (
-              <Space>
+              <Space style={{ marginTop: 4 }}>
                 <Button
                   type="primary"
                   size="small"
@@ -655,19 +660,18 @@ export function GarmentsMasterDetail({
                 </Button>
               </Space>
             )}
+            </Card>
 
-            <div>
-              <SectionTitle style={{ marginBottom: 8 }}>Mock-up Images</SectionTitle>
+            <Card title="Mock-up Images" size="small">
               <MockupUploader
                 key={garment.id}
                 orderId={orderId}
                 garmentId={garment.id}
                 initialImages={garment.images}
               />
-            </div>
+            </Card>
 
-            <div>
-              <SectionTitle style={{ marginBottom: 8 }}>Sizing</SectionTitle>
+            <Card title="Sizing" size="small">
               <SizingTable
                 key={garment.id}
                 orderId={orderId}
@@ -678,13 +682,10 @@ export function GarmentsMasterDetail({
                 sizingColumns={garment.sizingColumns ?? []}
                 onColumnsChange={(columns) => saveSizingColumns(garment.id, columns)}
               />
-            </div>
+            </Card>
 
             {garment.nameListEnabled && (
-              <div>
-                <SectionTitle style={{ marginBottom: 8 }}>
-                  &ldquo;Got Your Back&rdquo; Name List
-                </SectionTitle>
+              <Card title={'"Got Your Back" Name List'} size="small">
                 <NameListTable
                   key={garment.id}
                   orderId={orderId}
@@ -692,11 +693,10 @@ export function GarmentsMasterDetail({
                   initialEntries={garment.nameListEntries ?? []}
                   onSaved={onGarmentsChanged}
                 />
-              </div>
+              </Card>
             )}
 
-            <div>
-              <SectionTitle style={{ marginBottom: 8 }}>Reference Size Charts</SectionTitle>
+            <Card title="Reference Size Charts" size="small">
               <SizeChartLinker
                 key={garment.id}
                 orderId={orderId}
@@ -721,7 +721,7 @@ export function GarmentsMasterDetail({
                   {missingTypeCharts.length > 1 ? 's' : ''}
                 </Button>
               )}
-            </div>
+            </Card>
 
             {/* The per-garment note thread is gone (David, 2026-08-03: one
                 place for notes) — tag a garment from the order notes rail

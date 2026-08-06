@@ -39,6 +39,12 @@ interface Props {
    * form keeps them inline.
    */
   hideContactFields?: boolean;
+  /**
+   * The edit view wraps this form in a Card titled "Order details" (David,
+   * 2026-08-06) — this drops the inline SectionTitle so the heading isn't
+   * doubled. The new-order form keeps the inline title.
+   */
+  hideSectionTitle?: boolean;
 }
 
 const CURRENCY_OPTIONS = [
@@ -53,7 +59,7 @@ const SHIPPING_OPTIONS = [
   { value: 'later', label: 'Provide later' },
 ];
 
-export function OrderForm({ initialValues, form, disabled, hubLinked = false, hideContactFields = false }: Props) {
+export function OrderForm({ initialValues, form, disabled, hubLinked = false, hideContactFields = false, hideSectionTitle = false }: Props) {
   const defaults: Partial<OrderFormValues> = {
     orderValueCurrency: 'NZD',
     shippingMode: 'prefilled',
@@ -118,7 +124,7 @@ export function OrderForm({ initialValues, form, disabled, hubLinked = false, hi
         </>
       )}
 
-      <SectionTitle>Order Details</SectionTitle>
+      {!hideSectionTitle && <SectionTitle>Order Details</SectionTitle>}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
         <Form.Item label="Order Value">

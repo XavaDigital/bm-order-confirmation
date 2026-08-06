@@ -8,6 +8,7 @@ import {
   SaveOutlined,
   EditOutlined,
   TableOutlined,
+  ImportOutlined,
 } from '@ant-design/icons';
 import type { ColumnType } from 'antd/es/table';
 import { postJson } from '@/lib/api-fetch';
@@ -15,6 +16,8 @@ import { buildSizeSelectOptions } from '@/lib/sizes';
 import { findDuplicateNumbers } from '@/lib/collisions';
 import type { GarmentTypeOption, SizeChartSize } from '@/db/schema';
 import { SizingColumnModal } from './SizingColumnModal';
+import { SizingImportModal, type ImportMode } from './SizingImportModal';
+import type { ImportedSizingRow } from './sizing-paste-import';
 
 interface SizingRow {
   key: string; // local key for React, not stored in DB
@@ -83,6 +86,7 @@ export function SizingTable({
   const [saving, setSaving] = useState(false);
   const [columnModalOpen, setColumnModalOpen] = useState(false);
   const [editingColumn, setEditingColumn] = useState<GarmentTypeOption | null>(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const constrained = allowedSizes !== undefined && allowedSizes.length > 0;
   const sizeOptions = constrained ? buildSizeSelectOptions(allowedSizes) : [];
   // Same jersey number on two rows of the SAME garment is almost always a
@@ -136,6 +140,29 @@ export function SizingTable({
 
   function removeRow(key: string) {
     setRows((prev) => prev.filter((r) => r.key !== key));
+  }
+
+  /**
+   * Fill the table from the paste-import modal (client-side only — the rows
+   * arrive unsaved, exactly as if typed, and persist via "Save sizing").
+   * Imported quantities keep the pasted text; blank means 1, same as typing.
+   */
+  function applyImport(imported: ImportedSizingRow[], mode: ImportMode) {
+    const stamp = Date.now();
+    const localRows: SizingRow[] = imported.map((r, i) => ({
+      key: `import-${stamp}-${i}`,
+      size: r.size,
+      playerName: r.playerName,
+      playerNumber: r.playerNumber,
+      quantity: r.quantity || '1',
+      notes: r.notes,
+      customValues: r.customValues,
+    }));
+    setRows((prev) => (mode === 'replace' ? localRows : [...prev, ...localRows]));
+    setImportModalOpen(false);
+    message.success(
+      `${localRows.length} row${localRows.length === 1 ? '' : 's'} added — review and hit "Save sizing" to keep them`,
+    );
   }
 
   async function save() {
@@ -388,6 +415,15 @@ export function SizingTable({
         )}
       />
       <Space wrap>
+        {/* Paste-based import (David, 2026-08-06): fill the table from rows
+            copied out of Excel/Sheets, then save through the normal path. */}
+        <Button
+          size="small"
+          icon={<ImportOutlined />}
+          onClick={() => setImportModalOpen(true)}
+        >
+          Import
+        </Button>
         {onColumnsChange && (
           <Button
             size="small"
@@ -410,6 +446,14 @@ export function SizingTable({
           Save sizing
         </Button>
       </Space>
+
+      <SizingImportModal
+        open={importModalOpen}
+        sizingColumns={sizingColumns}
+        hasExistingRows={rows.length > 0}
+        onClose={() => setImportModalOpen(false)}
+        onImport={applyImport}
+      />
 
       {onColumnsChange && (
         <SizingColumnModal

@@ -130,6 +130,43 @@ afterEach(() => {
 });
 
 describe('OrderDetailView', () => {
+  // The 2026-08-06 restructure to the PO page's look: section CARDS in the
+  // centre column, notes + comments as two cards in a sticky right rail, and
+  // no maximum width on the page.
+  describe('layout (PO-page pattern)', () => {
+    function cardTitled(title: string) {
+      const el = screen.getByText(title);
+      return el.closest('.ant-card');
+    }
+
+    it('renders the details view as titled section cards', () => {
+      renderView(baseOrder());
+
+      expect(cardTitled('Order name')).not.toBeNull();
+      expect(cardTitled('Customer')).not.toBeNull();
+      expect(cardTitled('Order details')).not.toBeNull();
+    });
+
+    it('renders the notes rail as two cards: Order notes then Comments', () => {
+      renderView(baseOrder());
+
+      const notesCard = cardTitled('Order notes');
+      const commentsCard = cardTitled('Comments');
+      expect(notesCard).not.toBeNull();
+      expect(commentsCard).not.toBeNull();
+      expect(notesCard).not.toBe(commentsCard);
+      // Order notes sit above the comments thread (David, 2026-08-04).
+      expect(
+        notesCard!.compareDocumentPosition(commentsCard!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    it('no longer caps the page width — the main column is fluid', () => {
+      const { container } = renderView(baseOrder());
+      expect(container.firstElementChild).not.toHaveStyle({ maxWidth: '1200px' });
+    });
+  });
+
   it('renders the order number, status, customer, and club in the header', () => {
     renderView(baseOrder());
 
