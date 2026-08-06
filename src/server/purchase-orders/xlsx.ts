@@ -19,7 +19,8 @@ import ExcelJS from 'exceljs';
 import type { PoSnapshot } from '@/db/schema';
 import { neutralizeFormula } from '@/lib/csv';
 import { effectiveFabrics } from '@/lib/fabric-fields';
-import { sizeSummary, NO_SIZE_LABEL } from './snapshot';
+import { garmentImageFilename, sizeSummary, NO_SIZE_LABEL } from './snapshot';
+import { ASSET_KIND_LABEL } from '@/lib/asset-kind';
 
 const ACCENT = 'FF4F46E5'; // fleet indigo (ARGB)
 const HEADER_FILL = 'FF191919';
@@ -151,7 +152,7 @@ function buildSummarySheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
   const assets = props.snapshot.assets ?? [];
   if (assets.length > 0) {
     row++;
-    sectionTitle(sheet, row++, 'Design & font files');
+    sectionTitle(sheet, row++, 'Design, font & colour-book files');
     const assetHeader = sheet.getRow(row++);
     assetHeader.values = ['Type', 'Name', 'Used for', 'Link'];
     styleTableHeader(assetHeader);
@@ -161,7 +162,7 @@ function buildSummarySheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
         : asset.name;
       const assetRow = sheet.getRow(row++);
       assetRow.values = [
-        asset.kind,
+        ASSET_KIND_LABEL[asset.kind],
         neutralizeFormula(label),
         neutralizeFormula(asset.usage ?? ''),
         // Left as text, not a hyperlink object: Excel's HYPERLINK handling is
@@ -175,7 +176,9 @@ function buildSummarySheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
   // Per-garment specs (David, 2026-08-05: fabrics, options, size charts and
   // images must all reach the factory in the spreadsheet too). Fabrics and
   // Options rows always render — a blank shows as a dash, never disappears.
-  // Images are listed by caption/filename only, never embedded.
+  // Images are listed by filename only, never embedded — via the same
+  // garmentImageFilename helper the email attachment uses, so the name here
+  // always matches the name on the actual attached file.
   row++;
   sectionTitle(sheet, row++, 'Garment details');
   for (const garment of props.snapshot.garments) {
@@ -198,9 +201,7 @@ function buildSummarySheet(wb: ExcelJS.Workbook, props: PoXlsxProps): void {
         row++,
         'Images',
         neutralizeFormula(
-          images
-            .map((img) => img.caption?.trim() || img.storageKey.split('/').pop() || 'image')
-            .join(', '),
+          images.map((img, i) => garmentImageFilename(garment.name, img, i + 1)).join(', '),
         ),
       );
     }

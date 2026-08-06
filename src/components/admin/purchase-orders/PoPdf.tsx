@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 import { Document, Image, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
 import { APP_NAME, PDF_FOOTER_TEXT } from '@/lib/config';
 import type { PoSnapshot, PoSnapshotGarment, PoSnapshotImage } from '@/db/schema';
+import { ASSET_KIND_LABEL } from '@/lib/asset-kind';
 
 /**
  * A snapshot image AFTER the route ran the snapshot through
@@ -455,12 +456,10 @@ export function PoPdf({
 
         {(snapshot.assets ?? []).length > 0 && (
           <View style={s.section}>
-            <Text style={s.sectionTitle}>Design &amp; font files</Text>
+            <Text style={s.sectionTitle}>Design, font &amp; colour-book files</Text>
             {(snapshot.assets ?? []).map((asset, i) => (
               <View key={`${asset.url ?? asset.storageKey}-${i}`} style={s.row}>
-                <Text style={s.label}>
-                  {asset.kind === 'font' ? 'Font' : asset.kind === 'design' ? 'Design' : 'File'}
-                </Text>
+                <Text style={s.label}>{ASSET_KIND_LABEL[asset.kind]}</Text>
                 <Text style={s.value}>
                   {[
                     asset.garmentName ? `${asset.name} (${asset.garmentName})` : asset.name,

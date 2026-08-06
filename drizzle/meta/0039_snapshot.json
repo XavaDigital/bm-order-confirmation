@@ -1,5 +1,9 @@
 {
+<<<<<<< Updated upstream
   "id": "e8854f48-99d4-4a64-8c66-9be6a79767eb",
+=======
+  "id": "3063d2d1-0498-4705-9953-c9b99d7730e2",
+>>>>>>> Stashed changes
   "prevId": "2f18193d-dbc3-4708-ba3c-364d98b18cae",
   "version": "7",
   "dialect": "postgresql",
@@ -2284,12 +2288,15 @@
           "primaryKey": false,
           "notNull": false
         },
+<<<<<<< Updated upstream
         "po_file_id": {
           "name": "po_file_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
+=======
+>>>>>>> Stashed changes
         "body": {
           "name": "body",
           "type": "text",
@@ -2392,6 +2399,7 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+<<<<<<< Updated upstream
         },
         "order_notes_po_file_idx": {
           "name": "order_notes_po_file_idx",
@@ -2414,6 +2422,8 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+=======
+>>>>>>> Stashed changes
         }
       },
       "foreignKeys": {
@@ -2445,6 +2455,7 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
+<<<<<<< Updated upstream
         "order_notes_po_file_id_po_files_id_fk": {
           "name": "order_notes_po_file_id_po_files_id_fk",
           "tableFrom": "order_notes",
@@ -2459,6 +2470,8 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
+=======
+>>>>>>> Stashed changes
         "order_notes_author_staff_user_id_staff_users_id_fk": {
           "name": "order_notes_author_staff_user_id_staff_users_id_fk",
           "tableFrom": "order_notes",
@@ -2598,6 +2611,7 @@
           "primaryKey": false,
           "notNull": false
         },
+<<<<<<< Updated upstream
         "names_uppercase": {
           "name": "names_uppercase",
           "type": "boolean",
@@ -2605,6 +2619,8 @@
           "notNull": true,
           "default": false
         },
+=======
+>>>>>>> Stashed changes
         "status": {
           "name": "status",
           "type": "order_status",
@@ -2927,6 +2943,7 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+<<<<<<< Updated upstream
     "confirmation.po_files": {
       "name": "po_files",
       "schema": "confirmation",
@@ -3051,6 +3068,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+=======
+>>>>>>> Stashed changes
     "confirmation.po_supplier_access": {
       "name": "po_supplier_access",
       "schema": "confirmation",
@@ -3351,6 +3370,7 @@
           "primaryKey": false,
           "notNull": false
         },
+<<<<<<< Updated upstream
         "color_book_id": {
           "name": "color_book_id",
           "type": "uuid",
@@ -3363,6 +3383,8 @@
           "primaryKey": false,
           "notNull": false
         },
+=======
+>>>>>>> Stashed changes
         "created_by": {
           "name": "created_by",
           "type": "uuid",
@@ -3494,6 +3516,7 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
+<<<<<<< Updated upstream
         "purchase_orders_color_book_id_supplier_color_books_id_fk": {
           "name": "purchase_orders_color_book_id_supplier_color_books_id_fk",
           "tableFrom": "purchase_orders",
@@ -3508,6 +3531,8 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
+=======
+>>>>>>> Stashed changes
         "purchase_orders_created_by_staff_users_id_fk": {
           "name": "purchase_orders_created_by_staff_users_id_fk",
           "tableFrom": "purchase_orders",
@@ -4526,6 +4551,7 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+<<<<<<< Updated upstream
     "confirmation.supplier_color_books": {
       "name": "supplier_color_books",
       "schema": "confirmation",
@@ -4643,6 +4669,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+=======
+>>>>>>> Stashed changes
     "confirmation.suppliers": {
       "name": "suppliers",
       "schema": "confirmation",
@@ -5276,6 +5304,137 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+<<<<<<< Updated upstream
+=======
+    "confirmation.workflow_status_reminders": {
+      "name": "workflow_status_reminders",
+      "schema": "confirmation",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trigger_status": {
+          "name": "trigger_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by_staff_user_id": {
+          "name": "created_by_staff_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fired_at": {
+          "name": "fired_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "workflow_status_reminders_entity_idx": {
+          "name": "workflow_status_reminders_entity_idx",
+          "columns": [
+            {
+              "expression": "entity_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"confirmation\".\"workflow_status_reminders\".\"resolved_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workflow_status_reminders_creator_idx": {
+          "name": "workflow_status_reminders_creator_idx",
+          "columns": [
+            {
+              "expression": "created_by_staff_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "resolved_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workflow_status_reminders_created_by_staff_user_id_staff_users_id_fk": {
+          "name": "workflow_status_reminders_created_by_staff_user_id_staff_users_id_fk",
+          "tableFrom": "workflow_status_reminders",
+          "tableTo": "staff_users",
+          "schemaTo": "confirmation",
+          "columnsFrom": [
+            "created_by_staff_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+>>>>>>> Stashed changes
     "confirmation.workflow_task_completions": {
       "name": "workflow_task_completions",
       "schema": "confirmation",

@@ -1,9 +1,10 @@
 'use client';
 
 /**
- * Design + font files on an order: named links (Drive URLs) that the factory and
- * the next reprint need. Order-wide by default, optionally tagged to a garment.
- * Assets marked "Send to supplier" are captured into each PO revision snapshot.
+ * Design, font and colour-book files on an order: named links (Drive URLs) that
+ * the factory and the next reprint need. Order-wide by default, optionally
+ * tagged to a garment. Assets marked "Send to supplier" are captured into each
+ * PO revision snapshot.
  */
 import { useState } from 'react';
 import {
@@ -335,7 +336,7 @@ export function OrderAssetsPanel({ orderId, garments, designProjectRef }: Props)
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <SectionTitle style={{ margin: 0, flex: 1 }}>Design &amp; font files</SectionTitle>
+        <SectionTitle style={{ margin: 0, flex: 1 }}>Design, font &amp; colour-book files</SectionTitle>
         {designProjectRef && (
           <Button icon={<DownloadOutlined />} onClick={() => setPickerOpen(true)}>
             Pull from DesignFlow
@@ -360,7 +361,7 @@ export function OrderAssetsPanel({ orderId, garments, designProjectRef }: Props)
       ) : assets.length === 0 && !loading ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="No design or font files linked yet"
+          description="No design, font or colour-book files linked yet"
         />
       ) : (
         <Table
@@ -375,7 +376,7 @@ export function OrderAssetsPanel({ orderId, garments, designProjectRef }: Props)
 
       <Modal
         open={modalOpen}
-        title={editing ? `Edit ${editing.name}` : 'Add a design or font file'}
+        title={editing ? `Edit ${editing.name}` : 'Add a design, font or colour-book file'}
         onOk={save}
         onCancel={() => setModalOpen(false)}
         confirmLoading={saving}
@@ -388,6 +389,7 @@ export function OrderAssetsPanel({ orderId, garments, designProjectRef }: Props)
               options={[
                 { value: 'design', label: 'Design file' },
                 { value: 'font', label: 'Font file' },
+                { value: 'colour-book', label: 'Colour book' },
                 { value: 'other', label: 'Other' },
               ]}
             />
@@ -424,7 +426,7 @@ export function OrderAssetsPanel({ orderId, garments, designProjectRef }: Props)
           ) : (
             <Form.Item
               label="File"
-              extra="Fonts (OTF, TTF, WOFF) and design files (AI, EPS, PDF, SVG, PNG). Sent to the supplier as an email attachment."
+              extra="Fonts (OTF, TTF, WOFF) and design or colour-book files (AI, EPS, PDF, SVG, PNG, JPG). Sent to the supplier as an email attachment."
             >
               <Space direction="vertical" size={4}>
                 <Upload

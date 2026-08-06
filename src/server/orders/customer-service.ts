@@ -19,6 +19,7 @@ import { accessCodeMatches, isAccessCodeCookieValid } from '@/lib/access-code';
 import { customerChartLinks } from '@/lib/sizes';
 import { uploadFile, signatureKey } from '@/lib/storage';
 import { emitOrderEvent } from '@/server/events/outbox';
+import { fireDueStatusReminders } from '@/server/workflow/status-reminders';
 import { toGarmentDto } from './mappers';
 
 // ---------------------------------------------------------------------------
@@ -181,6 +182,7 @@ export async function recordOrderViewed(
         eventType: 'order.viewed',
         payload: { orderId },
       });
+      await fireDueStatusReminders(tx, 'order', orderId, 'viewed', orderId);
     }
   });
 }
@@ -253,6 +255,7 @@ export async function requestOrderChanges(params: {
       eventType: 'order.changes_requested',
       payload: { comment: params.comment, orderNumber: order.orderNumber, customerEmail: order.customerEmail },
     });
+    await fireDueStatusReminders(tx, 'order', order.id, 'changes_requested', order.id);
   });
 
   return { orderNumber: order.orderNumber, orderId: order.id };
@@ -555,6 +558,7 @@ export async function confirmOrder(params: {
         colorSampleRequested: order.colorSampleRequestedAt !== null,
       },
     });
+    await fireDueStatusReminders(tx, 'order', order.id, 'confirmed', order.id);
 
     // i. Update last viewed
     await tx

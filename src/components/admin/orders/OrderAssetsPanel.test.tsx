@@ -53,7 +53,9 @@ describe('OrderAssetsPanel', () => {
   it('shows an empty state when nothing is linked', async () => {
     renderPanel();
 
-    expect(await screen.findByText(/no design or font files linked yet/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/no design, font or colour-book files linked yet/i),
+    ).toBeInTheDocument();
   });
 
   it('lists files as links, with the garment scope', async () => {
@@ -82,7 +84,7 @@ describe('OrderAssetsPanel', () => {
   it('adds a file with the entered values', async () => {
     const user = userEvent.setup();
     renderPanel();
-    await screen.findByText(/no design or font files linked yet/i);
+    await screen.findByText(/no design, font or colour-book files linked yet/i);
 
     await user.click(screen.getByRole('button', { name: /add file/i }));
     await user.type(screen.getByPlaceholderText(/Front print/i), 'Back print');
@@ -108,7 +110,7 @@ describe('OrderAssetsPanel', () => {
   it('rejects a link that is not a URL before sending anything', async () => {
     const user = userEvent.setup();
     renderPanel();
-    await screen.findByText(/no design or font files linked yet/i);
+    await screen.findByText(/no design, font or colour-book files linked yet/i);
 
     await user.click(screen.getByRole('button', { name: /add file/i }));
     await user.type(screen.getByPlaceholderText(/Front print/i), 'Bad link');

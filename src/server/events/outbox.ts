@@ -71,6 +71,12 @@ export type DomainEventType =
   | 'workflow.task_reopened'
   | 'workflow.owners_changed'
   | 'workflow.gate_overridden'
+  // Conditional (status-triggered) reminders on one order/PO. `_due` is an
+  // outbox event (notification dispatch hangs off it, see processor.ts);
+  // created/cancelled are audit-only, like the stage-configuration events.
+  | 'workflow.status_reminder_created'
+  | 'workflow.status_reminder_cancelled'
+  | 'workflow.status_reminder_due'
   // Acknowledgement settings (audit-only): staff editing the customer-facing
   // confirmation checkboxes.
   | 'ack_setting.created'

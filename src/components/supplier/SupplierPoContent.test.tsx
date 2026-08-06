@@ -189,11 +189,15 @@ describe('SupplierPoContent', () => {
     );
     expect(screen.getByText('Old Shorts')).toBeInTheDocument();
     expect(screen.getByText('No sizing rows in this revision')).toBeInTheDocument();
+<<<<<<< Updated upstream
     expect(screen.queryByText('Design & font files')).not.toBeInTheDocument();
     // Empty sections render no heading at all — only Sizing always shows.
     for (const heading of ['Fabrics', 'Options', 'Size charts', 'Images']) {
       expect(screen.queryByText(heading)).not.toBeInTheDocument();
     }
     expect(screen.getByText('Sizing')).toBeInTheDocument();
+=======
+    expect(screen.queryByText('Design, font & colour-book files')).not.toBeInTheDocument();
+>>>>>>> Stashed changes
   });
 });

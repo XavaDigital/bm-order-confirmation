@@ -25,6 +25,7 @@ import { updatePurchaseOrderStatusTx } from '@/server/purchase-orders/service';
 import type { PoStatus } from '@/server/purchase-orders/contract';
 import { canTransition as canTransitionPo } from '@/server/purchase-orders/contract';
 import { syncOrderProductionStatus } from '@/server/purchase-orders/hub-sync';
+import { fireDueStatusReminders } from './status-reminders';
 import { listActiveStages, resolveStage, type StageRow } from './stages';
 
 export interface MoveResult {
@@ -160,6 +161,7 @@ export async function moveOrderToStage(
         },
         tx,
       );
+      await fireDueStatusReminders(tx, 'order', orderId, nextStatus, orderId);
     }
 
     return {

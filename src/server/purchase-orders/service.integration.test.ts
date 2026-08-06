@@ -560,6 +560,35 @@ describe('sendPurchaseOrder — attachments', () => {
     );
   });
 
+  it('attaches an uploaded colour-book file to the supplier email', async () => {
+    const supplier = await seedSupplier({ email: 'factory@example.com' });
+    const { orderId, garments } = await seedOrder();
+    const hoodie = garments[0];
+
+    await db.insert(schema.orderAssets).values({
+      orderId,
+      kind: 'colour-book',
+      name: 'Club Colours',
+      storageKey: 'colour-books/club.pdf',
+      includeOnPo: true,
+    });
+
+    const po = await createPurchaseOrder({
+      orderId,
+      supplierId: supplier.id,
+      garmentIds: [hoodie.id],
+    });
+    await db.update(schema.workflowStageTasks).set({ isActive: false });
+    await updatePurchaseOrderStatus(po.id, 'approved');
+
+    const result = await sendPurchaseOrder(po.id, {}, renderPdf);
+
+    const emailArgs = sendSupplierPoEmailMock.mock.calls[0][0];
+    const extraAttachments = emailArgs.extraAttachments as { filename: string }[];
+    expect(extraAttachments.map((a) => a.filename)).toContain('Club Colours.pdf');
+    expect(result.attachmentSummary.fonts).toBe(1);
+  });
+
   it('falls back to the thumbnail image when the full attachment set is over budget', async () => {
     const { po } = await seedSendablePoWithFiles();
 
@@ -579,6 +608,42 @@ describe('sendPurchaseOrder — attachments', () => {
 
     const emailArgs = sendSupplierPoEmailMock.mock.calls[0][0];
     expect(emailArgs.sizeReduced).toBe(true);
+  });
+
+  it('blocks the send when a garment image is referenced but missing from storage', async () => {
+    const { po } = await seedSendablePoWithFiles();
+
+    getFileBufferMock.mockImplementation(async (key: string) => {
+      if (key.includes('front-full')) throw new Error('NoSuchKey');
+      return defaultGetFileBuffer(key);
+    });
+
+    await expect(sendPurchaseOrder(po.id, {}, renderPdf)).rejects.toThrow(
+      /re-upload before sending/,
+    );
+    expect(sendSupplierPoEmailMock).not.toHaveBeenCalled();
+  });
+
+  it('tells staff to issue a revision when the live order has replacement mock-ups', async () => {
+    const { po, hoodie } = await seedSendablePoWithFiles();
+
+    await db.delete(schema.mockupImages).where(eq(schema.mockupImages.garmentId, hoodie.id));
+    await db.insert(schema.mockupImages).values({
+      garmentId: hoodie.id,
+      storageKey: 'mockups/hoodie-front-replacement.png',
+      thumbnailStorageKey: null,
+      caption: 'Front v2',
+    });
+
+    getFileBufferMock.mockImplementation(async (key: string) => {
+      if (key.includes('front-full')) throw new Error('NoSuchKey');
+      return defaultGetFileBuffer(key);
+    });
+
+    await expect(sendPurchaseOrder(po.id, {}, renderPdf)).rejects.toThrow(
+      /issue a revision before sending/,
+    );
+    expect(sendSupplierPoEmailMock).not.toHaveBeenCalled();
   });
 });
 

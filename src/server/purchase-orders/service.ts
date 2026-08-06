@@ -37,6 +37,7 @@ import { ConflictError, NotFoundError } from '@/server/orders/service';
 import { syncOrderProductionStatus } from './hub-sync';
 import { loadPoAssets } from '@/server/orders/assets-service';
 import { assertGateOpen } from '@/server/workflow/gates';
+import { fireDueStatusReminders } from '@/server/workflow/status-reminders';
 import { supplierCodeOrFallback } from '@/server/suppliers/service';
 import { missingRequiredOptions } from '@/server/garment-types/visibility';
 import { buildPoWorkbook } from './xlsx';
@@ -51,6 +52,7 @@ import {
   buildPoSnapshot,
   computeCoverage,
   detectVariance,
+  garmentImageFilename,
   varianceCounts,
   type LiveGarment,
 } from './snapshot';
@@ -132,6 +134,35 @@ async function loadOrderGarments(orderId: string) {
       images: { orderBy: (i, { asc }) => [asc(i.sortOrder), asc(i.createdAt)] },
     },
   });
+}
+
+export async function isMockupReferencedByAnyPoRevision(
+  orderId: string,
+  storageKeys: Array<string | null | undefined>,
+): Promise<boolean> {
+  const wanted = new Set(storageKeys.filter((key): key is string => Boolean(key)));
+  if (wanted.size === 0) return false;
+
+  const pos = await db.query.purchaseOrders.findMany({
+    where: eq(purchaseOrders.orderId, orderId),
+    with: {
+      revisions: {
+        columns: { snapshot: true },
+      },
+    },
+  });
+
+  return pos.some((po) =>
+    po.revisions.some((revision) =>
+      revision.snapshot.garments.some((garment) =>
+        (garment.images ?? []).some(
+          (image) =>
+            wanted.has(image.storageKey) ||
+            (image.thumbnailStorageKey ? wanted.has(image.thumbnailStorageKey) : false),
+        ),
+      ),
+    ),
+  );
 }
 
 /**
@@ -641,6 +672,7 @@ export async function updatePurchaseOrderStatusTx(
     eventType: 'po.status_changed',
     payload: { poId: po.id, poNumber: po.poNumber, from, to: nextStatus },
   });
+  await fireDueStatusReminders(tx, 'purchase_order', po.id, nextStatus, po.orderId);
   if (nextStatus === 'cancelled') {
     await emitOrderEvent(tx, {
       aggregateId: po.orderId,
@@ -737,6 +769,74 @@ export interface AttachmentCounts {
 }
 
 /**
+ * A garment mock-up image the PO doc references but storage could not
+ * produce bytes for — see MissingImageAttachmentsError.
+ */
+export interface MissingImage {
+  garmentId: string;
+  garmentName: string;
+  filename: string;
+  storageKey: string;
+}
+
+type MissingImageResolution = 'mixed' | 'reupload' | 'revision';
+
+/**
+ * Blocks a send when a garment mock-up image can't actually be attached.
+ * Fonts/charts stay best-effort (see collectSnapshotAttachments) — an image
+ * doesn't: David's 2026-08-05 spec is that the supplier PO must show the
+ * garment images, and a blank box in the PDF gives no indication anything
+ * is wrong, unlike the asset list which at least names what it expected.
+ * Extends the app's ConflictError AND is named to match — `defineRoute`'s
+ * outer wrapper maps status codes off `err.name.endsWith('ConflictError')`
+ * (`isNamed` in route-handler.ts), not the prototype chain, so a subclass
+ * whose name doesn't carry the suffix still falls through to a 500 even
+ * though `instanceof ConflictError` is true and the send route rethrows it.
+ */
+export class MissingImageAttachmentsConflictError extends ConflictError {
+  readonly details: { missingImages: MissingImage[]; resolution: MissingImageResolution };
+
+  constructor(missingImages: MissingImage[], resolution: MissingImageResolution) {
+    const names = missingImages.map((m) => `${m.garmentName}: ${m.filename}`).join(', ');
+    const noun = `${missingImages.length} garment image${missingImages.length === 1 ? '' : 's'}`;
+    const message =
+      resolution === 'revision'
+        ? `${noun} from the latest PO revision could not be found in storage - issue a revision before sending (${names})`
+        : resolution === 'mixed'
+          ? `${noun} could not be found in storage - issue a revision for replaced mock-ups and re-upload any still-missing current files before sending (${names})`
+          : `${noun} could not be found in storage - re-upload before sending (${names})`;
+    super(message);
+    this.name = 'MissingImageAttachmentsConflictError';
+    this.details = { missingImages, resolution };
+  }
+}
+
+function classifyMissingImageResolution(
+  missingImages: MissingImage[],
+  liveGarments: LiveGarment[],
+): MissingImageResolution {
+  const liveById = new Map(liveGarments.map((garment) => [garment.id, garment]));
+  let needsRevision = false;
+  let needsReupload = false;
+
+  for (const missing of missingImages) {
+    const liveImages = liveById.get(missing.garmentId)?.images ?? [];
+    const stillCurrent = liveImages.some(
+      (image) =>
+        image.storageKey === missing.storageKey || image.thumbnailStorageKey === missing.storageKey,
+    );
+    if (stillCurrent || liveImages.length === 0) {
+      needsReupload = true;
+      continue;
+    }
+    needsRevision = true;
+  }
+
+  if (needsRevision && needsReupload) return 'mixed';
+  return needsRevision ? 'revision' : 'reupload';
+}
+
+/**
  * The files that ride the supplier email alongside the PDF/XLSX: uploaded
  * assets (fonts, design files), the size charts each garment cuts to, and
  * each garment's mock-up images.
@@ -745,10 +845,12 @@ export interface AttachmentCounts {
  * record. As actual attachments, not signed URLs, because a URL in a sent
  * email expires and the factory opens these weeks later.
  *
- * A file that cannot be fetched is skipped with a warning rather than failing
- * the send: the PDF itself is the contract, the attachments are supporting
- * material, and blocking a PO on a single unreadable object helps nobody. The
- * PDF names every file it expects, so a gap is visible to the recipient too.
+ * A font/chart that cannot be fetched is skipped with a warning rather than
+ * failing the send: the PDF names every asset it expects (text line), so a
+ * gap there is at least visible on the document itself. A garment IMAGE is
+ * reported back in `missingImages` instead — the PDF has no such text
+ * fallback for a broken image (just a blank box), so the caller
+ * (sendPurchaseOrder) blocks on it rather than letting it ship silently.
  *
  * `preferThumbnails` swaps each garment image's full-resolution storage key
  * for its thumbnail — used by the size-budget fallback in `sendPurchaseOrder`
@@ -757,9 +859,14 @@ export interface AttachmentCounts {
 async function collectSnapshotAttachments(
   snapshot: PoSnapshot,
   options?: { preferThumbnails?: boolean },
-): Promise<{ attachments: { filename: string; content: Buffer }[]; counts: AttachmentCounts }> {
+): Promise<{
+  attachments: { filename: string; content: Buffer }[];
+  counts: AttachmentCounts;
+  missingImages: MissingImage[];
+}> {
   const wanted = new Map<string, string>(); // storageKey -> filename
   const kindByKey = new Map<string, keyof AttachmentCounts>();
+  const garmentByImageKey = new Map<string, { garmentId: string; garmentName: string }>();
 
   for (const asset of snapshot.assets ?? []) {
     if (asset.storageKey) {
@@ -781,26 +888,24 @@ async function collectSnapshotAttachments(
   }
   // Garment mock-up images — full resolution by default (the factory prints/
   // cuts from these), thumbnails when the size-budget guard has kicked in.
-  // Deduped per-garment with a counter so two uncaptioned images on the same
-  // garment don't collide on one filename.
+  // Named via garmentImageFilename, the SAME helper the workbook's Images
+  // cell uses (xlsx.ts) — the two must render identical filenames so a
+  // factory can tell which spreadsheet row a given attachment is.
   for (const garment of snapshot.garments) {
-    let n = 0;
-    for (const image of garment.images ?? []) {
+    (garment.images ?? []).forEach((image, i) => {
       const key = options?.preferThumbnails
         ? image.thumbnailStorageKey ?? image.storageKey
         : image.storageKey;
-      if (!key || wanted.has(key)) continue;
-      n += 1;
-      const ext = key.split('.').pop() ?? 'bin';
-      const caption = image.caption?.trim();
-      const base = caption ? `${garment.name}-${caption}` : `${garment.name}-${n}`;
-      wanted.set(key, `${base}.${ext}`);
+      if (!key || wanted.has(key)) return;
+      wanted.set(key, garmentImageFilename(garment.name, image, i + 1, key));
       kindByKey.set(key, 'images');
-    }
+      garmentByImageKey.set(key, { garmentId: garment.garmentId, garmentName: garment.name });
+    });
   }
 
   const attachments: { filename: string; content: Buffer }[] = [];
   const counts: AttachmentCounts = { images: 0, fonts: 0, sizeCharts: 0 };
+  const missingImages: MissingImage[] = [];
   for (const [key, filename] of wanted) {
     try {
       attachments.push({ filename, content: await getFileBuffer(key) });
@@ -808,9 +913,18 @@ async function collectSnapshotAttachments(
       if (kind) counts[kind] += 1;
     } catch (err) {
       logger.warn('[po/send] attachment skipped — could not read from storage', { key, filename, err });
+      const garment = garmentByImageKey.get(key);
+      if (garment) {
+        missingImages.push({
+          garmentId: garment.garmentId,
+          garmentName: garment.garmentName,
+          filename,
+          storageKey: key,
+        });
+      }
     }
   }
-  return { attachments, counts };
+  return { attachments, counts, missingImages };
 }
 
 interface ProductionRecipient {
@@ -942,7 +1056,8 @@ export async function sendPurchaseOrder(
     snapshot: latest.snapshot,
   });
 
-  let { attachments: extraAttachments, counts } = await collectSnapshotAttachments(latest.snapshot);
+  let { attachments: extraAttachments, counts, missingImages } =
+    await collectSnapshotAttachments(latest.snapshot);
   let sizeReduced = false;
   const totalBytes =
     pdf.length + xlsx.length + extraAttachments.reduce((sum, a) => sum + a.content.length, 0);
@@ -952,10 +1067,22 @@ export async function sendPurchaseOrder(
       poNumber: po.poNumber,
       totalBytes,
     });
-    ({ attachments: extraAttachments, counts } = await collectSnapshotAttachments(latest.snapshot, {
-      preferThumbnails: true,
-    }));
+    ({ attachments: extraAttachments, counts, missingImages } = await collectSnapshotAttachments(
+      latest.snapshot,
+      { preferThumbnails: true },
+    ));
     sizeReduced = true;
+  }
+
+  // A garment image the doc claims to attach but storage couldn't produce —
+  // block rather than let a blank box in the PDF reach the supplier unnoticed
+  // (see MissingImageAttachmentsConflictError).
+  if (missingImages.length > 0) {
+    const resolution = classifyMissingImageResolution(
+      missingImages,
+      await loadOrderGarments(po.orderId),
+    );
+    throw new MissingImageAttachmentsConflictError(missingImages, resolution);
   }
 
   // The pretty per-PO portal URL (David, 2026-08-05): deterministic from the

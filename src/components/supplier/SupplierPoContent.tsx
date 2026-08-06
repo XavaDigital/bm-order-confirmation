@@ -425,7 +425,7 @@ export function SupplierPoContent({ snapshot, diff }: SupplierPoContentProps) {
       </Card>
 
       {assets.length > 0 && (
-        <Card title="Design & font files" style={CARD_STYLE} styles={CARD_BODY_STYLES}>
+        <Card title="Design, font & colour-book files" style={CARD_STYLE} styles={CARD_BODY_STYLES}>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             {assets.map((asset, i) => (
               <AssetRow key={`${asset.name}-${i}`} asset={asset} />

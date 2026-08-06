@@ -76,11 +76,15 @@ import {
 import { PoStatusBadge } from '@/components/admin/purchase-orders/PoStatusBadge';
 import { ShipmentStatusBadge } from '@/components/admin/purchase-orders/ShipmentStatusBadge';
 import { VarianceDiff } from '@/components/admin/purchase-orders/VarianceDiff';
+<<<<<<< Updated upstream
 import { RichTextEditor } from '@/components/admin/RichTextEditor';
 // Pure merge/thumbnail helpers shared with the supplier activity feed — one
 // chronology rule for both sides of the conversation.
 import { buildActivityFeed, isImageFileName } from '@/components/supplier/po-view-helpers';
 import { isNoteEmpty, sanitizeNoteHtml } from '@/lib/rich-text';
+=======
+import { ConditionalReminders } from '@/components/admin/workflow/ConditionalReminders';
+>>>>>>> Stashed changes
 import { PO_STATUSES, canTransition, type PoStatus } from '@/server/purchase-orders/contract';
 import { PO_FILE_CATEGORIES } from '@/server/purchase-orders/files-contract';
 import {
@@ -1043,6 +1047,7 @@ export function PoDetailView({ poId }: { poId: string }) {
           </div>
         </Card>
 
+<<<<<<< Updated upstream
         {/* The dates sit together just above the line items (David, 2026-08-06:
             "so we can copy things across as needed without scrolling"). */}
         <Card title="Dates" size="small" styles={CARD_STYLES}>
@@ -1389,6 +1394,13 @@ export function PoDetailView({ poId }: { poId: string }) {
         </Card>
 
         <Card title="Supplier Portal" size="small" styles={CARD_STYLES}>
+=======
+        <Card title="Conditional reminders" size="small">
+          <ConditionalReminders boardKey="purchase_order" entityId={poId} />
+        </Card>
+
+        <Card title="Supplier Portal" size="small">
+>>>>>>> Stashed changes
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
               The supplier&apos;s permanent link to this purchase order — view the latest

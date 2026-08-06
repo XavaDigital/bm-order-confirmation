@@ -61,6 +61,7 @@ import { OrderAssetsPanel } from '@/components/admin/orders/OrderAssetsPanel';
 import { DesignProjectLinkControl } from '@/components/admin/orders/DesignProjectLinkControl';
 import { NotesThread } from '@/components/admin/orders/NotesThread';
 import { StageChecklist } from '@/components/admin/workflow/StageChecklist';
+import { ConditionalReminders } from '@/components/admin/workflow/ConditionalReminders';
 import { useProductionSummary } from '@/lib/use-production-summary';
 import type { MockupImage } from '@/components/admin/orders/MockupUploader';
 
@@ -629,12 +630,15 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
       label: 'Checklist',
       icon: <CheckSquareOutlined />,
       children: (
-        <StageChecklist
-          boardKey="order"
-          entityId={order.id}
-          isAdmin={isAdmin}
-          onAdvanced={() => router.refresh()}
-        />
+        <Space direction="vertical" size={20} style={{ width: '100%' }}>
+          <StageChecklist
+            boardKey="order"
+            entityId={order.id}
+            isAdmin={isAdmin}
+            onAdvanced={() => router.refresh()}
+          />
+          <ConditionalReminders boardKey="order" entityId={order.id} />
+        </Space>
       ),
     },
     // On wide screens the notes live in the persistent right rail instead

@@ -35,11 +35,16 @@ import { generateAccessCode, hashAccessCode } from '@/lib/access-code';
 import { STALE_THRESHOLD_DAYS } from '@/lib/config';
 import { env } from '@/lib/env';
 import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
+<<<<<<< Updated upstream
 import {
   missingRequiredOptions,
   resolveVisibleOptions,
   typeOptionDefaults,
 } from '@/server/garment-types/visibility';
+=======
+import { fireDueStatusReminders } from '@/server/workflow/status-reminders';
+import { resolveVisibleOptions, typeOptionDefaults } from '@/server/garment-types/visibility';
+>>>>>>> Stashed changes
 import { canTransitionOrder, explainOrderTransition } from './status-machine';
 import type { OrderStatus } from '@/lib/status';
 import type { CreateOrderInput } from './contract';
@@ -950,6 +955,7 @@ export async function updateOrder(
         },
         tx,
       );
+      await fireDueStatusReminders(tx, 'order', id, patch.status as string, id);
     }
   });
 }
@@ -1407,7 +1413,7 @@ export async function updateGarmentSizeChartLinks(
 export async function deleteMockupImage(
   id: string,
   meta?: { actorEmail?: string },
-): Promise<{ storageKey: string; thumbnailStorageKey: string | null }> {
+): Promise<{ orderId: string; storageKey: string; thumbnailStorageKey: string | null }> {
   const existing = await db.query.mockupImages.findFirst({ where: eq(mockupImages.id, id) });
   if (!existing) throw new NotFoundError('Image');
   const garment = await loadGarmentOrThrow(existing.garmentId);
@@ -1420,7 +1426,11 @@ export async function deleteMockupImage(
     actorEmail: meta?.actorEmail ?? null,
   });
 
-  return { storageKey: existing.storageKey, thumbnailStorageKey: existing.thumbnailStorageKey };
+  return {
+    orderId: garment.orderId,
+    storageKey: existing.storageKey,
+    thumbnailStorageKey: existing.thumbnailStorageKey,
+  };
 }
 
 /**
@@ -1494,10 +1504,14 @@ export async function generateAccessToken(
     });
 
     // Advance status from draft → sent on first link generation.
-    await tx
+    const [advanced] = await tx
       .update(orders)
       .set({ status: 'sent', updatedAt: new Date() })
-      .where(and(eq(orders.id, orderId), eq(orders.status, 'draft')));
+      .where(and(eq(orders.id, orderId), eq(orders.status, 'draft')))
+      .returning({ id: orders.id });
+    if (advanced) {
+      await fireDueStatusReminders(tx, 'order', orderId, 'sent', orderId);
+    }
 
     await emitOrderEvent(tx, {
       aggregateId: orderId,
@@ -1893,6 +1907,7 @@ export async function cancelOrder(
       eventType: 'order.cancelled',
       payload: { actorEmail: meta?.actorEmail ?? null },
     });
+    await fireDueStatusReminders(tx, 'order', id, 'cancelled', id);
   });
 }
 

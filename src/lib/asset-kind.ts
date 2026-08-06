@@ -4,11 +4,13 @@ import type { OrderAssetKind } from '@/db/schema';
 export const ASSET_KIND_LABEL: Record<OrderAssetKind, string> = {
   design: 'Design',
   font: 'Font',
+  'colour-book': 'Colour book',
   other: 'Other',
 };
 
 export const ASSET_KIND_COLOR: Record<OrderAssetKind, string> = {
   design: 'geekblue',
   font: 'purple',
+  'colour-book': 'gold',
   other: 'default',
 };

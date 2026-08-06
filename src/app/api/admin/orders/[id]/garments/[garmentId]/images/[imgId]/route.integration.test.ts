@@ -46,6 +46,7 @@ import * as schema from '@/db/schema';
 import { getSession } from '@/lib/session';
 import { createOrderSchema } from '@/server/orders/contract';
 import { createOrder, addMockupImage } from '@/server/orders/service';
+import { createPurchaseOrder } from '@/server/purchase-orders/service';
 import { deleteFile } from '@/lib/storage';
 import { DELETE } from './route';
 
@@ -65,7 +66,12 @@ afterEach(async () => {
 function minimalOrderInput(overrides: Partial<Parameters<typeof createOrderSchema.parse>[0]> = {}) {
   return createOrderSchema.parse({
     customer: { name: 'Jane Coach', email: 'jane@example.com' },
-    garments: [{ name: 'Home Jersey' }],
+    garments: [
+      {
+        name: 'Home Jersey',
+        sizing: [{ size: 'M', playerName: 'Alice', playerNumber: '7' }],
+      },
+    ],
     ...overrides,
   });
 }
@@ -75,6 +81,22 @@ async function seedOrderWithImage() {
   const garment = await db.query.garments.findFirst({ where: eq(schema.garments.orderId, created.orderId) });
   const image = await addMockupImage(garment!.id, { storageKey: 'mockups/x/y/z.png' });
   return { orderId: created.orderId, garmentId: garment!.id, imgId: image.id };
+}
+
+async function seedOrderWithImageAndPo() {
+  const base = await seedOrderWithImage();
+  const [supplier] = await db
+    .insert(schema.suppliers)
+    .values({ name: 'Factory One', email: 'factory@example.com' })
+    .returning();
+
+  await createPurchaseOrder({
+    orderId: base.orderId,
+    supplierId: supplier.id,
+    garmentIds: [base.garmentId],
+  });
+
+  return base;
 }
 
 function deleteRequest() {
@@ -110,6 +132,17 @@ describe('DELETE /api/admin/orders/[id]/garments/[garmentId]/images/[imgId]', ()
     expect(row).toBeUndefined();
 
     await vi.waitFor(() => expect(deleteFile).toHaveBeenCalledWith('mockups/x/y/z.png'));
+  });
+
+  it('keeps storage when a PO revision snapshot still references the image', async () => {
+    const { orderId, garmentId, imgId } = await seedOrderWithImageAndPo();
+
+    const res = await DELETE(deleteRequest(), {
+      params: Promise.resolve({ id: orderId, garmentId, imgId }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(deleteFile).not.toHaveBeenCalled();
   });
 
   it('does not fail the request when the storage delete rejects', async () => {

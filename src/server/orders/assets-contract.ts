@@ -9,7 +9,7 @@
  */
 import { z } from 'zod';
 
-export const ORDER_ASSET_KINDS = ['design', 'font', 'other'] as const;
+export const ORDER_ASSET_KINDS = ['design', 'font', 'colour-book', 'other'] as const;
 
 /**
  * Only http(s). A `javascript:` or `data:` URL here would be rendered as a link

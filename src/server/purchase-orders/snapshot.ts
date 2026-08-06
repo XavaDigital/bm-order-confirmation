@@ -49,6 +49,26 @@ export function lineQuantity(line: { quantity?: number | null }): number {
   return line.quantity ?? 1;
 }
 
+/**
+ * The filename a garment mock-up image is attached to the PO email under —
+ * shared by the workbook's Images cell (xlsx.ts) and the email attachment
+ * builder (service.ts) so a factory can actually match one to the other.
+ * `storageKeyForExt` lets the attachment builder pass the thumbnail key when
+ * the size-budget fallback swaps in a thumbnail; the workbook (built before
+ * that decision) always uses the image's own full-resolution key.
+ */
+export function garmentImageFilename(
+  garmentName: string,
+  image: { storageKey: string; caption: string | null },
+  index: number,
+  storageKeyForExt: string = image.storageKey,
+): string {
+  const ext = storageKeyForExt.split('.').pop() ?? 'bin';
+  const caption = image.caption?.trim();
+  const base = caption ? `${garmentName}-${caption}` : `${garmentName}-${index}`;
+  return `${base}.${ext}`;
+}
+
 export interface LiveGarment {
   id: string;
   name: string;
@@ -78,6 +98,7 @@ export interface LiveGarment {
   sizing: LiveSizingRow[];
 }
 
+<<<<<<< Updated upstream
 /**
  * Chart links → the snapshot shape, dropping any dangling link rows.
  *
@@ -102,6 +123,31 @@ function toSnapshotSizeCharts(g: LiveGarment): PoSnapshotSizeChart[] {
     }))
     .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
+=======
+/** Chart links → the snapshot shape, dropping any dangling link rows. */
+function toSnapshotSizeCharts(g: LiveGarment): PoSnapshotSizeChart[] {
+  return (g.sizeChartLinks ?? [])
+    .map((link) => link.sizeChart)
+    .filter((chart): chart is NonNullable<typeof chart> => chart !== null)
+    .map((chart) => ({ id: chart.id, name: chart.name, storageKey: chart.storageKey ?? null }))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+function toSnapshotImages(g: LiveGarment): PoSnapshotImage[] {
+  return (g.images ?? []).map(
+    (img): PoSnapshotImage => ({
+      id: img.id,
+      storageKey: img.storageKey,
+      thumbnailStorageKey: img.thumbnailStorageKey ?? null,
+      caption: img.caption ?? null,
+    }),
+  );
+}
+
+function imageVarianceLabels(images: Array<{ storageKey: string; caption: string | null }>): string[] {
+  return images.map((img, i) => img.caption?.trim() || img.storageKey.split('/').pop() || `image-${i + 1}`);
+}
+>>>>>>> Stashed changes
 
 // ---------------------------------------------------------------------------
 // Snapshot build
@@ -161,14 +207,7 @@ export function buildPoSnapshot(
         selectedOptions: g.selectedOptions ?? null,
         sizingColumns: g.sizingColumns ?? [],
         sizeCharts: toSnapshotSizeCharts(g),
-        images: (g.images ?? []).map(
-          (img): PoSnapshotImage => ({
-            id: img.id,
-            storageKey: img.storageKey,
-            thumbnailStorageKey: img.thumbnailStorageKey ?? null,
-            caption: img.caption ?? null,
-          }),
-        ),
+        images: toSnapshotImages(g),
         notes: g.notes ?? null,
         lines: g.sizing.map(toSnapshotLine),
       }),
@@ -354,6 +393,17 @@ export function detectVariance(
           field: 'sizeCharts',
           from: snap.sizeCharts.map((c) => c.name),
           to: liveCharts.map((c) => c.name),
+        });
+      }
+    }
+
+    if (snap.images !== undefined) {
+      const liveImages = toSnapshotImages(live);
+      if (!jsonEqual(snap.images, liveImages)) {
+        fieldChanges.push({
+          field: 'images',
+          from: imageVarianceLabels(snap.images),
+          to: imageVarianceLabels(liveImages),
         });
       }
     }

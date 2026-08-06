@@ -851,6 +851,7 @@ describe('deleteMockupImage', () => {
     const imageId = order!.garments[0].images[0].id;
 
     const result = await deleteMockupImage(imageId);
+    expect(result.orderId).toBe(created.orderId);
     expect(result.storageKey).toBe('a.png');
 
     const remaining = await db.select().from(schema.mockupImages).where(eq(schema.mockupImages.id, imageId));

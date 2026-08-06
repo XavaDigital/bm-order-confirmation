@@ -185,8 +185,8 @@ describe('buildPoWorkbook', () => {
     expect(findRow(sheet, 'Fabrics')?.[1]).toBe('Outer Fabric: Cotton Fleece; Hood Lining: Mesh');
     expect(findRow(sheet, 'Options')?.[1]).toBe('Zip Type: pullover; Cord Color: Black');
     expect(findRow(sheet, 'Size charts')?.[1]).toBe('Adult Hoodie Chart');
-    // Captions where present, else the storage filename — never embedded.
-    expect(findRow(sheet, 'Images')?.[1]).toBe('Front mock-up, back-view.png');
+    // Filenames match what the email attaches the same image under (garmentImageFilename) — never embedded.
+    expect(findRow(sheet, 'Images')?.[1]).toBe('Home Jersey-Front mock-up.png, Home Jersey-2.png');
 
     // The typeless garment still gets its rows — a blank options map shows a
     // dash rather than the row disappearing (options must always display).
@@ -196,6 +196,38 @@ describe('buildPoWorkbook', () => {
       .slice(shortsIdx)
       .find((r) => r[0] === 'Options');
     expect(shortsOptions?.[1]).toBe('—');
+  });
+
+  it('writes a Design, font & colour-book files section with friendly type labels', async () => {
+    const withAssets = snapshot({
+      assets: [
+        {
+          kind: 'colour-book',
+          name: 'Club colour swatches',
+          usage: null,
+          url: 'https://drive.example/swatches',
+          storageKey: null,
+          notes: null,
+          garmentName: null,
+        },
+        {
+          kind: 'font',
+          name: 'Squad Numbers',
+          usage: 'playerNumber',
+          url: null,
+          storageKey: 'assets/fonts/squad.otf',
+          notes: null,
+          garmentName: 'Home Jersey',
+        },
+      ],
+    });
+    const wb = await load(await buildPoWorkbook(props({ snapshot: withAssets })));
+    const sheet = wb.getWorksheet('Purchase Order')!;
+    const all = rows(sheet);
+
+    expect(all.some((r) => r[0] === 'DESIGN, FONT & COLOUR-BOOK FILES')).toBe(true);
+    expect(all).toContainEqual(['Colour book', 'Club colour swatches', '', 'https://drive.example/swatches']);
+    expect(all).toContainEqual(['Font', 'Squad Numbers (Home Jersey)', 'playerNumber', '(attachment)']);
   });
 
   it('keeps blank option values visible as dashes in the Lines options cell', async () => {

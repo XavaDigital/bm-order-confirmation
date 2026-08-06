@@ -96,6 +96,17 @@ export const NOTIFICATION_CATALOG: readonly NotificationDefinition[] = [
     defaultRules: [],
   },
   {
+    key: 'workflow.status_reminder',
+    label: 'A conditional reminder fires',
+    description:
+      'Goes to whoever set the reminder when the order/PO reaches the status they picked ' +
+      '(e.g. "send the customer a test print for approval").',
+    eventType: 'workflow.status_reminder_due',
+    defaultEnabled: true,
+    defaultEmailEnabled: true,
+    defaultRules: [],
+  },
+  {
     key: 'po.supplier_updated',
     label: 'A supplier updates a purchase order',
     description:

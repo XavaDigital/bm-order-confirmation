@@ -320,7 +320,7 @@ export const orders = confirmation.table(
 );
 
 /** What an order asset is, so the UI can group and label the list. */
-export type OrderAssetKind = 'design' | 'font' | 'other';
+export type OrderAssetKind = 'design' | 'font' | 'colour-book' | 'other';
 
 // --- order notes (staff-only, attributed, threaded) ------------------------
 // A chat on the order — and optionally on one garment of it — rather than a
@@ -1721,6 +1721,49 @@ export const workflowReminders = confirmation.table(
       .on(t.dueAt)
       .where(sql`${t.resolvedAt} is null`),
     index('workflow_reminders_user_idx').on(t.staffUserId, t.dueAt),
+  ],
+);
+
+/**
+ * A reminder attached to ONE order or PO that fires when that job's status
+ * becomes `triggerStatus` — a conditional/checkpoint reminder, as opposed to
+ * `workflowReminders`' calendar-due-date kind. Deliberately a separate table
+ * rather than a third `ReminderKind`: `workflowReminders`' one-live-row-per
+ * -(entity,user,kind) unique index exists so re-snoozing extends in place,
+ * which would be wrong here — a job can reasonably carry several pending
+ * status reminders for different statuses at once.
+ *
+ * Fired via the outbox at the exact call sites that write `orders.status` /
+ * `purchaseOrders.status` (see `fireDueStatusReminders` in
+ * `server/workflow/status-reminders.ts`), not by a poll — so this is a
+ * one-shot, exact-status-match check: a job whose status jumps past
+ * `triggerStatus` without ever equaling it leaves the row pending until
+ * someone cancels it.
+ */
+export const workflowStatusReminders = confirmation.table(
+  'workflow_status_reminders',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    entityType: text('entity_type').notNull().$type<'order' | 'purchase_order'>(),
+    entityId: uuid('entity_id').notNull(),
+    /** An OrderStatus or PoStatus value, validated at the API layer. */
+    triggerStatus: text('trigger_status').notNull(),
+    note: text('note').notNull(),
+    createdByStaffUserId: uuid('created_by_staff_user_id')
+      .notNull()
+      .references(() => staffUsers.id, { onDelete: 'cascade' }),
+    /** Null until the trigger status is reached. */
+    firedAt: timestamp('fired_at', { withTimezone: true }),
+    /** Null while pending. Set when it fires, or when cancelled beforehand. */
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // The lookup done at fire time: live rows for this entity.
+    index('workflow_status_reminders_entity_idx')
+      .on(t.entityType, t.entityId)
+      .where(sql`${t.resolvedAt} is null`),
+    index('workflow_status_reminders_creator_idx').on(t.createdByStaffUserId, t.resolvedAt),
   ],
 );
 

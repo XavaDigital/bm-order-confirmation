@@ -133,6 +133,53 @@ describe('buildPoSnapshot — garment images (2026-08-05)', () => {
   });
 });
 
+describe('image variance', () => {
+  it('reports replaced mock-up images by caption or filename', () => {
+    const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [
+      liveGarment({
+        images: [{ id: 'img-1', storageKey: 'mockups/front-v1.png', thumbnailStorageKey: null, caption: 'Front' }],
+      }),
+    ]);
+    const live = liveGarment({
+      images: [{ id: 'img-2', storageKey: 'mockups/front-v2.png', thumbnailStorageKey: null, caption: 'Front v2' }],
+    });
+
+    const variance = detectVariance([live], snapshot);
+
+    expect(variance.hasVariance).toBe(true);
+    expect(variance.garments[0].fieldChanges).toContainEqual({
+      field: 'images',
+      from: ['Front'],
+      to: ['Front v2'],
+    });
+  });
+
+  it('does not invent variance for a snapshot that predates image capture', () => {
+    const legacy = {
+      orderNumber: 'OC-1',
+      garments: [
+        {
+          garmentId: 'g-1',
+          name: 'Team Hoodie',
+          garmentTypeId: 'type-1',
+          garmentTypeName: 'Pullover Hoodie',
+          fabrics: ['Cotton Fleece'],
+          selectedFabrics: { 'Outer Fabric': 'Cotton Fleece' },
+          selectedOptions: { 'Zip Type': 'pullover' },
+          notes: 'front print',
+          lines: [],
+        },
+      ],
+    } as PoSnapshot;
+    const live = liveGarment({
+      sizing: [],
+      images: [{ id: 'img-1', storageKey: 'mockups/front.png', thumbnailStorageKey: null, caption: 'Front' }],
+    });
+
+    expect(detectVariance([live], legacy).hasVariance).toBe(false);
+  });
+});
+
 describe('sizeSummary', () => {
   it('counts by size label per garment, bucketing null/blank sizes as (no size)', () => {
     const snapshot = buildPoSnapshot({ orderNumber: 'OC-1' }, [

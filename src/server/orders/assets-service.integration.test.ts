@@ -188,6 +188,24 @@ describe('loadPoAssets', () => {
 
     expect(await loadPoAssets(orderId)).toEqual([]);
   });
+
+  it('accepts and captures a colour-book asset', async () => {
+    const { orderId } = await seedOrder();
+    await createOrderAsset(
+      orderId,
+      createOrderAssetSchema.parse({
+        kind: 'colour-book',
+        name: 'Club colour swatches',
+        url: 'https://drive.google.com/file/d/swatches',
+        includeOnPo: true,
+      }),
+      {},
+    );
+
+    const [asset] = await loadPoAssets(orderId);
+
+    expect(asset).toMatchObject({ kind: 'colour-book', name: 'Club colour swatches' });
+  });
 });
 
 describe('reprints', () => {

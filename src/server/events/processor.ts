@@ -171,6 +171,30 @@ async function handlePoSupplierUpdatedNotification(
   }, tx);
 }
 
+async function handleStatusReminderDueNotification(
+  event: DomainEvent,
+  tx: Transaction,
+): Promise<void> {
+  const p = event.payload as {
+    entityType?: 'order' | 'purchase_order';
+    entityId?: string;
+    triggerStatus?: string;
+    note?: string;
+    staffUserId?: string;
+  };
+  if (!p.entityType || !p.entityId || !p.note || !p.staffUserId) return;
+
+  await dispatchNotification('workflow.status_reminder', {
+    dedupeKey: event.id,
+    entityType: p.entityType,
+    entityId: p.entityId,
+    title: `Reminder: ${p.note}`,
+    body: p.triggerStatus ? `Reached status "${p.triggerStatus}".` : null,
+    href: `/admin/orders/${event.aggregateId}?tab=checklist`,
+    forceRecipientIds: [p.staffUserId],
+  }, tx);
+}
+
 /** Stage name for the message, falling back to the slug if it has been removed. */
 async function stageDisplayName(
   boardKey: 'order' | 'purchase_order',
@@ -278,6 +302,7 @@ const EVENT_HANDLERS: Record<string, EventHandler[]> = {
   'order.note_updated': [handleHubNoteTimelinePush],
   'order.note_deleted': [handleHubNoteTimelinePush],
   'workflow.stage_entered': [handleStageEnteredNotification],
+  'workflow.status_reminder_due': [handleStatusReminderDueNotification],
   'po.sent': [handlePoSentNotification, handleHubOrderIndexSync],
   'po.supplier_updated': [handlePoSupplierUpdatedNotification, handleHubOrderIndexSync],
   // Chip-affecting events with no other handler.
