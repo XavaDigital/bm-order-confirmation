@@ -1,6 +1,6 @@
-ALTER TABLE "confirmation"."po_checklist_completions" ADD COLUMN "sidestepped" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE "confirmation"."po_checklist_completions" ADD COLUMN "sidestep_reason" text;--> statement-breakpoint
-ALTER TABLE "confirmation"."po_checklist_items" ADD COLUMN "allow_sidestep" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "confirmation"."po_checklist_completions" ADD COLUMN IF NOT EXISTS "sidestepped" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "confirmation"."po_checklist_completions" ADD COLUMN IF NOT EXISTS "sidestep_reason" text;--> statement-breakpoint
+ALTER TABLE "confirmation"."po_checklist_items" ADD COLUMN IF NOT EXISTS "allow_sidestep" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 -- ---------------------------------------------------------------------------
 -- Hand-appended (David, 2026-08-06):
 -- 1. The PO's REVIEW stage — the value stays `approved` (pg enum values cannot

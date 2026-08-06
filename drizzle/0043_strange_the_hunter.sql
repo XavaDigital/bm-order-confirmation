@@ -1,4 +1,4 @@
-CREATE TABLE "confirmation"."automation_rules" (
+CREATE TABLE IF NOT EXISTS "confirmation"."automation_rules" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"name" text NOT NULL,
 	"trigger" text NOT NULL,
@@ -11,5 +11,7 @@ CREATE TABLE "confirmation"."automation_rules" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "confirmation"."automation_rules" ADD CONSTRAINT "automation_rules_created_by_staff_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "confirmation"."staff_users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "automation_rules_trigger_idx" ON "confirmation"."automation_rules" USING btree ("trigger","is_active");
+DO $$ BEGIN
+ ALTER TABLE "confirmation"."automation_rules" ADD CONSTRAINT "automation_rules_created_by_staff_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "confirmation"."staff_users"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "automation_rules_trigger_idx" ON "confirmation"."automation_rules" USING btree ("trigger","is_active");
