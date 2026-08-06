@@ -98,7 +98,6 @@ export interface LiveGarment {
   sizing: LiveSizingRow[];
 }
 
-<<<<<<< Updated upstream
 /**
  * Chart links → the snapshot shape, dropping any dangling link rows.
  *
@@ -123,15 +122,7 @@ function toSnapshotSizeCharts(g: LiveGarment): PoSnapshotSizeChart[] {
     }))
     .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
-=======
-/** Chart links → the snapshot shape, dropping any dangling link rows. */
-function toSnapshotSizeCharts(g: LiveGarment): PoSnapshotSizeChart[] {
-  return (g.sizeChartLinks ?? [])
-    .map((link) => link.sizeChart)
-    .filter((chart): chart is NonNullable<typeof chart> => chart !== null)
-    .map((chart) => ({ id: chart.id, name: chart.name, storageKey: chart.storageKey ?? null }))
-    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-}
+
 
 function toSnapshotImages(g: LiveGarment): PoSnapshotImage[] {
   return (g.images ?? []).map(
@@ -147,7 +138,6 @@ function toSnapshotImages(g: LiveGarment): PoSnapshotImage[] {
 function imageVarianceLabels(images: Array<{ storageKey: string; caption: string | null }>): string[] {
   return images.map((img, i) => img.caption?.trim() || img.storageKey.split('/').pop() || `image-${i + 1}`);
 }
->>>>>>> Stashed changes
 
 // ---------------------------------------------------------------------------
 // Snapshot build

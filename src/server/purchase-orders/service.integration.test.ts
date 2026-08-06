@@ -71,6 +71,17 @@ async function seedStaffUser(email = 'sam@example.com') {
   return user;
 }
 
+/** Tick every active 0041 pre-send checklist item — sends are gated on it. */
+async function satisfyPoChecklist(poId: string) {
+  const items = await db.query.poChecklistItems.findMany({
+    where: eq(schema.poChecklistItems.isActive, true),
+  });
+  if (items.length === 0) return;
+  await db.insert(schema.poChecklistCompletions).values(
+    items.map((item) => ({ poId, itemId: item.id, checkedByEmail: 'seed@example.com' })),
+  );
+}
+
 /** Order with two garments: Hoodie (2 sizing rows) + Shorts (1 sizing row). */
 async function seedOrder(customerName = 'Jane Coach') {
   const created = await createOrder(
@@ -395,17 +406,6 @@ describe('updatePurchaseOrderStatus', () => {
 describe('sendPurchaseOrder', () => {
   const renderPdf = async () => Buffer.from('%PDF-fake');
 
-  /** Tick every active 0041 pre-send checklist item — sends are gated on it. */
-  async function satisfyPoChecklist(poId: string) {
-    const items = await db.query.poChecklistItems.findMany({
-      where: eq(schema.poChecklistItems.isActive, true),
-    });
-    if (items.length === 0) return;
-    await db.insert(schema.poChecklistCompletions).values(
-      items.map((item) => ({ poId, itemId: item.id, checkedByEmail: 'seed@example.com' })),
-    );
-  }
-
   async function seedSendablePo() {
     const supplier = await seedSupplier({ email: 'factory@example.com' });
     const { orderId, garments } = await seedOrder();
@@ -578,6 +578,8 @@ describe('sendPurchaseOrder — attachments', () => {
       supplierId: supplier.id,
       garmentIds: [hoodie.id],
     });
+    // The 0041 pre-send checklist gates every send (David, 2026-08-06).
+    await satisfyPoChecklist(po.id);
     await db.update(schema.workflowStageTasks).set({ isActive: false });
     await updatePurchaseOrderStatus(po.id, 'approved');
 
@@ -627,6 +629,14 @@ describe('sendPurchaseOrder — attachments', () => {
   it('tells staff to issue a revision when the live order has replacement mock-ups', async () => {
     const { po, hoodie } = await seedSendablePoWithFiles();
 
+    // The guard protects a SENT PO, whose snapshot is frozen. Send once first:
+    // before the first send the snapshot deliberately tracks the live order
+    // (David, 2026-08-06 — drafts refresh instead of going stale), so a
+    // replaced mock-up on an unsent PO simply refreshes in and never strands
+    // the send.
+    await sendPurchaseOrder(po.id, {}, renderPdf);
+    sendSupplierPoEmailMock.mockClear();
+
     await db.delete(schema.mockupImages).where(eq(schema.mockupImages.garmentId, hoodie.id));
     await db.insert(schema.mockupImages).values({
       garmentId: hoodie.id,
@@ -644,6 +654,32 @@ describe('sendPurchaseOrder — attachments', () => {
       /issue a revision before sending/,
     );
     expect(sendSupplierPoEmailMock).not.toHaveBeenCalled();
+  });
+
+  // The other half of that rule, now that drafts refresh: an UNSENT po with a
+  // replaced mock-up re-cuts its snapshot at send and goes out cleanly.
+  it('refreshes a replaced mock-up into an unsent PO instead of demanding a revision', async () => {
+    const { po, hoodie } = await seedSendablePoWithFiles();
+
+    await db.delete(schema.mockupImages).where(eq(schema.mockupImages.garmentId, hoodie.id));
+    await db.insert(schema.mockupImages).values({
+      garmentId: hoodie.id,
+      storageKey: 'mockups/hoodie-front-replacement.png',
+      thumbnailStorageKey: null,
+      caption: 'Front v2',
+    });
+
+    await expect(sendPurchaseOrder(po.id, {}, renderPdf)).resolves.toMatchObject({
+      poNumber: po.poNumber,
+    });
+    const revisions = await db.query.purchaseOrderRevisions.findMany({
+      where: eq(schema.purchaseOrderRevisions.poId, po.id),
+    });
+    // Refreshed in place — still one revision, now naming the replacement.
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0].snapshot.garments[0].images?.[0].storageKey).toBe(
+      'mockups/hoodie-front-replacement.png',
+    );
   });
 });
 

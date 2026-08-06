@@ -1,6 +1,6 @@
 {
-  "id": "e8854f48-99d4-4a64-8c66-9be6a79767eb",
-  "prevId": "2f18193d-dbc3-4708-ba3c-364d98b18cae",
+  "id": "9ad4eb29-279b-47d1-96ec-4abe4e90f6cd",
+  "prevId": "461f1d7a-ed72-4d73-a7e6-7739d70dcfcc",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -431,6 +431,122 @@
           "schemaTo": "confirmation",
           "columnsFrom": [
             "actor_staff_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "confirmation.automation_rules": {
+      "name": "automation_rules",
+      "schema": "confirmation",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trigger": {
+          "name": "trigger",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trigger_config": {
+          "name": "trigger_config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action_config": {
+          "name": "action_config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "automation_rules_trigger_idx": {
+          "name": "automation_rules_trigger_idx",
+          "columns": [
+            {
+              "expression": "trigger",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "is_active",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "automation_rules_created_by_staff_users_id_fk": {
+          "name": "automation_rules_created_by_staff_users_id_fk",
+          "tableFrom": "automation_rules",
+          "tableTo": "staff_users",
+          "schemaTo": "confirmation",
+          "columnsFrom": [
+            "created_by"
           ],
           "columnsTo": [
             "id"
@@ -1657,6 +1773,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "internal_only": {
+          "name": "internal_only",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "sort_order": {
           "name": "sort_order",
@@ -2927,6 +3050,197 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "confirmation.po_checklist_completions": {
+      "name": "po_checklist_completions",
+      "schema": "confirmation",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "po_id": {
+          "name": "po_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checked_by_email": {
+          "name": "checked_by_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checked_at": {
+          "name": "checked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "sidestepped": {
+          "name": "sidestepped",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "sidestep_reason": {
+          "name": "sidestep_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "po_checklist_completions_po_item_uq": {
+          "name": "po_checklist_completions_po_item_uq",
+          "columns": [
+            {
+              "expression": "po_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "item_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "po_checklist_completions_po_id_purchase_orders_id_fk": {
+          "name": "po_checklist_completions_po_id_purchase_orders_id_fk",
+          "tableFrom": "po_checklist_completions",
+          "tableTo": "purchase_orders",
+          "schemaTo": "confirmation",
+          "columnsFrom": [
+            "po_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "po_checklist_completions_item_id_po_checklist_items_id_fk": {
+          "name": "po_checklist_completions_item_id_po_checklist_items_id_fk",
+          "tableFrom": "po_checklist_completions",
+          "tableTo": "po_checklist_items",
+          "schemaTo": "confirmation",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "confirmation.po_checklist_items": {
+      "name": "po_checklist_items",
+      "schema": "confirmation",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "auto_rule": {
+          "name": "auto_rule",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "allow_sidestep": {
+          "name": "allow_sidestep",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "po_checklist_items_active_idx": {
+          "name": "po_checklist_items_active_idx",
+          "columns": [
+            {
+              "expression": "is_active",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "sort_order",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "confirmation.po_files": {
       "name": "po_files",
       "schema": "confirmation",
@@ -3359,6 +3673,12 @@
         },
         "color_book_name": {
           "name": "color_book_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "customer_ref": {
+          "name": "customer_ref",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -4327,6 +4647,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'customer'"
         },
         "sizes": {
           "name": "sizes",

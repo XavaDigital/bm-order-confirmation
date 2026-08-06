@@ -35,16 +35,12 @@ import { generateAccessCode, hashAccessCode } from '@/lib/access-code';
 import { STALE_THRESHOLD_DAYS } from '@/lib/config';
 import { env } from '@/lib/env';
 import { emitOrderEvent, recordAuditEvent } from '@/server/events/outbox';
-<<<<<<< Updated upstream
+import { fireDueStatusReminders } from '@/server/workflow/status-reminders';
 import {
   missingRequiredOptions,
   resolveVisibleOptions,
   typeOptionDefaults,
 } from '@/server/garment-types/visibility';
-=======
-import { fireDueStatusReminders } from '@/server/workflow/status-reminders';
-import { resolveVisibleOptions, typeOptionDefaults } from '@/server/garment-types/visibility';
->>>>>>> Stashed changes
 import { canTransitionOrder, explainOrderTransition } from './status-machine';
 import type { OrderStatus } from '@/lib/status';
 import type { CreateOrderInput } from './contract';
