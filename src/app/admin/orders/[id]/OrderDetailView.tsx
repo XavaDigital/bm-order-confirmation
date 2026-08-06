@@ -143,6 +143,15 @@ export interface AdminOrderData {
 
 const CANCELLABLE_STATUSES = new Set(['sent', 'viewed', 'changes_requested']);
 
+/**
+ * Card titles step above the content they introduce (David, 2026-08-06 round
+ * three) — "Customer" must visibly outrank the names inside it. Mirrors
+ * CARD_STYLES on the PO detail page; keep the two in step.
+ */
+const CARD_STYLES: { header: React.CSSProperties } = {
+  header: { fontSize: 16, fontWeight: 600 },
+};
+
 interface Props {
   order: AdminOrderData;
   /** Signed-in staff user — authors may edit/delete their own notes. */
@@ -366,10 +375,14 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
   // stacked inside the Notes tab when narrow. Never both at once.
   const notesCards = (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Card title="Order notes" size="small">
+      <Card title="Order notes" size="small" styles={CARD_STYLES}>
         <OrderNotesPanel orderId={order.id} currentUserId={currentUserId} isAdmin={isAdmin} />
       </Card>
-      <Card title={noteCount === null ? 'Comments' : `Comments (${noteCount})`} size="small">
+      <Card
+        title={noteCount === null ? 'Comments' : `Comments (${noteCount})`}
+        size="small"
+        styles={CARD_STYLES}
+      >
         {notesThread}
       </Card>
     </Space>
@@ -445,7 +458,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
               "order name would be in a section, then a customer section, then
               an order details section — our titles are more obvious because
               they're a card title." */}
-          <Card title="Order name" size="small">
+          <Card title="Order name" size="small" styles={CARD_STYLES}>
             <Input
               placeholder="Order name — e.g. Winter hoodies 2026"
               value={orderName}
@@ -454,7 +467,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
             />
           </Card>
 
-          <Card title="Customer" size="small">
+          <Card title="Customer" size="small" styles={CARD_STYLES}>
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
               {/* Renders nothing unless the Sales Hub integration is configured */}
               <CustomerHubSelect
@@ -490,7 +503,7 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
             </Space>
           </Card>
 
-          <Card title="Order details" size="small">
+          <Card title="Order details" size="small" styles={CARD_STYLES}>
             <OrderForm
               form={form}
               initialValues={initialValues}
@@ -680,9 +693,9 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
   ));
 
   return (
-    // No maximum width (David, 2026-08-06): the PO page's pattern — a fluid
-    // main column plus a fixed-width rail — replaces the old 1200px cap that
-    // cramped big screens, especially the garments sizing table.
+    // The header spreads freely; the two-column row below caps itself at
+    // 1600px (David, 2026-08-06 round three) — the old 1200px page cap that
+    // cramped big screens, especially the garments sizing table, stays gone.
     <div>
       <Breadcrumb
         style={{ marginBottom: 16 }}
@@ -859,10 +872,15 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
           </div>
         </Card>
       ) : (
-        // Two-column layout matching the PO page (David, 2026-08-06): a fluid
-        // main column plus a sticky right rail of cards carrying the order
-        // notes and comments alongside whatever section is open.
-        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        // Two-column layout matching the PO page (David, 2026-08-06 round
+        // three): the row spreads to 1600px — a fluid main column plus a
+        // sticky right rail of cards (order notes + comments) pinned to the
+        // row's right edge. Same wrapper values as PoDetailView — keep the
+        // two pages in step.
+        <div
+          data-testid="detail-layout"
+          style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap', maxWidth: 1600 }}
+        >
           <div style={{ flex: '1 1 640px', minWidth: 0 }}>
             <Card styles={{ body: { padding: 0 } }}>
               <div style={{ display: 'flex', alignItems: 'stretch', minHeight: 480 }}>

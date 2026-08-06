@@ -206,6 +206,80 @@ afterEach(() => {
 });
 
 describe('PoDetailView', () => {
+  // David's 2026-08-06 round-three layout: the two-column row spreads to
+  // 1600px with a fluid main column (rail pinned right), garment details are
+  // genuinely two-column, and the type hierarchy steps garment name > card
+  // titles > section labels. Mirrored on OrderDetailView.
+  describe('layout (round three)', () => {
+    it('caps the two-column row at 1600px with a fluid main column', async () => {
+      installMockFetch(baseRoutes());
+      renderView();
+      await screen.findByText('PO-2607-VA01-JANECOACH');
+
+      const layout = screen.getByTestId('detail-layout');
+      expect(layout).toHaveStyle({ maxWidth: '1600px' });
+      // The main column flexes to fill — the old 1100px cap is gone.
+      expect(layout.firstElementChild).not.toHaveStyle({ maxWidth: '1100px' });
+    });
+
+    it('renders Fabrics and Options as two columns with fabric entries stacked one per line', async () => {
+      const snap = snapshot();
+      snap.garments[0] = {
+        ...snap.garments[0],
+        selectedFabrics: { Body: 'Dri-fit', Hood: 'Cotton fleece' },
+        selectedOptions: { Collar: 'V-neck' },
+      } as unknown as (typeof snap.garments)[0];
+      installMockFetch(
+        baseRoutes(
+          detail({
+            revisions: [
+              {
+                id: 'rev-1',
+                revisionNumber: 1,
+                reason: null,
+                snapshot: snap,
+                createdAt: '2026-07-18T10:00:00Z',
+              },
+            ],
+          }),
+        ),
+      );
+      renderView();
+
+      expect(await screen.findByText('Fabrics')).toBeInTheDocument();
+      // ONE grid holds both sections — Fabrics left, Options right.
+      const columns = screen.getByTestId('garment-details-g1');
+      expect(columns).toHaveStyle({ display: 'grid' });
+      expect(within(columns).getByText('Fabrics')).toBeInTheDocument();
+      expect(within(columns).getByText('Options')).toBeInTheDocument();
+      // The two fabrics stack within the Fabrics section, one per line.
+      expect(screen.getByText('Body: Dri-fit')).toHaveStyle({ display: 'block' });
+      expect(screen.getByText('Hood: Cotton fleece')).toHaveStyle({ display: 'block' });
+    });
+
+    it('steps the type hierarchy: garment name, then card titles, then section labels', async () => {
+      installMockFetch(baseRoutes());
+      renderView();
+
+      // The garment NAME dominates its section (17px/700). Text strong nests
+      // a <strong>; the inline style sits on the outer typography span.
+      const name = await screen.findByText('Team Hoodie');
+      expect(name.closest('.ant-typography')).toHaveStyle({
+        fontSize: '17px',
+        fontWeight: '700',
+      });
+      // ...card titles outrank the text inside them (16px/600)...
+      for (const title of ['Summary', 'Dates', 'Shipments', 'Internal order notes', 'Comments']) {
+        expect(screen.getByText(title).closest('.ant-card-head')).toHaveStyle({
+          fontSize: '16px',
+          fontWeight: '600',
+        });
+      }
+      // ...and section labels carry the faint underline capped at half width.
+      expect(screen.getByText('Sizing').closest('div')).toHaveStyle({ maxWidth: '50%' });
+    });
+  });
+
   it('renders the header with PO number, status badge, revision tag and actions', async () => {
     installMockFetch(baseRoutes());
     renderView();

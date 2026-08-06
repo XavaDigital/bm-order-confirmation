@@ -205,6 +205,9 @@ export function PoFilesCard({ poId, items, loadError, onChanged }: PoFilesCardPr
     <Card
       title="Production files"
       size="small"
+      // Same card-title bump as PoDetailView's CARD_STYLES (16px/600) — the
+      // page can't reach into this component's Card, so it carries its own.
+      styles={{ header: { fontSize: 16, fontWeight: 600 } }}
       extra={
         <a href={`/api/admin/purchase-orders/${poId}/files.zip`}>
           <Button size="small" icon={<DownloadOutlined />} disabled={(items ?? []).length === 0}>

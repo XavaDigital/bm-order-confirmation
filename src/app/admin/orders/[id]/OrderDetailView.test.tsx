@@ -161,9 +161,25 @@ describe('OrderDetailView', () => {
       ).toBeTruthy();
     });
 
-    it('no longer caps the page width — the main column is fluid', () => {
+    it('caps the two-column row at 1600px with a fluid main column (round three)', () => {
       const { container } = renderView(baseOrder());
+      // The old page-level 1200px cap stays gone...
       expect(container.firstElementChild).not.toHaveStyle({ maxWidth: '1200px' });
+      // ...the cap lives on the two-column row instead, same as the PO page.
+      const layout = screen.getByTestId('detail-layout');
+      expect(layout).toHaveStyle({ maxWidth: '1600px' });
+      expect(layout.firstElementChild).not.toHaveStyle({ maxWidth: '1100px' });
+    });
+
+    it('bumps the section and rail card titles above their content (16px/600)', () => {
+      renderView(baseOrder());
+
+      for (const title of ['Order name', 'Customer', 'Order details', 'Order notes', 'Comments']) {
+        expect(screen.getByText(title).closest('.ant-card-head')).toHaveStyle({
+          fontSize: '16px',
+          fontWeight: '600',
+        });
+      }
     });
   });
 

@@ -8,10 +8,11 @@
  * link + password, the latest-revision line tables with per-garment sections,
  * revision + audit history, and shipments.
  *
- * Layout (David, 2026-08-06): the form column is capped at ~1100px with a
- * sticky right rail holding the order notes and supplier comments (a checklist
- * card will land above them later). The header leads with the DISPLAY title
- * (poDisplayTitle) — poNumber stays the canonical identity everywhere else.
+ * Layout (David, 2026-08-06 round three): a two-column row capped at 1600px —
+ * fluid form column, sticky right rail (order notes + supplier comments,
+ * ~360-400px, pinned to the row's right edge; a checklist card will land above
+ * them later). The header leads with the DISPLAY title (poDisplayTitle) —
+ * poNumber stays the canonical identity everywhere else.
  *
  * Data: the client loads GET /api/admin/purchase-orders/[id] for the PO
  * itself, and sources VARIANCE from the parent order's production-summary
@@ -211,24 +212,29 @@ interface ProductionSummary {
 const dash = <Text type="secondary">—</Text>;
 
 /**
- * Heading for the per-garment snapshot sections (David, 2026-08-06 round two:
- * an UNDERLINE beneath the title, not a rule running off to the side) — a
- * slightly larger small-caps label with a border-bottom hugging the text, so
- * Fabrics / Options / Size charts / Images / Sizing clearly differ from the
- * body text under them.
+ * Heading for the per-garment snapshot sections (David, 2026-08-06 round
+ * three): the underline is a FAINT rule (the theme's split colour, not the
+ * border colour) that runs under the text and on across the section, capped at
+ * half the section's width — an underline, not a divider crossing the whole
+ * card.
  */
 function SnapshotSectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ margin: '12px 0 6px' }}>
+    <div
+      style={{
+        margin: '12px 0 6px',
+        width: '100%',
+        maxWidth: '50%',
+        paddingBottom: 3,
+        borderBottom: '1px solid var(--ant-color-split, rgba(128, 128, 128, 0.2))',
+      }}
+    >
       <Text
         style={{
-          display: 'inline-block',
           fontSize: 13,
           fontWeight: 600,
           textTransform: 'uppercase',
           letterSpacing: 0.8,
-          paddingBottom: 3,
-          borderBottom: '2px solid var(--ant-color-border, #d9d9d9)',
         }}
       >
         {children}
@@ -238,14 +244,32 @@ function SnapshotSectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Fabrics/Options detail pairs render TWO-UP on wide screens (David,
- * 2026-08-06: "the lines have just gone all the way across") — auto-fill grid
- * so narrow rails still collapse to one column.
+ * Each garment's details are a genuine TWO-COLUMN block (David, 2026-08-06
+ * round three): Fabrics on the left, Options on the right, collapsing to one
+ * column when the main column is narrow. Size charts / Images / Sizing stay
+ * full-width below.
  */
-const DETAIL_GRID_STYLE: React.CSSProperties = {
+const DETAIL_COLUMNS_STYLE: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-  gap: '2px 32px',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+  gap: '0 32px',
+  alignItems: 'start',
+};
+
+/** Entries within Fabrics/Options STACK one per line, never wrap across. */
+const STACKED_ENTRY_STYLE: React.CSSProperties = {
+  display: 'block',
+  fontSize: 13,
+  marginBottom: 2,
+};
+
+/**
+ * Card titles step above the content they introduce (David, round three) —
+ * "Summary" must visibly outrank the supplier name inside it, "Dates" its
+ * field labels. Mirrored on the order detail page; keep the two in step.
+ */
+const CARD_STYLES: { header: React.CSSProperties } = {
+  header: { fontSize: 16, fontWeight: 600 },
 };
 
 /**
@@ -910,14 +934,19 @@ export function PoDetailView({ poId }: { poId: string }) {
         />
       )}
 
-      {/* Two-column layout (David, 2026-08-06): the working form capped at
-          ~1100px, plus a sticky right rail carrying the reference material
-          (order notes + supplier comments) that should stay alongside while
-          scrolling the form. */}
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-      <div style={{ flex: '1 1 640px', maxWidth: 1100, minWidth: 0 }}>
+      {/* Two-column layout (David, 2026-08-06 round three): the row spreads to
+          1600px — the main column FLUID (the old 1100px cap left dead space
+          between the columns on big screens), the sticky right rail of
+          reference material (order notes + supplier comments) pinned to the
+          row's right edge. Same wrapper values as OrderDetailView — keep the
+          two pages in step. */}
+      <div
+        data-testid="detail-layout"
+        style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap', maxWidth: 1600 }}
+      >
+      <div style={{ flex: '1 1 640px', minWidth: 0 }}>
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        <Card title="Summary" size="small">
+        <Card title="Summary" size="small" styles={CARD_STYLES}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
             <div>
               <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
@@ -997,7 +1026,7 @@ export function PoDetailView({ poId }: { poId: string }) {
 
         {/* The dates sit together just above the line items (David, 2026-08-06:
             "so we can copy things across as needed without scrolling"). */}
-        <Card title="Dates" size="small">
+        <Card title="Dates" size="small" styles={CARD_STYLES}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
             <div>
               <Text strong style={{ display: 'block', marginBottom: 4 }}>
@@ -1052,6 +1081,7 @@ export function PoDetailView({ poId }: { poId: string }) {
         <Card
           title={`Lines — revision ${latest.revisionNumber}`}
           size="small"
+          styles={CARD_STYLES}
           extra={
             <Space size={12}>
               {/* Unsent POs re-cut their snapshot from the live order in place
@@ -1090,7 +1120,9 @@ export function PoDetailView({ poId }: { poId: string }) {
               return (
                 <div key={g.garmentId}>
                   <div style={{ marginBottom: 4 }}>
-                    <Text strong style={{ fontSize: 15 }}>
+                    {/* The garment NAME leads the hierarchy (David, round
+                        three): clearly larger than the section labels below. */}
+                    <Text strong style={{ fontSize: 17, fontWeight: 700 }}>
                       {g.name}
                     </Text>
                     {g.garmentTypeName && (
@@ -1099,33 +1131,35 @@ export function PoDetailView({ poId }: { poId: string }) {
                       </Text>
                     )}
                   </div>
-                  {(fabricPairs.length > 0 || g.fabrics.length > 0) && (
-                    <>
-                      <SnapshotSectionLabel>Fabrics</SnapshotSectionLabel>
-                      {fabricPairs.length > 0 ? (
-                        <div style={DETAIL_GRID_STYLE}>
-                          {fabricPairs.map(([part, fabric]) => (
-                            <Text key={part} style={{ fontSize: 13 }}>
-                              {`${part}: ${fabric}`}
+                  {(fabricPairs.length > 0 || g.fabrics.length > 0 || optionPairs.length > 0) && (
+                    <div style={DETAIL_COLUMNS_STYLE} data-testid={`garment-details-${g.garmentId}`}>
+                      {(fabricPairs.length > 0 || g.fabrics.length > 0) && (
+                        <div>
+                          <SnapshotSectionLabel>Fabrics</SnapshotSectionLabel>
+                          {fabricPairs.length > 0
+                            ? fabricPairs.map(([part, fabric]) => (
+                                <Text key={part} style={STACKED_ENTRY_STYLE}>
+                                  {`${part}: ${fabric}`}
+                                </Text>
+                              ))
+                            : g.fabrics.map((fabric) => (
+                                <Text key={fabric} style={STACKED_ENTRY_STYLE}>
+                                  {fabric}
+                                </Text>
+                              ))}
+                        </div>
+                      )}
+                      {optionPairs.length > 0 && (
+                        <div>
+                          <SnapshotSectionLabel>Options</SnapshotSectionLabel>
+                          {optionPairs.map(([label, value]) => (
+                            <Text key={label} style={STACKED_ENTRY_STYLE}>
+                              {`${label}: ${value}`}
                             </Text>
                           ))}
                         </div>
-                      ) : (
-                        <Text style={{ fontSize: 13 }}>{g.fabrics.join(', ')}</Text>
                       )}
-                    </>
-                  )}
-                  {optionPairs.length > 0 && (
-                    <>
-                      <SnapshotSectionLabel>Options</SnapshotSectionLabel>
-                      <div style={DETAIL_GRID_STYLE}>
-                        {optionPairs.map(([label, value]) => (
-                          <Text key={label} style={{ fontSize: 13 }}>
-                            {`${label}: ${value}`}
-                          </Text>
-                        ))}
-                      </div>
-                    </>
+                    </div>
                   )}
                   {charts.length > 0 && (
                     <>
@@ -1276,7 +1310,7 @@ export function PoDetailView({ poId }: { poId: string }) {
         <PoFilesCard poId={poId} items={files} loadError={filesError} onChanged={reloadFiles} />
 
         {(latest.snapshot.assets ?? []).length > 0 && (
-          <Card title="Design files" size="small">
+          <Card title="Design files" size="small" styles={CARD_STYLES}>
             <Space direction="vertical" size={10} style={{ width: '100%' }}>
               {latest.snapshot.assets!.map((asset, i) => {
                 // Signed here by the GET route (the stored snapshot only ever
@@ -1316,7 +1350,7 @@ export function PoDetailView({ poId }: { poId: string }) {
           </Card>
         )}
 
-        <Card title="Shipments" size="small">
+        <Card title="Shipments" size="small" styles={CARD_STYLES}>
           {detail.shipments.length > 0 ? (
             <Space direction="vertical" size={8} style={{ width: '100%' }}>
               {detail.shipments.map((s) => (
@@ -1334,7 +1368,7 @@ export function PoDetailView({ poId }: { poId: string }) {
           )}
         </Card>
 
-        <Card title="Supplier Portal" size="small">
+        <Card title="Supplier Portal" size="small" styles={CARD_STYLES}>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
               The supplier&apos;s permanent link to this purchase order — view the latest
@@ -1431,7 +1465,7 @@ export function PoDetailView({ poId }: { poId: string }) {
         {/* Hidden while draft/approved (David, 2026-08-06: no revision noise
             before sending) — appears from 'sent' onward. */}
         {showRevisionHistory && (
-        <Card title="Revision history" size="small">
+        <Card title="Revision history" size="small" styles={CARD_STYLES}>
           <Timeline
             items={detail.revisions.map((r) => ({
               key: r.id,
@@ -1459,7 +1493,7 @@ export function PoDetailView({ poId }: { poId: string }) {
         </Card>
         )}
 
-        <Card title="History" size="small">
+        <Card title="History" size="small" styles={CARD_STYLES}>
           {detail.history.length === 0 ? (
             <Text type="secondary">Nothing recorded yet.</Text>
           ) : (
@@ -1516,7 +1550,7 @@ export function PoDetailView({ poId }: { poId: string }) {
 
           {/* Retitled from "Order notes (from the order)" (David, 2026-08-06)
               and given a composer — production points can be added right here. */}
-          <Card title="Internal order notes" size="small">
+          <Card title="Internal order notes" size="small" styles={CARD_STYLES}>
             <Space direction="vertical" size={10} style={{ width: '100%' }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 The team&apos;s order notes, brought through so production can check every point
@@ -1566,7 +1600,7 @@ export function PoDetailView({ poId }: { poId: string }) {
           {/* One chronological stream of shared comments AND production-file
               uploads (David, 2026-08-06) — mirrors the supplier's activity
               feed, image files rendering as inline thumbnails. */}
-          <Card title="Comments" size="small">
+          <Card title="Comments" size="small" styles={CARD_STYLES}>
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 The conversation shared with the supplier on their portal — comments and file
