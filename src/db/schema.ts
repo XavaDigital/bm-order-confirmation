@@ -291,6 +291,22 @@ export const orders = confirmation.table(
       .notNull()
       .$onUpdate(() => new Date()),
     confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    /**
+     * Re-confirmation (David, 2026-08-07) — a FLAG, not a status. The order
+     * stays `confirmed`: what changed is whose court the ball is in, exactly
+     * like `purchase_orders.awaiting_approval_at`. A new status would have to
+     * be taught to every outbox consumer, the board, the fleet index and the
+     * status machine, to express something none of them act on differently.
+     *
+     * Set when staff ask the customer to agree to the edited order; cleared
+     * when they do. Whether the order HAS drifted is derived by comparing it to
+     * the last confirmation (see orders/reconfirmation.ts) — this records only
+     * that we asked.
+     */
+    reconfirmRequestedAt: timestamp('reconfirm_requested_at', { withTimezone: true }),
+    reconfirmRequestedBy: text('reconfirm_requested_by'),
+    /** Staff's covering note to the customer: what changed and why. */
+    reconfirmRequestedNote: text('reconfirm_requested_note'),
   },
   (t) => [
     uniqueIndex('orders_external_ref_uq')
@@ -883,8 +899,16 @@ export const confirmations = confirmation.table('confirmations', {
   id: uuid('id').defaultRandom().primaryKey(),
   orderId: uuid('order_id')
     .notNull()
-    .references(() => orders.id, { onDelete: 'cascade' })
-    .unique(),
+    .references(() => orders.id, { onDelete: 'cascade' }),
+  /**
+   * Which time the customer agreed (David, 2026-08-07). Was one row per order
+   * until re-confirmation existed; an edited order can now be re-agreed, and
+   * each agreement keeps its OWN immutable snapshot — overwriting the first
+   * would destroy the record of what was originally signed, which is the whole
+   * point of the table. Readers wanting "the agreement in force" must take the
+   * HIGHEST revision, never `findFirst`.
+   */
+  revision: integer('revision').notNull().default(1),
   signatureType: signatureType('signature_type').notNull().default('none'),
   signatureStorageKey: text('signature_storage_key'),
   // IMMUTABLE copy of the order as shown at confirmation — including the NAME of
@@ -896,7 +920,7 @@ export const confirmations = confirmation.table('confirmations', {
   confirmedAt: timestamp('confirmed_at', { withTimezone: true }).defaultNow().notNull(),
   ipAddress: inet('ip_address'),
   userAgent: text('user_agent'),
-});
+}, (t) => [uniqueIndex('confirmations_order_revision_uq').on(t.orderId, t.revision)]);
 
 // --- Google Ads conversion events -----------------------------------------
 export const conversionEvents = confirmation.table(
@@ -1314,7 +1338,9 @@ export const poChecklistItems = confirmation.table(
      * Vocabulary is code (evaluated in checklist-service) — adding a rule is
      * a deploy, adding an ITEM is config.
      */
-    autoRule: text('auto_rule').$type<'design_file_attached' | 'color_book_set'>(),
+    autoRule: text('auto_rule').$type<
+      'design_file_attached' | 'color_book_set' | 'customer_confirmed_current_version'
+    >(),
     /**
      * May this check be SIDESTEPPED (David, 2026-08-06)? A sidestep is not a
      * silent skip: it demands an explicit acknowledgement with a reason,

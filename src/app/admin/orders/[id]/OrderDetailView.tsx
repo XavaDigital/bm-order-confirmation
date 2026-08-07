@@ -60,6 +60,7 @@ import { ProductionPanel } from '@/components/admin/orders/ProductionPanel';
 import { OrderAssetsPanel } from '@/components/admin/orders/OrderAssetsPanel';
 import { DesignProjectLinkControl } from '@/components/admin/orders/DesignProjectLinkControl';
 import { NotesThread } from '@/components/admin/orders/NotesThread';
+import { ReconfirmationBanner } from '@/components/admin/orders/ReconfirmationBanner';
 import { StageChecklist } from '@/components/admin/workflow/StageChecklist';
 import { ConditionalReminders } from '@/components/admin/workflow/ConditionalReminders';
 import { useProductionSummary } from '@/lib/use-production-summary';
@@ -708,6 +709,10 @@ export function OrderDetailView({ order, currentUserId, isAdmin }: Props) {
           { title: order.orderNumber },
         ]}
       />
+
+      {/* Above everything: an order the customer has not agreed to is the first
+          thing anyone opening this page needs to know (David, 2026-08-07). */}
+      <ReconfirmationBanner orderId={order.id} canMutate onChanged={() => router.refresh()} />
 
       <Modal
         open={reprintOpen}

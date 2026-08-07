@@ -19,13 +19,16 @@ import { recordAuditEvent } from '@/server/events/outbox';
 import { ConflictError, NotFoundError } from '@/server/orders/service';
 
 /** The rules an item can satisfy itself with — code, not config (see schema). */
-export type PoChecklistAutoRule = 'design_file_attached' | 'color_book_set';
+export type PoChecklistAutoRule =
+  | 'design_file_attached'
+  | 'color_book_set'
+  | 'customer_confirmed_current_version';
 
 export interface PoChecklistEntry {
   id: string;
   label: string;
   /** Set = satisfied automatically from data; manual ticks have null. */
-  autoRule: 'design_file_attached' | 'color_book_set' | null;
+  autoRule: PoChecklistAutoRule | null;
   satisfied: boolean;
   /** True when `satisfied` came from the rule rather than a tick. */
   auto: boolean;
@@ -39,10 +42,22 @@ export interface PoChecklistEntry {
 }
 
 async function evaluateAutoRule(
-  rule: 'design_file_attached' | 'color_book_set',
-  po: { id: string; colorBookId: string | null },
+  rule: PoChecklistAutoRule,
+  po: { id: string; colorBookId: string | null; orderId: string },
 ): Promise<boolean> {
   if (rule === 'color_book_set') return po.colorBookId !== null;
+  /**
+   * The hold on production for an order the customer has been left behind on
+   * (David, 2026-08-07). Deliberately satisfied for an order that was NEVER
+   * confirmed: that is a different question, governed elsewhere, and failing it
+   * here would block every purchase order raised ahead of confirmation — which
+   * is normal practice and not what this check is about.
+   */
+  if (rule === 'customer_confirmed_current_version') {
+    const { getReconfirmationState } = await import('@/server/orders/reconfirmation-service');
+    const state = await getReconfirmationState(po.orderId);
+    return state.status !== 'drifted' && state.status !== 'awaiting_customer';
+  }
   // design_file_attached: a live production file in a design-ish category,
   // or a design asset already in the latest snapshot.
   const [file] = await db.query.poFiles.findMany({
@@ -65,7 +80,7 @@ async function evaluateAutoRule(
 export async function getPoChecklist(poId: string): Promise<PoChecklistEntry[]> {
   const po = await db.query.purchaseOrders.findFirst({
     where: eq(purchaseOrders.id, poId),
-    columns: { id: true, colorBookId: true },
+    columns: { id: true, colorBookId: true, orderId: true },
   });
   if (!po) throw new NotFoundError('Purchase order');
 

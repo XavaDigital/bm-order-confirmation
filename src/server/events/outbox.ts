@@ -22,6 +22,13 @@ import { domainEvents, auditEvents } from '@/db/schema';
 export type DomainEventType =
   | 'order.viewed'
   | 'order.confirmed'
+  // Re-confirmation (David, 2026-08-07). `order.reconfirmed` is deliberately
+  // DISTINCT from `order.confirmed`: consumers of the first agreement fire
+  // once-only things (the Google Ads conversion), and a second agreement to an
+  // edited order must not fire them again.
+  | 'order.reconfirm_requested'
+  | 'order.reconfirm_cancelled'
+  | 'order.reconfirmed'
   | 'order.deleted'
   | 'garment.added'
   | 'garment.updated'

@@ -8,6 +8,16 @@ vi.mock('@/db', async () => {
   return { db, schema };
 });
 
+/**
+ * Called INSIDE the confirmation transaction, which makes it the lever the
+ * atomicity test pulls: it used to force a failure with a duplicate
+ * `confirmations` row, but confirmations are per-revision since 2026-08-07 and
+ * the insert can no longer collide.
+ */
+vi.mock('@/server/workflow/status-reminders', () => ({
+  fireDueStatusReminders: vi.fn(async () => {}),
+}));
+
 vi.mock('@/lib/storage', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/storage')>();
   return {
@@ -35,6 +45,7 @@ import {
 } from './customer-service';
 import { buildAccessCodeCookie } from '@/lib/access-code';
 import { uploadFile } from '@/lib/storage';
+import { fireDueStatusReminders } from '@/server/workflow/status-reminders';
 import { addRosterMember } from '@/server/roster/service';
 
 afterEach(async () => {
@@ -748,15 +759,12 @@ describe('confirmOrder', () => {
     expect(order2!.shippingAddress).toBeNull();
   });
 
-  it('rolls back the whole transaction if an insert fails mid-way (atomicity)', async () => {
+  it('rolls back the whole transaction if a write fails mid-way (atomicity)', async () => {
     const created = await createOrder(minimalInput());
-    // Pre-insert a confirmations row directly (bypassing confirmOrder) without
-    // flipping order status, so confirmOrder's own insert of `confirmations`
-    // (which has a unique orderId constraint) fails mid-transaction.
-    await db.insert(schema.confirmations).values({
-      orderId: created.orderId,
-      confirmedSnapshot: { pre: 'existing' },
-    });
+    // Fail a call made INSIDE the transaction, after the status update, the
+    // confirmations insert and the domain event — so a missing rollback would
+    // leave all three behind.
+    vi.mocked(fireDueStatusReminders).mockRejectedValueOnce(new Error('boom'));
 
     await expect(
       confirmOrder({ rawToken: created.token, acks: allAcks(), signatureType: 'none' }),

@@ -86,5 +86,30 @@ export default async function CustomerOrderPage({ params }: Props) {
     body: a.body,
   }));
 
-  return <CustomerOrderView token={token} order={data} acknowledgements={acknowledgements} />;
+  /**
+   * Re-confirmation (David, 2026-08-07). A confirmed order normally shows the
+   * "already confirmed" panel; when staff have asked the customer to agree to
+   * an edited version, the form opens again with a list of what moved. Resolved
+   * HERE rather than in the view so the change list is computed server-side,
+   * from the same comparison that holds the purchase order.
+   */
+  const reconfirmation = order.reconfirmRequestedAt
+    ? await (async () => {
+        const { getReconfirmationState } = await import('@/server/orders/reconfirmation-service');
+        const state = await getReconfirmationState(order.id);
+        return {
+          note: state.requestedNote,
+          changes: state.changes.map((c) => c.label),
+        };
+      })()
+    : null;
+
+  return (
+    <CustomerOrderView
+      token={token}
+      order={data}
+      acknowledgements={acknowledgements}
+      reconfirmation={reconfirmation}
+    />
+  );
 }

@@ -58,8 +58,12 @@ export async function buildConfirmationPdfExtras(
   orderId: string,
   garmentIds: string[],
 ): Promise<ConfirmationPdfExtras> {
+  // The agreement IN FORCE — highest revision. An order can hold several
+  // confirmations since re-confirmation (2026-08-07), and `findFirst` would
+  // print the superseded one on the certificate.
   const confirmation = await db.query.confirmations.findFirst({
     where: eq(confirmations.orderId, orderId),
+    orderBy: (c, { desc }) => [desc(c.revision)],
   });
   // Pre-2026-07-26 snapshots used snake_case keys — read camel first, then
   // the legacy spelling. (The ack array is newer than the cutover, so it has

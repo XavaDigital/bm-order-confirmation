@@ -46,7 +46,16 @@ export class MemberHasNoEmailError extends Error {
  */
 export async function sendOrderConfirmationLink(
   orderId: string,
-  meta: { actorEmail?: string },
+  meta: {
+    actorEmail?: string;
+    /**
+     * Re-confirmation (David, 2026-08-07). Present = this send is asking the
+     * customer to agree again to an order WE changed, so the email leads with
+     * what moved. Routed through this one function rather than a second sender,
+     * so there stays exactly one place a customer link email is built.
+     */
+    reconfirmation?: { note?: string | null; changes: string[] };
+  },
 ): Promise<{ url: string }> {
   const order = await getOrderAdmin(orderId);
   if (!order) throw new NotFoundError('Order');
@@ -66,7 +75,7 @@ export async function sendOrderConfirmationLink(
 
   const { url } = await generateAccessToken(orderId, { actorEmail: meta.actorEmail });
 
-  const isRevision = order.status === 'changes_requested';
+  const isRevision = !meta.reconfirmation && order.status === 'changes_requested';
   const [priorComment, revisionNumber] = isRevision
     ? await Promise.all([
         getChangesRequestedComment(orderId),
@@ -82,6 +91,7 @@ export async function sendOrderConfirmationLink(
     isRevision,
     priorComment: priorComment ?? undefined,
     revisionNumber: revisionNumber > 0 ? revisionNumber : undefined,
+    reconfirmation: meta.reconfirmation,
   });
 
   await recordAuditEvent({

@@ -3,7 +3,7 @@
  * transaction. All writes go through here; route handlers hold no business logic.
  */
 import { randomUUID } from 'node:crypto';
-import { eq, and, isNull, ne } from 'drizzle-orm';
+import { eq, and, desc, isNotNull, isNull, ne } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   type AckKey,
@@ -343,6 +343,32 @@ interface ConfirmableOrder {
 }
 
 /**
+ * Load an order in exactly the shape `buildConfirmationSnapshot` projects.
+ *
+ * ONE loader, used by both the confirmation itself and the drift check that
+ * compares a live order against what was agreed (orders/reconfirmation-service).
+ * When these were two query literals, the relations came back subtly differently
+ * and the drift check reported sizing as changed on orders nobody had touched —
+ * a false "the customer has not seen this" on every edited order.
+ */
+export async function loadConfirmableOrder(orderId: string) {
+  return db.query.orders.findFirst({
+    where: eq(orders.id, orderId),
+    with: {
+      garments: {
+        orderBy: (g, { asc }) => [asc(g.sortOrder)],
+        with: {
+          sizing: { orderBy: (s, { asc }) => [asc(s.sortOrder)] },
+          images: true,
+          sizeChartLinks: { with: { sizeChart: true } },
+          garmentType: { columns: { name: true } },
+        },
+      },
+    },
+  });
+}
+
+/**
  * Build the immutable `confirmed_snapshot` jsonb — the durable record of what
  * the customer actually agreed to. Pure (no I/O); exported for tests.
  * Keys are camelCase.
@@ -420,23 +446,15 @@ export async function confirmOrder(params: {
   if (!access) throw new Error('invalid_token');
   assertAccessCodeSatisfied(access, params.codeCookie);
 
-  const order = await db.query.orders.findFirst({
-    where: eq(orders.id, access.orderId),
-    with: {
-      garments: {
-        orderBy: (g, { asc }) => [asc(g.sortOrder)],
-        with: {
-          sizing: { orderBy: (s, { asc }) => [asc(s.sortOrder)] },
-          images: true,
-          sizeChartLinks: { with: { sizeChart: true } },
-          garmentType: { columns: { name: true } },
-        },
-      },
-    },
-  });
+  const order = await loadConfirmableOrder(access.orderId);
 
   if (!order) throw new Error('invalid_token');
-  if (order.status === 'confirmed') throw new Error('already_confirmed');
+  // Re-confirmation (David, 2026-08-07): a confirmed order is closed to the
+  // customer UNLESS staff have asked them to agree to an edited version. The
+  // flag is the only door back in — without it, this is still "already
+  // confirmed", which is what stops a stale link re-signing a live job.
+  const isReconfirmation = order.status === 'confirmed' && order.reconfirmRequestedAt !== null;
+  if (order.status === 'confirmed' && !isReconfirmation) throw new Error('already_confirmed');
 
   // Validate all required acks are present. The required SET is the ACTIVE
   // acknowledgement_settings rows (admin-editable since 2026-08-03), and the
@@ -485,11 +503,27 @@ export async function confirmOrder(params: {
     // concurrent transaction can ever see `updated.length > 0` for a given
     // order — the loser's UPDATE re-evaluates the WHERE clause against the
     // winner's committed row and affects zero rows.
-    const updated = await tx
-      .update(orders)
-      .set({ status: 'confirmed', confirmedAt, updatedAt: confirmedAt })
-      .where(and(eq(orders.id, order.id), ne(orders.status, 'confirmed')))
-      .returning({ id: orders.id });
+    // On a RE-confirmation the same race exists but the winning condition is
+    // different: the order is already 'confirmed', so the thing exactly one
+    // transaction can clear is the request flag. The loser's UPDATE re-reads
+    // the winner's committed row, matches nothing, and is told so.
+    const updated = isReconfirmation
+      ? await tx
+          .update(orders)
+          .set({
+            confirmedAt,
+            updatedAt: confirmedAt,
+            reconfirmRequestedAt: null,
+            reconfirmRequestedBy: null,
+            reconfirmRequestedNote: null,
+          })
+          .where(and(eq(orders.id, order.id), isNotNull(orders.reconfirmRequestedAt)))
+          .returning({ id: orders.id })
+      : await tx
+          .update(orders)
+          .set({ status: 'confirmed', confirmedAt, updatedAt: confirmedAt })
+          .where(and(eq(orders.id, order.id), ne(orders.status, 'confirmed')))
+          .returning({ id: orders.id });
 
     if (updated.length === 0) throw new Error('already_confirmed');
 
@@ -520,9 +554,18 @@ export async function confirmOrder(params: {
         .where(eq(orders.id, order.id));
     }
 
-    // d+e. Confirmation row with immutable snapshot
+    // d+e. Confirmation row with immutable snapshot. A re-confirmation ADDS a
+    // row rather than replacing one: the record of what was originally signed
+    // has to survive, or the table stops being evidence of anything.
+    const [previous] = await tx
+      .select({ revision: confirmations.revision })
+      .from(confirmations)
+      .where(eq(confirmations.orderId, order.id))
+      .orderBy(desc(confirmations.revision))
+      .limit(1);
     await tx.insert(confirmations).values({
       orderId: order.id,
+      revision: (previous?.revision ?? 0) + 1,
       signatureType: params.signatureType,
       signatureStorageKey: sigKey,
       confirmedSnapshot: snapshot,
@@ -535,20 +578,28 @@ export async function confirmOrder(params: {
     // firedAt = confirmation timestamp. Status is set to 'sent' by fireGoogleAdsConversion()
     // (src/server/conversions/google-ads.ts) once the API call succeeds; 'failed' on error.
     // The GTM client-side push (gtm.ts) is a redundant fallback.
-    await tx.insert(conversionEvents).values({
-      orderId: order.id,
-      valueAmount: order.orderValueAmount,
-      valueCurrency: order.orderValueCurrency ?? 'NZD',
-      firedAt: confirmedAt,
-    });
+    // NOT on a re-confirmation: the sale was already counted when they first
+    // agreed. Agreeing again to an edited order is the same sale, and firing a
+    // second conversion would overstate revenue in Google Ads.
+    if (!isReconfirmation) {
+      await tx.insert(conversionEvents).values({
+        orderId: order.id,
+        valueAmount: order.orderValueAmount,
+        valueCurrency: order.orderValueCurrency ?? 'NZD',
+        firedAt: confirmedAt,
+      });
+    }
 
     // g. Domain event. colorSampleRequested here just reflects whether a
     // request was already made via requestColorSample() before this
     // confirmation — that action emits its own order.color_sample_requested
     // event at the time it happens, not here.
+    //
+    // A re-confirmation emits its OWN type, so the handlers of first agreement
+    // (conversion, welcome email) do not run again for it.
     await emitOrderEvent(tx, {
       aggregateId: order.id,
-      eventType: 'order.confirmed',
+      eventType: isReconfirmation ? 'order.reconfirmed' : 'order.confirmed',
       payload: {
         orderId: order.id,
         orderNumber: order.orderNumber,
@@ -558,7 +609,9 @@ export async function confirmOrder(params: {
         colorSampleRequested: order.colorSampleRequestedAt !== null,
       },
     });
-    await fireDueStatusReminders(tx, 'order', order.id, 'confirmed', order.id);
+    if (!isReconfirmation) {
+      await fireDueStatusReminders(tx, 'order', order.id, 'confirmed', order.id);
+    }
 
     // i. Update last viewed
     await tx

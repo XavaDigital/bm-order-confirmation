@@ -55,6 +55,13 @@ const { Title, Text, Paragraph } = Typography;
 
 export interface CustomerOrderViewProps {
   token: string;
+  /**
+   * Re-confirmation (David, 2026-08-07). Present = this customer is being asked
+   * to agree again to an order that changed after they confirmed it, so the
+   * form opens instead of the "already confirmed" panel and leads with what
+   * moved. Absent on every normal visit.
+   */
+  reconfirmation?: { note: string | null; changes: string[] } | null;
   order: {
     id: string;
     orderNumber: string;
@@ -177,7 +184,7 @@ function ChangesRequestedPanel({ orderNumber }: { orderNumber: string }) {
 // ---------------------------------------------------------------------------
 // Main confirmation view
 // ---------------------------------------------------------------------------
-export function CustomerOrderView({ token, order, acknowledgements }: CustomerOrderViewProps) {
+export function CustomerOrderView({ token, order, acknowledgements, reconfirmation }: CustomerOrderViewProps) {
   const [checkedAcks, setCheckedAcks] = useState<Set<string>>(new Set());
   const [concerns, setConcerns] = useState('');
   const [shippingAddress, setShippingAddress] = useState<Record<string, unknown> | null>(null);
@@ -193,8 +200,9 @@ export function CustomerOrderView({ token, order, acknowledgements }: CustomerOr
   const [sampleSubmitting, setSampleSubmitting] = useState(false);
   const pendingRosterMembers = order.rosterSummary?.pending ?? 0;
 
-  // Already confirmed on the server
-  if (order.status === 'confirmed') {
+  // Already confirmed on the server — unless staff have asked them to agree to
+  // an edited version, which reopens the form below.
+  if (order.status === 'confirmed' && !reconfirmation) {
     return (
       <ConfigProvider theme={darkTheme}>
         <AlreadyConfirmedPanel orderNumber={order.orderNumber} token={token} />
@@ -331,6 +339,34 @@ export function CustomerOrderView({ token, order, acknowledgements }: CustomerOr
       }
       subtitleColor="rgba(255,255,255,0.55)"
     >
+      {/* ── What changed since they last agreed ──
+          First thing on the page, above the order itself: someone asked to
+          confirm again deserves to know what moved before they read anything
+          else, or they are being asked to re-sign blind. */}
+      {reconfirmation && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 20, ...WARNING_SURFACE_STYLE }}
+          message="This order has changed since you confirmed it"
+          description={
+            <div>
+              <div style={{ marginBottom: reconfirmation.changes.length ? 8 : 0 }}>
+                Please check it over and confirm again. Nothing goes into production until you do.
+              </div>
+              {reconfirmation.changes.length > 0 && (
+                <ul style={{ margin: '0 0 8px', paddingInlineStart: 18 }}>
+                  {reconfirmation.changes.map((change) => (
+                    <li key={change}>{change}</li>
+                  ))}
+                </ul>
+              )}
+              {reconfirmation.note && <div style={{ fontStyle: 'italic' }}>{reconfirmation.note}</div>}
+            </div>
+          }
+        />
+      )}
+
       {/* ── Order Summary ── */}
       <Card style={CARD_STYLE} styles={CARD_BODY_STYLES}>
         <SectionHeading>Order Summary</SectionHeading>

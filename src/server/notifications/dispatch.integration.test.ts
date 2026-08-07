@@ -382,12 +382,19 @@ describe('dispatchNotification', () => {
 });
 
 describe('inbox reads', () => {
+  /**
+   * Explicit, distinct `createdAt` per item. Left to the default, three inserts
+   * can land in the same millisecond and the newest-first assertion then depends
+   * on how the planner breaks the tie — which failed intermittently under a
+   * serial full-suite run while passing on its own.
+   */
   async function seedInbox(staffUserId: string, count: number) {
     for (let i = 0; i < count; i += 1) {
       await db.insert(schema.inboxItems).values({
         staffUserId,
         eventKey: 'workflow.stage_entered',
         title: `Item ${i}`,
+        createdAt: new Date(Date.UTC(2026, 7, 7, 0, 0, i)),
       });
     }
   }

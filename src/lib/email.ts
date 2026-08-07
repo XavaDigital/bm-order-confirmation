@@ -189,11 +189,71 @@ export interface SendMagicLinkParams {
   isRevision?: boolean;
   priorComment?: string;
   revisionNumber?: number;
+  /**
+   * Re-confirmation (David, 2026-08-07): the order changed after they agreed
+   * to it and we are asking them to agree again. Distinct from `isRevision`,
+   * which answers a change THEY asked for — here the change came from our side,
+   * so the email has to lead with what moved rather than "as requested".
+   */
+  reconfirmation?: { note?: string | null; changes: string[] };
 }
 
 export async function sendMagicLink(params: SendMagicLinkParams): Promise<void> {
   const { toName, orderNumber, url, priorComment } = params;
   const revisionNumber = params.revisionNumber ?? 0;
+
+  if (params.reconfirmation) {
+    const { note, changes } = params.reconfirmation;
+    // The list is the whole point: "please confirm again" with no statement of
+    // what changed asks someone to re-sign blind.
+    const changeList = changes.length
+      ? `<ul style="color:#1f2328;font-size:14px;line-height:1.6;margin:0;padding-left:18px;">${changes
+          .map((c) => `<li>${escapeHtml(c)}</li>`)
+          .join('')}</ul>`
+      : `<p style="color:#1f2328;font-size:14px;line-height:1.6;margin:0;">Your order has been updated.</p>`;
+    const noteBlock = note
+      ? calloutBlock(
+          '#6366f1',
+          `<p style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Note from our team</p>
+                    <p style="color:#1f2328;font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${escapeHtml(note)}</p>`,
+        )
+      : '';
+
+    await sendLinkEmail({
+      to: params.to,
+      toName,
+      subject: `Please re-confirm your ${APP_NAME} order ${orderNumber}`,
+      title: 'Please Confirm Again',
+      headerLabel: 'Order Changed',
+      introHtml: `${introP(`
+                Your ${APP_NAME} order <strong style="color:#1f2328;">${orderNumber}</strong> has changed since you confirmed it,
+                so we would like you to check it over and confirm again before it goes into production.
+              `)}${calloutBlock(
+                '#6366f1',
+                `<p style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">What changed</p>${changeList}`,
+              )}${noteBlock}`,
+      buttonLabel: 'Review &amp; Confirm Again',
+      url,
+      footnoteHtml: `
+                Nothing goes into production until you confirm. If any of this is not what you expected,
+                contact your ${SALES_REP_LABEL} before confirming.
+              `,
+      textIntro: [
+        `Your ${APP_NAME} order ${orderNumber} has changed since you confirmed it.`,
+        '',
+        'What changed:',
+        ...changes.map((c) => `- ${c}`),
+        ...(note ? ['', `Note from our team: ${note}`] : []),
+        '',
+        'Please review and confirm again:',
+      ],
+      textFooter: [
+        'Nothing goes into production until you confirm.',
+        `If anything is not what you expected, contact your ${SALES_REP_LABEL}.`,
+      ],
+    });
+    return;
+  }
 
   if (!params.isRevision) {
     await sendLinkEmail({
