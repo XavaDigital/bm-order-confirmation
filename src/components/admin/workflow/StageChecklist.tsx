@@ -23,6 +23,7 @@ import {
 } from 'antd';
 import { LockOutlined, UndoOutlined } from '@ant-design/icons';
 import { deleteJson, getJson, postJson } from '@/lib/api-fetch';
+import { SidestepReasonModal } from '@/components/admin/SidestepReasonModal';
 
 export type BoardKey = 'order' | 'purchase_order';
 
@@ -42,6 +43,11 @@ export interface ChecklistTask {
     note: string | null;
   }>;
   awaiting: string[];
+  /** May this task be acknowledged past instead of done? */
+  allowSidestep: boolean;
+  /** True when what satisfies it (at least in part) is a sidestep, not a tick. */
+  sidestepped: boolean;
+  sidestepReason: string | null;
 }
 
 export interface Checklist {
@@ -67,6 +73,7 @@ export function StageChecklist({ boardKey, entityId, isAdmin, onAdvanced }: Prop
   const [data, setData] = useState<Checklist | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
+  const [sidestepping, setSidestepping] = useState<ChecklistTask | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -100,6 +107,28 @@ export function StageChecklist({ boardKey, entityId, isAdmin, onAdvanced }: Prop
       await load();
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Failed to confirm the task');
+    } finally {
+      setBusyTaskId(null);
+    }
+  }
+
+  /** Resolves to an error message on failure, or null on success. */
+  async function sidestep(task: ChecklistTask, reason: string): Promise<string | null> {
+    setBusyTaskId(task.id);
+    try {
+      const result = await postJson<{ advancedToStageSlug: string | null }>(
+        '/api/admin/workflow/tasks',
+        { boardKey, entityId, taskId: task.id, sidestepReason: reason },
+        'Failed to sidestep the task',
+      );
+      if (result.advancedToStageSlug) {
+        message.success(`All checks done — moved to ${result.advancedToStageSlug}`);
+        onAdvanced?.(result.advancedToStageSlug);
+      }
+      await load();
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : 'Failed to sidestep the task';
     } finally {
       setBusyTaskId(null);
     }
@@ -182,6 +211,11 @@ export function StageChecklist({ boardKey, entityId, isAdmin, onAdvanced }: Prop
                       </Tag>
                     </Tooltip>
                   )}
+                  {task.sidestepped && (
+                    <Tooltip title="Acknowledged as not done, with a reason on record">
+                      <Tag color="warning">Sidestepped</Tag>
+                    </Tooltip>
+                  )}
                 </Space>
                 {task.description && (
                   <Typography.Paragraph
@@ -191,17 +225,35 @@ export function StageChecklist({ boardKey, entityId, isAdmin, onAdvanced }: Prop
                     {task.description}
                   </Typography.Paragraph>
                 )}
-                {task.confirmations.length > 0 && (
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    Confirmed by{' '}
+                {task.sidestepped ? (
+                  <Typography.Text type="warning" style={{ fontSize: 12, display: 'block' }}>
+                    Sidestepped by{' '}
                     {task.confirmations.map((c) => c.email ?? 'system').join(', ')}
+                    {task.sidestepReason && ` — "${task.sidestepReason}"`}
                   </Typography.Text>
+                ) : (
+                  task.confirmations.length > 0 && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      Confirmed by{' '}
+                      {task.confirmations.map((c) => c.email ?? 'system').join(', ')}
+                    </Typography.Text>
+                  )
                 )}
                 {task.awaiting.length > 0 && (
                   <Typography.Text type="warning" style={{ fontSize: 12, display: 'block' }}>
                     Waiting on {task.awaiting.length} more owner
                     {task.awaiting.length === 1 ? '' : 's'}
                   </Typography.Text>
+                )}
+                {!task.satisfied && task.allowSidestep && (
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ paddingInline: 0, height: 'auto' }}
+                    onClick={() => setSidestepping(task)}
+                  >
+                    Sidestep
+                  </Button>
                 )}
               </div>
               {task.satisfied && isAdmin && (
@@ -220,6 +272,12 @@ export function StageChecklist({ boardKey, entityId, isAdmin, onAdvanced }: Prop
           </Space>
         </Card>
       ))}
+
+      <SidestepReasonModal
+        label={sidestepping?.name ?? null}
+        onClose={() => setSidestepping(null)}
+        onConfirm={(reason) => (sidestepping ? sidestep(sidestepping, reason) : Promise.resolve(null))}
+      />
     </Space>
   );
 }

@@ -14,7 +14,7 @@
  *    guards, unchanged. A stage move is never a way around them.
  */
 import { eq } from 'drizzle-orm';
-import { db } from '@/db';
+import { db, type Transaction } from '@/db';
 import { orders, purchaseOrders } from '@/db/schema';
 import type { WorkflowBoardKey } from '@/db/schema';
 import type { OrderStatus } from '@/lib/status';
@@ -27,6 +27,7 @@ import { canTransition as canTransitionPo } from '@/server/purchase-orders/contr
 import { syncOrderProductionStatus } from '@/server/purchase-orders/hub-sync';
 import { fireDueStatusReminders } from './status-reminders';
 import { listActiveStages, resolveStage, type StageRow } from './stages';
+import { evaluateStageExit } from './tasks';
 
 export interface MoveResult {
   entityType: WorkflowBoardKey;
@@ -42,11 +43,14 @@ type ActorMeta = { actorEmail?: string | null };
 /**
  * A refused move carries the outstanding reason on `details` so the UI can list
  * it instead of showing a bare "illegal move". `defineRoute` maps
- * `*ConflictError` to 409 and passes `details` through.
+ * `*ConflictError` to 409 and passes `details` through. Either a record (the
+ * illegal-transition cases below) or a plain string array (outstanding task
+ * names, for the board's bulleted-list modal) — `unknown` because the route
+ * layer only ever forwards it, never reads it.
  */
 export class WorkflowMoveConflictError extends Error {
-  readonly details: Record<string, unknown>;
-  constructor(message: string, details: Record<string, unknown> = {}) {
+  readonly details: unknown;
+  constructor(message: string, details: unknown = {}) {
     super(message);
     this.name = 'WorkflowMoveConflictError';
     this.details = details;
@@ -61,6 +65,39 @@ function assertTargetUsable(stage: StageRow | undefined, slug: string): StageRow
     });
   }
   return stage;
+}
+
+/**
+ * Refuse to leave CURRENT while it still has outstanding blocking tasks — the
+ * board-drag counterpart to the auto-advance check `confirmTask` already runs.
+ * Without this, the checklist only ever held a card back that finished its
+ * OWN stage's tasks; a card could always just be dragged past one instead.
+ *
+ * Exempt for a move backward (or sideways) within the same status group:
+ * undoing a drag, or correcting a mistake, is not "escaping" a checklist, and
+ * the gate a send action checks (`gates.ts`) reads every stage on the board
+ * regardless of where the card currently sits — so nothing is actually
+ * bypassed by allowing staff to step a card back.
+ */
+async function assertCanLeaveCurrentStage(
+  tx: Transaction,
+  entityType: WorkflowBoardKey,
+  entityId: string,
+  current: StageRow | null,
+  target: StageRow,
+): Promise<void> {
+  if (!current) return;
+  const movingBackwardOrSideways =
+    target.statusKey === current.statusKey && target.sortOrder <= current.sortOrder;
+  if (movingBackwardOrSideways) return;
+
+  const exit = await evaluateStageExit(tx, entityType, entityId, current);
+  if (exit.canLeave) return;
+
+  throw new WorkflowMoveConflictError(
+    `Finish the checklist in "${current.name}" before moving this card on.`,
+    exit.outstanding.map((task) => task.name),
+  );
 }
 
 /**
@@ -107,6 +144,8 @@ export async function moveOrderToStage(
         statusChange: null,
       };
     }
+
+    await assertCanLeaveCurrentStage(tx, 'order', orderId, current, target);
 
     const nextStatus = target.statusKey as OrderStatus;
     const crossesStatus = nextStatus !== order.status;
@@ -221,6 +260,8 @@ export async function movePurchaseOrderToStage(
         crossed: false,
       };
     }
+
+    await assertCanLeaveCurrentStage(tx, 'purchase_order', poId, current, target);
 
     const nextStatus = target.statusKey as PoStatus;
     const crossesStatus = nextStatus !== po.status;

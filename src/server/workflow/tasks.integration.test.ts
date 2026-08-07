@@ -15,7 +15,7 @@ import { createOrderSchema } from '@/server/orders/contract';
 import { createOrder } from '@/server/orders/service';
 import { setAssignees } from './assignments';
 import { evaluateGate, assertGateOpen } from './gates';
-import { confirmTask, getChecklist, reopenTask } from './tasks';
+import { confirmTask, getChecklist, reopenTask, sidestepTask } from './tasks';
 import { moveOrderToStage } from './moves';
 
 afterEach(async () => {
@@ -100,7 +100,13 @@ describe('getChecklist', () => {
 
   it('returns an empty checklist for a stage with no tasks', async () => {
     const orderId = await seedOrderInArtwork();
-    await moveOrderToStage(orderId, 'ready_for_production', {});
+    // Direct write, not moveOrderToStage: that now gates on artwork's own
+    // task, and this test is about getChecklist against a taskless stage, not
+    // about how the order got there.
+    await db
+      .update(schema.orders)
+      .set({ workflowStageSlug: 'ready_for_production' })
+      .where(eq(schema.orders.id, orderId));
 
     const checklist = await getChecklist('order', orderId);
 
@@ -137,7 +143,13 @@ describe('confirmTask — advancing', () => {
   it('stops at the end of the status group instead of changing status', async () => {
     const orderId = await seedOrderInArtwork();
     const staff = await seedStaff('sam@x.com');
-    await moveOrderToStage(orderId, 'sizing_locked', {});
+    // Direct write, not moveOrderToStage: that now gates on artwork's own
+    // task, and this test is about confirmTask's advance, not about how the
+    // order got into 'sizing_locked'.
+    await db
+      .update(schema.orders)
+      .set({ workflowStageSlug: 'sizing_locked' })
+      .where(eq(schema.orders.id, orderId));
     const task = await taskBySlug('sizing_confirmed');
 
     const result = await confirmTask('order', orderId, task.id, {
@@ -420,6 +432,117 @@ describe('reopenTask', () => {
   });
 });
 
+// `colour_sample_dispatched` (0020, `confirmed` stage) is the seeded task with
+// `allowSidestep: true` — the motivating case from the app itself.
+describe('sidestepTask', () => {
+  it('records a sidestep and satisfies the po_send gate for that task', async () => {
+    const orderId = await seedOrderInArtwork();
+    await moveOrderToStage(orderId, 'confirmed', {});
+    const staff = await seedStaff('sam@x.com');
+    const task = await taskBySlug('colour_sample_dispatched');
+
+    const result = await sidestepTask('order', orderId, task.id, {
+      actorEmail: 'sam@x.com',
+      actorStaffUserId: staff.id,
+      reason: 'No sample requested for this order',
+    });
+
+    expect(result.satisfied).toBe(true);
+    const [row] = await db
+      .select()
+      .from(schema.workflowTaskCompletions)
+      .where(eq(schema.workflowTaskCompletions.taskId, task.id));
+    expect(row.sidestepped).toBe(true);
+    expect(row.sidestepReason).toBe('No sample requested for this order');
+
+    const gate = await evaluateGate('po_send', 'order', orderId);
+    expect(gate.outstanding.map((t) => t.slug)).not.toContain('colour_sample_dispatched');
+  });
+
+  it('refuses a task not configured to allow sidestep', async () => {
+    const orderId = await seedOrderInArtwork();
+    const staff = await seedStaff('sam@x.com');
+    const task = await taskBySlug('artwork_approved');
+
+    await expect(
+      sidestepTask('order', orderId, task.id, {
+        actorEmail: 'sam@x.com',
+        actorStaffUserId: staff.id,
+        reason: 'skip it',
+      }),
+    ).rejects.toThrow('cannot be sidestepped');
+  });
+
+  it('refuses a blank reason', async () => {
+    const orderId = await seedOrderInArtwork();
+    await moveOrderToStage(orderId, 'confirmed', {});
+    const staff = await seedStaff('sam@x.com');
+    const task = await taskBySlug('colour_sample_dispatched');
+
+    await expect(
+      sidestepTask('order', orderId, task.id, {
+        actorEmail: 'sam@x.com',
+        actorStaffUserId: staff.id,
+        reason: '   ',
+      }),
+    ).rejects.toThrow(/give a reason/i);
+  });
+
+  it('is idempotent for the same user', async () => {
+    const orderId = await seedOrderInArtwork();
+    await moveOrderToStage(orderId, 'confirmed', {});
+    const staff = await seedStaff('sam@x.com');
+    const task = await taskBySlug('colour_sample_dispatched');
+    const meta = { actorEmail: 'sam@x.com', actorStaffUserId: staff.id, reason: 'no sample' };
+
+    await sidestepTask('order', orderId, task.id, meta);
+    await sidestepTask('order', orderId, task.id, meta);
+
+    expect(await db.select().from(schema.workflowTaskCompletions)).toHaveLength(1);
+  });
+
+  it('audits the sidestep with its reason', async () => {
+    const orderId = await seedOrderInArtwork();
+    await moveOrderToStage(orderId, 'confirmed', {});
+    const staff = await seedStaff('sam@x.com');
+    const task = await taskBySlug('colour_sample_dispatched');
+
+    await sidestepTask('order', orderId, task.id, {
+      actorEmail: 'sam@x.com',
+      actorStaffUserId: staff.id,
+      reason: 'no sample requested',
+    });
+
+    const rows = await db
+      .select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.eventType, 'workflow.task_sidestepped'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].payload).toMatchObject({ reason: 'no sample requested' });
+  });
+
+  it('reopenTask clears a sidestepped completion', async () => {
+    const orderId = await seedOrderInArtwork();
+    await moveOrderToStage(orderId, 'confirmed', {});
+    const staff = await seedStaff('sam@x.com');
+    const task = await taskBySlug('colour_sample_dispatched');
+    await sidestepTask('order', orderId, task.id, {
+      actorEmail: 'sam@x.com',
+      actorStaffUserId: staff.id,
+      reason: 'no sample requested',
+    });
+
+    await reopenTask('order', orderId, task.id, { actorEmail: 'boss@x.com', isAdmin: true });
+
+    expect(
+      await db
+        .select()
+        .from(schema.workflowTaskCompletions)
+        .where(eq(schema.workflowTaskCompletions.taskId, task.id)),
+    ).toHaveLength(0);
+  });
+});
+
 describe('evaluateGate', () => {
   it('is closed while the seeded pre-production checks are outstanding', async () => {
     const orderId = await seedOrderInArtwork();
@@ -438,11 +561,19 @@ describe('evaluateGate', () => {
 
   /**
    * Gates read every stage, not just the current one — otherwise a job could be
-   * dragged past a stage to escape its checks.
+   * dragged past a stage to escape its checks. `moveOrderToStage` itself now
+   * refuses that drag (see moves.integration.test.ts), but the gate is a
+   * second, independent line of defence for a row that reaches a later stage
+   * some other way — a config change, an import, a row that predates this
+   * stage's checklist — so it is exercised here with a direct write instead
+   * of the (now-refusing) move function.
    */
   it('still counts checks from stages the job has already left', async () => {
     const orderId = await seedOrderInArtwork();
-    await moveOrderToStage(orderId, 'ready_for_production', {});
+    await db
+      .update(schema.orders)
+      .set({ workflowStageSlug: 'ready_for_production' })
+      .where(eq(schema.orders.id, orderId));
 
     const result = await evaluateGate('po_send', 'order', orderId);
 

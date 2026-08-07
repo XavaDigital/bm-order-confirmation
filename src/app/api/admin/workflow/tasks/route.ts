@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { confirmTask, reopenTask } from '@/server/workflow/tasks';
+import { confirmTask, reopenTask, sidestepTask } from '@/server/workflow/tasks';
 import { boardKeySchema } from '@/server/workflow/contract';
 import { defineRoute } from '@/lib/route-handler';
 
@@ -9,6 +9,8 @@ const confirmSchema = z.object({
   entityId: z.string().uuid(),
   taskId: z.string().uuid(),
   note: z.string().trim().max(500).nullish(),
+  /** Present = sidestep this task instead of confirming it. */
+  sidestepReason: z.string().trim().max(500).nullish(),
 });
 
 const reopenSchema = z.object({
@@ -18,9 +20,11 @@ const reopenSchema = z.object({
 });
 
 /**
- * Confirm a task. Staff-level and attributed to the signed-in user, which is
- * what makes an `all` policy meaningful — a shared "mark done" button would make
- * "everyone has confirmed" unanswerable.
+ * Confirm a task, or — when `sidestepReason` is given — sidestep it instead.
+ * Staff-level and attributed to the signed-in user, which is what makes an
+ * `all` policy meaningful — a shared "mark done" button would make "everyone
+ * has confirmed" unanswerable. Sidestepping stays staff-level too: it exists
+ * precisely so a task that doesn't apply doesn't need an admin's gate override.
  */
 export const POST = defineRoute<Record<string, never>, typeof confirmSchema._type>({
   auth: 'staff',
@@ -28,11 +32,17 @@ export const POST = defineRoute<Record<string, never>, typeof confirmSchema._typ
   schema: confirmSchema,
   handler: async ({ body, session }) =>
     NextResponse.json(
-      await confirmTask(body.boardKey, body.entityId, body.taskId, {
-        actorEmail: session!.email,
-        actorStaffUserId: session!.userId,
-        note: body.note ?? null,
-      }),
+      body.sidestepReason
+        ? await sidestepTask(body.boardKey, body.entityId, body.taskId, {
+            actorEmail: session!.email,
+            actorStaffUserId: session!.userId,
+            reason: body.sidestepReason,
+          })
+        : await confirmTask(body.boardKey, body.entityId, body.taskId, {
+            actorEmail: session!.email,
+            actorStaffUserId: session!.userId,
+            note: body.note ?? null,
+          }),
     ),
 });
 

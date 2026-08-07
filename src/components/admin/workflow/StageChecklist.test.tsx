@@ -26,6 +26,9 @@ function task(overrides: Partial<ChecklistTask> = {}): ChecklistTask {
     satisfied: false,
     confirmations: [],
     awaiting: [],
+    allowSidestep: false,
+    sidestepped: false,
+    sidestepReason: null,
     ...overrides,
   };
 }
@@ -234,5 +237,115 @@ describe('StageChecklist — reopening', () => {
       { boardKey: 'order', entityId: 'order-1', taskId: 't1' },
       expect.any(String),
     );
+  });
+});
+
+describe('StageChecklist — sidestepping', () => {
+  it('offers Sidestep only on outstanding tasks configured to allow it', async () => {
+    vi.mocked(getJson).mockResolvedValue(
+      checklist({ tasks: [task({ allowSidestep: true })] }),
+    );
+    renderChecklist();
+
+    expect(await screen.findByRole('button', { name: 'Sidestep' })).toBeInTheDocument();
+  });
+
+  it('does not offer Sidestep when the task does not allow it', async () => {
+    renderChecklist();
+
+    await screen.findByText('Artwork approved');
+    expect(screen.queryByRole('button', { name: 'Sidestep' })).not.toBeInTheDocument();
+  });
+
+  it('does not offer Sidestep once the task is satisfied', async () => {
+    vi.mocked(getJson).mockResolvedValue(
+      checklist({ tasks: [task({ allowSidestep: true, satisfied: true })] }),
+    );
+    renderChecklist();
+
+    await screen.findByText('Artwork approved');
+    expect(screen.queryByRole('button', { name: 'Sidestep' })).not.toBeInTheDocument();
+  });
+
+  it('sidesteps with a reason: POSTs the reason and reloads', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getJson).mockResolvedValue(
+      checklist({ tasks: [task({ allowSidestep: true })] }),
+    );
+    renderChecklist();
+
+    await user.click(await screen.findByRole('button', { name: 'Sidestep' }));
+    expect(await screen.findByText(/acknowledged rather than done/i)).toBeInTheDocument();
+    await user.type(screen.getByLabelText('Reason for sidestepping'), 'no sample requested');
+    await user.click(screen.getByRole('button', { name: 'Record sidestep' }));
+
+    await waitFor(() =>
+      expect(postJson).toHaveBeenCalledWith(
+        '/api/admin/workflow/tasks',
+        { boardKey: 'order', entityId: 'order-1', taskId: 't1', sidestepReason: 'no sample requested' },
+        expect.any(String),
+      ),
+    );
+    await waitFor(() => expect(getJson).toHaveBeenCalledTimes(2));
+  });
+
+  it('refuses to send a reason shorter than a few characters', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getJson).mockResolvedValue(
+      checklist({ tasks: [task({ allowSidestep: true })] }),
+    );
+    renderChecklist();
+
+    await user.click(await screen.findByRole('button', { name: 'Sidestep' }));
+    await user.type(await screen.findByLabelText('Reason for sidestepping'), 'x');
+    await user.click(screen.getByRole('button', { name: 'Record sidestep' }));
+
+    expect(await screen.findByText(/give a reason/i)).toBeInTheDocument();
+    expect(postJson).not.toHaveBeenCalled();
+  });
+
+  it('keeps the modal open and shows the server refusal when the task cannot be sidestepped', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getJson).mockResolvedValue(
+      checklist({ tasks: [task({ allowSidestep: true })] }),
+    );
+    vi.mocked(postJson).mockRejectedValue(
+      new Error('"Artwork approved" cannot be sidestepped — it has to be done'),
+    );
+    renderChecklist();
+
+    await user.click(await screen.findByRole('button', { name: 'Sidestep' }));
+    await user.type(await screen.findByLabelText('Reason for sidestepping'), 'no sample requested');
+    await user.click(screen.getByRole('button', { name: 'Record sidestep' }));
+
+    expect(
+      await screen.findByText(/cannot be sidestepped — it has to be done/),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Reason for sidestepping')).toBeInTheDocument();
+  });
+
+  it('renders a sidestepped task distinctly, with its reason', async () => {
+    vi.mocked(getJson).mockResolvedValue(
+      checklist({
+        tasks: [
+          task({
+            allowSidestep: true,
+            satisfied: true,
+            sidestepped: true,
+            sidestepReason: 'no sample requested',
+            confirmations: [
+              { staffUserId: 'u1', email: 'sam@x.com', confirmedAt: '2026-07-20T10:00:00Z', note: null },
+            ],
+          }),
+        ],
+      }),
+    );
+    renderChecklist();
+
+    expect(await screen.findByText('Sidestepped')).toBeInTheDocument();
+    expect(
+      screen.getByText('Sidestepped by sam@x.com — "no sample requested"'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^confirmed by/i)).not.toBeInTheDocument();
   });
 });
