@@ -1564,6 +1564,14 @@ export const workflowStageTasks = confirmation.table(
      * module), which keeps gates configurable without another join.
      */
     gateKeys: jsonb('gate_keys').$type<string[]>().notNull().default([]),
+    /**
+     * May this task be SIDESTEPPED rather than confirmed — for a task that does
+     * not apply to every job (e.g. "colour sample dispatched" when none was
+     * asked for). A sidestep is not a silent skip: it demands an explicit
+     * acknowledgement with a reason, recorded against the person who gave it.
+     * Tasks left false must actually be done — no acknowledgement satisfies them.
+     */
+    allowSidestep: boolean('allow_sidestep').notNull().default(false),
     sortOrder: integer('sort_order').notNull().default(0),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -1595,6 +1603,14 @@ export const workflowTaskCompletions = confirmation.table(
     // Denormalised so the trail survives a user being renamed or deactivated.
     confirmedByEmail: text('confirmed_by_email'),
     note: text('note'),
+    /**
+     * True = this row is a SIDESTEP acknowledgement rather than a "done"
+     * confirmation (same reasoning as `poChecklistCompletions.sidestepped`) —
+     * the reason is mandatory for a sidestep, since an acknowledgement with no
+     * stated why is indistinguishable from having no completion at all.
+     */
+    sidestepped: boolean('sidestepped').notNull().default(false),
+    sidestepReason: text('sidestep_reason'),
     confirmedAt: timestamp('confirmed_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [

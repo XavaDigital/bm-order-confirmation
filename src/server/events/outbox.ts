@@ -68,6 +68,7 @@ export type DomainEventType =
   | 'workflow.stage_entered'
   | 'workflow.stage_exited'
   | 'workflow.task_confirmed'
+  | 'workflow.task_sidestepped'
   | 'workflow.task_reopened'
   | 'workflow.owners_changed'
   | 'workflow.gate_overridden'

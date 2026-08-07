@@ -19,14 +19,12 @@
  * items from the same load — the server stays the enforcement).
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Checkbox, Input, Modal, Space, Tag, Tooltip, Typography } from 'antd';
+import { Button, Card, Checkbox, Space, Tag, Tooltip, Typography } from 'antd';
 import { getJson, postJson } from '@/lib/api-fetch';
 import { formatDate } from '@/lib/format';
+import { SidestepReasonModal } from '@/components/admin/SidestepReasonModal';
 
 const { Text } = Typography;
-
-/** A sidestep with no stated why is the silent skip the checklist exists to stop. */
-const MIN_REASON = 3;
 
 export interface PoChecklistItem {
   id: string;
@@ -214,91 +212,15 @@ export function PoChecklistCard({
         )}
       </Space>
 
-      <SidestepModal
-        item={sidestepping}
+      <SidestepReasonModal
+        label={sidestepping?.label ?? null}
         onClose={() => setSidestepping(null)}
-        onConfirm={onToggle}
+        onConfirm={async (reason) => {
+          if (!sidestepping) return null;
+          const failure = await onToggle(sidestepping.id, true, reason);
+          return failure ?? null;
+        }}
       />
     </Card>
-  );
-}
-
-/**
- * The acknowledgement itself. It asks for a reason and says plainly what is
- * being recorded — this is the moment someone decides a check will not be done,
- * and it should read like a decision, not a dismissal.
- */
-function SidestepModal({
-  item,
-  onClose,
-  onConfirm,
-}: {
-  item: PoChecklistItem | null;
-  onClose: () => void;
-  onConfirm: ChecklistToggle;
-}) {
-  const [reason, setReason] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  function close() {
-    setReason('');
-    setError(null);
-    onClose();
-  }
-
-  async function submit() {
-    if (!item) return;
-    const trimmed = reason.trim();
-    if (trimmed.length < MIN_REASON) {
-      setError('Give a reason — at least a few words.');
-      return;
-    }
-    setSaving(true);
-    // The server refuses a sidestep on a must-do check (409). Keep the modal
-    // open and say why, rather than closing on a change that did not happen.
-    const failure = await onConfirm(item.id, true, trimmed);
-    setSaving(false);
-    if (failure) {
-      setError(failure);
-      return;
-    }
-    close();
-  }
-
-  return (
-    <Modal
-      title="Sidestep this check"
-      open={item !== null}
-      onCancel={close}
-      onOk={submit}
-      okText="Record sidestep"
-      confirmLoading={saving}
-      destroyOnClose
-    >
-      {item && (
-        <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          <Text strong>{item.label}</Text>
-          <Text type="secondary">
-            This records the check as acknowledged rather than done, with your name and your
-            reason against it. Anyone looking at this purchase order will see it was skipped
-            deliberately and why.
-          </Text>
-          <Input.TextArea
-            rows={3}
-            value={reason}
-            autoFocus
-            maxLength={500}
-            placeholder="Why is this being skipped? e.g. no fonts on this job"
-            aria-label="Reason for sidestepping"
-            onChange={(e) => {
-              setReason(e.target.value);
-              setError(null);
-            }}
-          />
-          {error && <Alert type="error" message={error} showIcon />}
-        </Space>
-      )}
-    </Modal>
   );
 }

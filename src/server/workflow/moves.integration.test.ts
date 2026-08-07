@@ -27,6 +27,7 @@ import {
   moveEntityToStage,
   moveOrderToStage,
   movePurchaseOrderToStage,
+  WorkflowMoveConflictError,
 } from './moves';
 
 afterEach(async () => {
@@ -52,6 +53,14 @@ async function seedOrder(status?: OrderStatus) {
 
 async function readOrder(orderId: string) {
   const [row] = await db.select().from(schema.orders).where(eq(schema.orders.id, orderId));
+  return row;
+}
+
+async function taskBySlug(slug: string) {
+  const [row] = await db
+    .select()
+    .from(schema.workflowStageTasks)
+    .where(eq(schema.workflowStageTasks.slug, slug));
   return row;
 }
 
@@ -115,10 +124,12 @@ describe('moveOrderToStage — within one status', () => {
     const orderId = await seedOrder('confirmed');
     await moveOrderToStage(orderId, 'artwork', {});
 
-    const result = await moveOrderToStage(orderId, 'digitising', {});
+    // Backward within the group, so it is not held by artwork's outstanding
+    // checklist — see the "gated on checklist completion" tests below.
+    const result = await moveOrderToStage(orderId, 'confirmed', {});
 
     expect(result.fromStageSlug).toBe('artwork');
-    expect(result.toStageSlug).toBe('digitising');
+    expect(result.toStageSlug).toBe('confirmed');
   });
 
   it('records an exit in the audit trail and an entry on the outbox', async () => {
@@ -168,6 +179,73 @@ describe('moveOrderToStage — within one status', () => {
     const types = await auditTypes(orderId);
     // It had a resolved current stage ('draft'), so an exit is still correct.
     expect(types).toContain('workflow.stage_exited');
+  });
+});
+
+describe('moveOrderToStage — gated on the current stage\'s checklist', () => {
+  it('refuses to drag a card off a stage with an outstanding blocking task', async () => {
+    const orderId = await seedOrder('confirmed');
+    await moveOrderToStage(orderId, 'artwork', {});
+
+    await expect(moveOrderToStage(orderId, 'digitising', {})).rejects.toThrow(
+      /finish the checklist/i,
+    );
+
+    // Refused, so nothing moved.
+    const row = await readOrder(orderId);
+    expect(row.workflowStageSlug).toBe('artwork');
+  });
+
+  it('lists the outstanding task names on the error, for the board\'s modal', async () => {
+    const orderId = await seedOrder('confirmed');
+    await moveOrderToStage(orderId, 'artwork', {});
+
+    const err = await moveOrderToStage(orderId, 'digitising', {}).catch((e) => e);
+
+    expect(err).toBeInstanceOf(WorkflowMoveConflictError);
+    expect((err as WorkflowMoveConflictError).details).toEqual(['Artwork approved']);
+  });
+
+  it('allows the move once the outstanding task is satisfied', async () => {
+    const orderId = await seedOrder('confirmed');
+    await moveOrderToStage(orderId, 'artwork', {});
+    const task = await taskBySlug('artwork_approved');
+
+    // Inserted directly rather than through confirmTask, which would
+    // auto-advance the stage itself and make the explicit move below a
+    // no-op — this isolates "the task is satisfied" from "how it advances".
+    await db.insert(schema.workflowTaskCompletions).values({
+      taskId: task.id,
+      entityType: 'order',
+      entityId: orderId,
+      confirmedByEmail: 'sam@x.com',
+    });
+
+    const result = await moveOrderToStage(orderId, 'digitising', {});
+
+    expect(result.fromStageSlug).toBe('artwork');
+    expect(result.toStageSlug).toBe('digitising');
+  });
+
+  it('does not gate a move backward within the same status group', async () => {
+    const orderId = await seedOrder('confirmed');
+    await moveOrderToStage(orderId, 'artwork', {});
+
+    // artwork_approved is still outstanding, but this steps the card BACK to
+    // 'confirmed' rather than past anything, so it is not held.
+    const result = await moveOrderToStage(orderId, 'confirmed', {});
+
+    expect(result.toStageSlug).toBe('confirmed');
+  });
+
+  it('does not gate the very first move out of an unstaged order', async () => {
+    const orderId = await seedOrder('confirmed');
+
+    // Default-resolved stage for a fresh 'confirmed' order is 'confirmed'
+    // itself, which has no tasks — nothing to be gated by.
+    const result = await moveOrderToStage(orderId, 'artwork', {});
+
+    expect(result.toStageSlug).toBe('artwork');
   });
 });
 

@@ -7,7 +7,7 @@
  * the part that touches the database.
  */
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
-import { db } from '@/db';
+import { db, type Transaction } from '@/db';
 import {
   orders,
   purchaseOrders,
@@ -25,6 +25,7 @@ import {
   nextStageInGroup,
   policyFor,
   type CompletionShape,
+  type StageExitCheck,
   type TaskShape,
 } from './task-rules';
 
@@ -51,6 +52,11 @@ export interface ChecklistTask {
   }>;
   /** Owners still to confirm — only meaningful under an `all` policy. */
   awaiting: string[];
+  /** May this task be acknowledged past instead of done? */
+  allowSidestep: boolean;
+  /** True when what satisfies it (at least in part) is a sidestep, not a tick. */
+  sidestepped: boolean;
+  sidestepReason: string | null;
 }
 
 export interface Checklist {
@@ -132,6 +138,53 @@ async function loadStageTasks(stageId: string) {
     .orderBy(asc(workflowStageTasks.sortOrder), asc(workflowStageTasks.slug));
 }
 
+/**
+ * May ENTITY leave STAGE right now, given its blocking tasks?
+ *
+ * Takes an explicit `tx` because both callers — a task confirmation deciding
+ * whether to auto-advance, and a board move checking before it writes — run
+ * inside a transaction with the entity row already locked. Querying the
+ * global `db` here instead would open a second connection while the first is
+ * mid-transaction, which deadlocks PGlite's single connection.
+ */
+export async function evaluateStageExit(
+  tx: Transaction,
+  entityType: WorkflowBoardKey,
+  entityId: string,
+  stage: StageRow,
+): Promise<StageExitCheck> {
+  const stageTasks = (
+    await tx
+      .select()
+      .from(workflowStageTasks)
+      .where(and(eq(workflowStageTasks.stageId, stage.id), eq(workflowStageTasks.isActive, true)))
+  ).map(toTaskShape);
+
+  const completionRows = await tx
+    .select({
+      taskId: workflowTaskCompletions.taskId,
+      confirmedByStaffUserId: workflowTaskCompletions.confirmedByStaffUserId,
+    })
+    .from(workflowTaskCompletions)
+    .where(
+      and(
+        eq(workflowTaskCompletions.entityType, entityType),
+        eq(workflowTaskCompletions.entityId, entityId),
+      ),
+    );
+
+  const completions = new Map<string, CompletionShape[]>();
+  for (const row of completionRows) {
+    const list = completions.get(row.taskId);
+    if (list) list.push(row);
+    else completions.set(row.taskId, [row]);
+  }
+
+  const ownerIds = (await getStageOwnerIdsForMany([stage.id], tx)).get(stage.id) ?? [];
+  const ownersByTask = new Map(stageTasks.map((t) => [t.id, ownerIds]));
+  return canLeaveStage(stageTasks, stage.defaultConfirmationPolicy, completions, ownersByTask);
+}
+
 /** The checklist for whatever stage an entity is currently in. */
 export async function getChecklist(
   entityType: WorkflowBoardKey,
@@ -181,11 +234,13 @@ export async function getChecklist(
     const confirmedIds = new Set(
       mine.map((row) => row.confirmedByStaffUserId).filter((id): id is string => id !== null),
     );
+    const sidestepRow = mine.find((row) => row.sidestepped);
+    const taskRow = taskRows.find((row) => row.id === shape.id);
     return {
       id: shape.id,
       slug: shape.slug,
       name: shape.name,
-      description: taskRows.find((row) => row.id === shape.id)?.description ?? null,
+      description: taskRow?.description ?? null,
       isBlocking: shape.isBlocking,
       policy,
       gateKeys: shape.gateKeys,
@@ -199,6 +254,9 @@ export async function getChecklist(
         note: row.note,
       })),
       awaiting: policy === 'all' ? ownerIds.filter((id) => !confirmedIds.has(id)) : [],
+      allowSidestep: taskRow?.allowSidestep ?? false,
+      sidestepped: sidestepRow !== undefined,
+      sidestepReason: sidestepRow?.sidestepReason ?? null,
     };
   });
 
@@ -221,8 +279,8 @@ export interface ConfirmResult {
 }
 
 /**
- * Record one person's confirmation of a task, and advance the stage if that was
- * the last blocking one.
+ * Record one person's confirmation (or sidestep) of a task, and advance the
+ * stage if that was the last blocking one.
  *
  * Everything happens under a row lock on the entity, so two people confirming
  * the final task at the same moment produce exactly one advance. The insert is
@@ -232,11 +290,11 @@ export interface ConfirmResult {
  * is a status transition with its own guards, and finishing a checklist should
  * never trigger one implicitly.
  */
-export async function confirmTask(
+async function recordCompletion(
   entityType: WorkflowBoardKey,
   entityId: string,
   taskId: string,
-  meta: ActorMeta & { note?: string | null },
+  meta: ActorMeta & { note?: string | null; sidestepped: boolean; sidestepReason?: string | null },
 ): Promise<ConfirmResult> {
   const stages = await listActiveStages(entityType);
 
@@ -271,6 +329,10 @@ export async function confirmTask(
       .from(workflowStageTasks)
       .where(and(eq(workflowStageTasks.id, taskId), eq(workflowStageTasks.isActive, true)));
     if (!task) throw new NotFoundError('Task');
+
+    if (meta.sidestepped && !task.allowSidestep) {
+      throw new ConflictError(`"${task.name}" cannot be sidestepped — it has to be done`);
+    }
 
     // Already recorded by this person? Then this is a double-click or a retry,
     // and the answer is "yes, still done" — not an error. Checked BEFORE the
@@ -309,6 +371,8 @@ export async function confirmTask(
         confirmedByStaffUserId: meta.actorStaffUserId ?? null,
         confirmedByEmail: meta.actorEmail ?? null,
         note: meta.note ?? null,
+        sidestepped: meta.sidestepped,
+        sidestepReason: meta.sidestepped ? (meta.sidestepReason ?? null) : null,
       })
       // Idempotent: confirming twice is a double-click, not an error.
       .onConflictDoNothing();
@@ -317,53 +381,20 @@ export async function confirmTask(
       {
         aggregateId: entityId,
         aggregateType: entityType === 'order' ? 'order' : 'purchase_order',
-        eventType: 'workflow.task_confirmed',
-        payload: { taskId, taskSlug: task.slug, stageSlug: stage.slug },
+        eventType: meta.sidestepped ? 'workflow.task_sidestepped' : 'workflow.task_confirmed',
+        payload: {
+          taskId,
+          taskSlug: task.slug,
+          stageSlug: stage.slug,
+          ...(meta.sidestepped && { reason: meta.sidestepReason }),
+        },
         actorEmail: meta.actorEmail ?? null,
       },
       tx,
     );
 
     // Re-evaluate inside the lock, against what is now committed in this tx.
-    const stageTasks = (
-      await tx
-        .select()
-        .from(workflowStageTasks)
-        .where(
-          and(eq(workflowStageTasks.stageId, stage.id), eq(workflowStageTasks.isActive, true)),
-        )
-    ).map(toTaskShape);
-
-    const completionRows = await tx
-      .select({
-        taskId: workflowTaskCompletions.taskId,
-        confirmedByStaffUserId: workflowTaskCompletions.confirmedByStaffUserId,
-      })
-      .from(workflowTaskCompletions)
-      .where(
-        and(
-          eq(workflowTaskCompletions.entityType, entityType),
-          eq(workflowTaskCompletions.entityId, entityId),
-        ),
-      );
-
-    const completions = new Map<string, CompletionShape[]>();
-    for (const row of completionRows) {
-      const list = completions.get(row.taskId);
-      if (list) list.push(row);
-      else completions.set(row.taskId, [row]);
-    }
-
-    // `tx`, not the global db: a query on the outer connection while this
-    // transaction is open deadlocks PGlite's single connection.
-    const ownerIds = (await getStageOwnerIdsForMany([stage.id], tx)).get(stage.id) ?? [];
-    const ownersByTask = new Map(stageTasks.map((t) => [t.id, ownerIds]));
-    const exit = canLeaveStage(
-      stageTasks,
-      stage.defaultConfirmationPolicy,
-      completions,
-      ownersByTask,
-    );
+    const exit = await evaluateStageExit(tx, entityType, entityId, stage);
 
     let advancedTo: StageRow | null = null;
     if (exit.canLeave) {
@@ -403,6 +434,39 @@ export async function confirmTask(
       satisfied: !exit.outstanding.some((t) => t.id === taskId),
       advancedToStageSlug: advancedTo?.slug ?? null,
     };
+  });
+}
+
+/** Record one person's confirmation of a task. See `recordCompletion`. */
+export async function confirmTask(
+  entityType: WorkflowBoardKey,
+  entityId: string,
+  taskId: string,
+  meta: ActorMeta & { note?: string | null },
+): Promise<ConfirmResult> {
+  return recordCompletion(entityType, entityId, taskId, { ...meta, sidestepped: false });
+}
+
+/**
+ * Acknowledge a task as sidestepped rather than done — only legal on tasks
+ * configured `allowSidestep`, and only with a stated reason. Both refusals are
+ * hard: an unreasoned acknowledgement, or one on a must-do task, is exactly the
+ * silent skip the checklist exists to prevent (same reasoning as the PO
+ * pre-send checklist's sidestep, `checklist-service.ts`).
+ */
+export async function sidestepTask(
+  entityType: WorkflowBoardKey,
+  entityId: string,
+  taskId: string,
+  meta: ActorMeta & { reason: string },
+): Promise<ConfirmResult> {
+  const reason = meta.reason.trim();
+  if (!reason) throw new ConflictError('Give a reason for sidestepping this check');
+  return recordCompletion(entityType, entityId, taskId, {
+    actorEmail: meta.actorEmail,
+    actorStaffUserId: meta.actorStaffUserId,
+    sidestepped: true,
+    sidestepReason: reason,
   });
 }
 

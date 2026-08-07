@@ -330,6 +330,13 @@
       "when": 1786069728413,
       "tag": "0046_sharp_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1786102921417,
+      "tag": "0047_kind_red_wolf",
+      "breakpoints": true
     }
   ]
 }
