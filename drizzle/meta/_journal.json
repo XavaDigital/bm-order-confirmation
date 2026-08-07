@@ -337,6 +337,13 @@
       "when": 1786102921417,
       "tag": "0047_kind_red_wolf",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1786108077260,
+      "tag": "0048_skipped_check_alert",
+      "breakpoints": true
     }
   ]
 }

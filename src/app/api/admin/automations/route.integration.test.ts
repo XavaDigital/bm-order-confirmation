@@ -52,14 +52,14 @@ afterEach(async () => {
  * rows, so start each from an empty table; the seed itself is asserted in its
  * own describe, which deliberately runs before any clearing.
  */
-describe('starter rules (migration 0045)', () => {
+describe('starter rules (migrations 0045 and 0048)', () => {
   it('seeds the approval hand-off set, with the status-moving rule paused', async () => {
     const rules = await db
       .select()
       .from(schema.automationRules)
       .orderBy(asc(schema.automationRules.createdAt), asc(schema.automationRules.id));
 
-    expect(rules).toHaveLength(6);
+    expect(rules).toHaveLength(7);
     // Every notify rule is live; the only rule that MOVES a purchase order
     // ships paused, so nothing starts driving without being switched on.
     const moving = rules.filter((r) => r.action === 'set_status');
@@ -69,6 +69,23 @@ describe('starter rules (migration 0045)', () => {
     expect(rules.map((r) => r.trigger)).toEqual(
       expect.arrayContaining(['po_file_uploaded', 'po_checklist_complete', 'po_status_changed']),
     );
+  });
+
+  // David, 2026-08-07: a skipped pre-production check reaching production is
+  // someone else's call to confirm, so it has to reach a person.
+  it('seeds the skipped-check alert, live and narrowed to jobs carrying one', async () => {
+    const [rule] = await db
+      .select()
+      .from(schema.automationRules)
+      .where(eq(schema.automationRules.trigger, 'po_status_changed'))
+      .orderBy(asc(schema.automationRules.createdAt), asc(schema.automationRules.id))
+      .then((rows) => rows.filter((r) => r.triggerConfig?.sidestepped === 'yes'));
+
+    expect(rule).toBeDefined();
+    expect(rule.isActive).toBe(true);
+    expect(rule.action).toBe('notify');
+    expect(rule.triggerConfig).toMatchObject({ to: 'in_production', sidestepped: 'yes' });
+    expect(rule.actionConfig).toMatchObject({ recipients: ['admin'] });
   });
 });
 

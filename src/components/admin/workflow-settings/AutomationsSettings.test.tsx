@@ -58,6 +58,35 @@ describe('describeAutomation', () => {
     ).toBe('When a purchase order moves to Production → notify the admins');
   });
 
+  /**
+   * The skipped-check condition (David, 2026-08-07). A rule that fires on only
+   * SOME moves to Production reads as broken unless the sentence says why, so
+   * the condition has to appear in the sentence rather than only in the form.
+   */
+  it('says when a rule is narrowed to jobs carrying a skipped check', () => {
+    expect(
+      describeAutomation({
+        trigger: 'po_status_changed',
+        triggerConfig: { to: 'in_production', sidestepped: 'yes' },
+        action: 'notify',
+        actionConfig: { recipients: ['admin'] },
+      }),
+    ).toBe(
+      'When a purchase order moves to Production with a check that was skipped rather than done → notify the admins',
+    );
+  });
+
+  it('leaves the sentence alone when the rule is not narrowed', () => {
+    expect(
+      describeAutomation({
+        trigger: 'po_status_changed',
+        triggerConfig: { to: 'in_production' },
+        action: 'notify',
+        actionConfig: { recipients: ['admin'] },
+      }),
+    ).not.toContain('skipped');
+  });
+
   // The labels differ from the stored values (approved = Review, sent =
   // Unconfirmed …) — the sentence must speak the production vocabulary.
   it('uses the display label, not the stored status value', () => {
@@ -318,6 +347,48 @@ describe('AutomationsSettings', () => {
           actionConfig: { recipients: ['admin'] },
           isActive: true,
         },
+        'Failed to add the automation',
+      ),
+    );
+  });
+
+  /**
+   * The skipped-check condition (David, 2026-08-07). Saved as a present key
+   * only when it is on — an absent key means "always", so a rule written before
+   * this option existed must keep matching every move.
+   */
+  it('saves the skipped-check condition only when it is switched on', async () => {
+    const user = userEvent.setup();
+    renderPanel(true, []);
+    await vi.waitFor(() => expect(getJson).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole('button', { name: /add automation/i }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(
+      within(dialog).getByPlaceholderText('e.g. Test print goes to quality control'),
+      'Check the skipped ones',
+    );
+    fireEvent.mouseDown(within(dialog).getByRole('combobox', { name: 'Status reached' }));
+    fireEvent.click(await screen.findByTitle('Production'));
+    fireEvent.mouseDown(within(dialog).getByRole('combobox', { name: 'Notify' }));
+    fireEvent.click(await screen.findByTitle('the admins'));
+
+    await user.click(within(dialog).getByLabelText('Only when a check was skipped'));
+
+    // The sentence updates before it is saved, which is the point of the panel.
+    expect(within(dialog).getByTestId('automation-preview')).toHaveTextContent(
+      'with a check that was skipped rather than done',
+    );
+
+    vi.mocked(getJson).mockResolvedValueOnce({ items: [] });
+    await user.click(within(dialog).getByRole('button', { name: 'Add automation' }));
+
+    await vi.waitFor(() =>
+      expect(postJson).toHaveBeenCalledWith(
+        '/api/admin/automations',
+        expect.objectContaining({
+          triggerConfig: { to: 'in_production', sidestepped: 'yes' },
+        }),
         'Failed to add the automation',
       ),
     );

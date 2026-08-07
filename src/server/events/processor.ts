@@ -315,6 +315,9 @@ function automationHandler(
       poId: p.poId,
       poNumber: p.poNumber ?? '',
       payload: event.payload as Record<string, unknown>,
+      // Same id across retries of this event, different for the next one — see
+      // RunContext.eventKey.
+      eventKey: event.id,
     });
   };
 }

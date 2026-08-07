@@ -70,6 +70,15 @@ interface RunContext {
   poId: string;
   poNumber: string;
   payload: Record<string, unknown>;
+  /**
+   * The provoking domain event's id, which is what makes a notification
+   * at-most-once PER OCCURRENCE rather than per purchase order. The claim
+   * ledger keys on it: a retry of the same event re-uses the id and is
+   * correctly suppressed, while the same rule firing again later (a remake
+   * re-entering production, say) is a new event and does notify. Without it
+   * every rule went quiet after its first firing on a given purchase order.
+   */
+  eventKey?: string;
 }
 
 /**
@@ -221,6 +230,19 @@ async function applyAction(rule: AutomationRule, ctx: RunContext): Promise<void>
     : [];
   const title = String(config.title ?? `${ctx.poNumber || 'A purchase order'}: ${rule.name}`);
 
+  // "Go and check it's okay" is only actionable if it says at what. When the
+  // provoking event carried skipped checks, name them instead of making the
+  // reader open the purchase order to find out why they were told.
+  const skipped = Array.isArray(ctx.payload.sidesteppedChecks)
+    ? (ctx.payload.sidesteppedChecks as unknown[]).filter(
+        (c): c is string => typeof c === 'string' && c.trim() !== '',
+      )
+    : [];
+  const body =
+    skipped.length > 0
+      ? `Automation: ${rule.name}. Skipped ${skipped.length === 1 ? 'check' : 'checks'}: ${skipped.join(', ')}`
+      : `Automation: ${rule.name}`;
+
   // STAFF: the notification system (inbox + email), with the rule's own
   // recipients resolved and passed as forced ids — the rule decides who, the
   // catalog entry only decides whether automation notifications are on at all.
@@ -246,12 +268,12 @@ async function applyAction(rule: AutomationRule, ctx: RunContext): Promise<void>
       const result = await dispatchNotification(
         'automation.notify',
         {
-          dedupeKey: `${rule.id}:${ctx.poId}:${ctx.payload.eventKey ?? ''}`,
+          dedupeKey: `${rule.id}:${ctx.poId}:${ctx.eventKey ?? ''}`,
           entityType: 'purchase_order',
           entityId: ctx.poId,
           forceRecipientIds: ids,
           title,
-          body: `Automation: ${rule.name}`,
+          body,
           href: `/admin/purchase-orders/${ctx.poId}`,
         },
         ctx.tx,

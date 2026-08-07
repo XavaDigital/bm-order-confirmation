@@ -200,8 +200,17 @@ describe('updateSupplierPoStatus (legacy token gate)', () => {
       ),
     });
     expect(statusChanged).toHaveLength(2);
+    // objectContaining, not equality: the payload also carries the skipped-check
+    // answer an automation rule matches on (see workflow/sidesteps).
     expect(statusChanged.map((e) => e.payload)).toEqual(
-      expect.arrayContaining([{ poId: po.id, poNumber: po.poNumber, from: 'sent', to: 'pre_production' }]),
+      expect.arrayContaining([
+        expect.objectContaining({
+          poId: po.id,
+          poNumber: po.poNumber,
+          from: 'sent',
+          to: 'pre_production',
+        }),
+      ]),
     );
 
     const audits = await db.query.auditEvents.findMany({

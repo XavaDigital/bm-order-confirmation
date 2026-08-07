@@ -38,6 +38,7 @@ import { ConflictError, NotFoundError } from '@/server/orders/service';
 import { syncOrderProductionStatus } from './hub-sync';
 import { loadPoAssets } from '@/server/orders/assets-service';
 import { assertGateOpen } from '@/server/workflow/gates';
+import { listSidesteppedChecks } from '@/server/workflow/sidesteps';
 import { fireDueStatusReminders } from '@/server/workflow/status-reminders';
 import { supplierCodeOrFallback } from '@/server/suppliers/service';
 import { missingRequiredOptions } from '@/server/garment-types/visibility';
@@ -670,10 +671,23 @@ export async function updatePurchaseOrderStatusTx(
     .where(eq(purchaseOrders.id, po.id))
     .returning();
 
+  // Carried ON the event rather than looked up when it is handled: this is a
+  // statement about the moment the purchase order moved, and the outbox re-runs
+  // handlers on retry — re-reading later would answer a different question if
+  // someone ticked the check off in between. `sidestepped` is a string because
+  // rule matching compares trigger config to payload values as strings.
+  const skipped = await listSidesteppedChecks(tx, po.orderId, po.id);
   await emitOrderEvent(tx, {
     aggregateId: po.orderId,
     eventType: 'po.status_changed',
-    payload: { poId: po.id, poNumber: po.poNumber, from, to: nextStatus },
+    payload: {
+      poId: po.id,
+      poNumber: po.poNumber,
+      from,
+      to: nextStatus,
+      sidestepped: skipped.count > 0 ? 'yes' : 'no',
+      sidesteppedChecks: skipped.labels,
+    },
   });
   await fireDueStatusReminders(tx, 'purchase_order', po.id, nextStatus, po.orderId);
   if (nextStatus === 'cancelled') {

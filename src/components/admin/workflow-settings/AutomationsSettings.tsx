@@ -114,9 +114,14 @@ function triggerClause(rule: DescribableAutomation): string {
   switch (rule.trigger) {
     case 'po_status_changed': {
       const label = statusLabel(config.to);
-      return label
+      const moves = label
         ? `When a purchase order moves to ${label}`
         : 'When a purchase order changes status';
+      // The condition is worth spelling out in full: a rule that fires on SOME
+      // moves to Production reads as broken unless the sentence says why.
+      return config.sidestepped === 'yes'
+        ? `${moves} with a check that was skipped rather than done`
+        : moves;
     }
     case 'po_file_uploaded': {
       const category = typeof config.category === 'string' ? config.category.trim() : '';
@@ -177,6 +182,8 @@ interface FormValues {
   trigger: AutomationTrigger;
   /** po_status_changed */
   toStatus?: string;
+  /** po_status_changed — narrow to jobs carrying a skipped check. */
+  onlySidestepped?: boolean;
   /** po_file_uploaded — optional; blank means any file. */
   category?: string;
   action: AutomationAction;
@@ -190,7 +197,12 @@ interface FormValues {
 
 function toTriggerConfig(values: FormValues): Record<string, string> {
   if (values.trigger === 'po_status_changed') {
-    return values.toStatus ? { to: values.toStatus } : {};
+    return {
+      ...(values.toStatus ? { to: values.toStatus } : {}),
+      // Absent rather than 'no' when off: an empty config means "always", and a
+      // rule saved before this option existed must keep matching everything.
+      ...(values.onlySidestepped ? { sidestepped: 'yes' } : {}),
+    };
   }
   if (values.trigger === 'po_file_uploaded') {
     return values.category ? { category: values.category } : {};
@@ -269,6 +281,7 @@ export function AutomationsSettings({ canMutate }: { canMutate: boolean }) {
       name: '',
       trigger: 'po_status_changed',
       toStatus: undefined,
+      onlySidestepped: false,
       category: undefined,
       action: 'notify',
       status: undefined,
@@ -285,6 +298,7 @@ export function AutomationsSettings({ canMutate }: { canMutate: boolean }) {
       name: rule.name,
       trigger: rule.trigger as AutomationTrigger,
       toStatus: triggerConfig.to,
+      onlySidestepped: triggerConfig.sidestepped === 'yes',
       category: triggerConfig.category,
       action: rule.action as AutomationAction,
       status: typeof actionConfig.status === 'string' ? actionConfig.status : undefined,
@@ -445,6 +459,7 @@ function AutomationModal({
   const trigger = Form.useWatch('trigger', form);
   const action = Form.useWatch('action', form);
   const toStatus = Form.useWatch('toStatus', form);
+  const onlySidestepped = Form.useWatch('onlySidestepped', form);
   const category = Form.useWatch('category', form);
   const status = Form.useWatch('status', form);
   const recipients = Form.useWatch('recipients', form);
@@ -454,11 +469,16 @@ function AutomationModal({
     () =>
       describeAutomation({
         trigger,
-        triggerConfig: toTriggerConfig({ trigger, toStatus, category } as FormValues),
+        triggerConfig: toTriggerConfig({
+          trigger,
+          toStatus,
+          onlySidestepped,
+          category,
+        } as FormValues),
         action,
         actionConfig: toActionConfig({ action, status, recipients, body } as FormValues),
       }),
-    [trigger, toStatus, category, action, status, recipients, body],
+    [trigger, toStatus, onlySidestepped, category, action, status, recipients, body],
   );
 
   return (
@@ -491,13 +511,23 @@ function AutomationModal({
         </Form.Item>
 
         {trigger === 'po_status_changed' && (
-          <Form.Item
-            label="Status reached"
-            name="toStatus"
-            rules={[{ required: true, message: 'Pick the status it moves into' }]}
-          >
-            <Select options={STATUS_OPTIONS} />
-          </Form.Item>
+          <>
+            <Form.Item
+              label="Status reached"
+              name="toStatus"
+              rules={[{ required: true, message: 'Pick the status it moves into' }]}
+            >
+              <Select options={STATUS_OPTIONS} />
+            </Form.Item>
+            <Form.Item
+              label="Only when a check was skipped"
+              name="onlySidestepped"
+              valuePropName="checked"
+              extra="Runs only for jobs where a pre-production check was acknowledged as skipped instead of done — on the board or on the pre-send checklist."
+            >
+              <Switch />
+            </Form.Item>
+          </>
         )}
 
         {trigger === 'po_file_uploaded' && (
