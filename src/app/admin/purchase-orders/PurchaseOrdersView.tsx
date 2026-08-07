@@ -6,8 +6,13 @@
  * OrdersView's pattern. Rows link to the PO detail and the parent order.
  */
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Input, Segmented, Select, Space, Tag, Typography, App } from 'antd';
-import { SearchOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { Table, Checkbox, Input, Segmented, Select, Space, Tag, Tooltip, Typography, App } from 'antd';
+import {
+  SearchOutlined,
+  AppstoreOutlined,
+  HourglassOutlined,
+  UnorderedListOutlined,
+} from '@ant-design/icons';
 import Link from 'next/link';
 import type { ColumnType } from 'antd/es/table';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
@@ -38,6 +43,13 @@ interface PoRow {
   customerName: string;
   supplierId: string;
   supplierName: string;
+  /**
+   * The awaiting-approval FLAG (David, 2026-08-06): set = the factory finished
+   * a phase and it is waiting on US. Not a status — a PO carries it while
+   * sitting in whatever status it was already in.
+   */
+  awaitingApprovalAt?: string | null;
+  awaitingApprovalBy?: string | null;
 }
 
 interface SupplierOption {
@@ -70,6 +82,12 @@ export function PurchaseOrdersView({ initialView = 'board' }: Props = {}) {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [status, setStatus] = useState<string | undefined>(undefined);
   const [supplierId, setSupplierId] = useState<string | undefined>(undefined);
+  /**
+   * "Show only what is waiting on us" (David, 2026-08-06) — the queue he works
+   * from. Filtered CLIENT-side: the flag cuts across every status, so it is not
+   * a status filter, and the list endpoint already returns the whole set.
+   */
+  const [awaitingOnly, setAwaitingOnly] = useState(false);
 
   const { data: suppliers } = useAdminResource<SupplierOption[]>('/api/admin/suppliers', {
     errorMessage: 'Failed to load suppliers',
@@ -106,6 +124,9 @@ export function PurchaseOrdersView({ initialView = 'board' }: Props = {}) {
     if (view !== 'table') return;
     fetchPos();
   }, [fetchPos, view]);
+
+  const awaitingCount = rows.filter((row) => row.awaitingApprovalAt).length;
+  const visibleRows = awaitingOnly ? rows.filter((row) => row.awaitingApprovalAt) : rows;
 
   const columns: ColumnType<PoRow>[] = [
     {
@@ -158,8 +179,23 @@ export function PurchaseOrdersView({ initialView = 'board' }: Props = {}) {
     {
       title: 'Status',
       dataIndex: 'status',
-      width: 140,
-      render: (val: string) => <PoStatusBadge status={val} />,
+      width: 160,
+      render: (val: string, record: PoRow) => (
+        <Space direction="vertical" size={2}>
+          <PoStatusBadge status={val} />
+          {/* The flag rides ALONGSIDE the status, never replacing it — the PO
+              is still in its phase, it is just parked with us. */}
+          {record.awaitingApprovalAt && (
+            <Tooltip
+              title={`${record.awaitingApprovalBy ?? 'The supplier'} submitted this on ${formatDate(record.awaitingApprovalAt)}`}
+            >
+              <Tag icon={<HourglassOutlined />} color="orange" style={{ marginInlineEnd: 0 }}>
+                Awaiting approval
+              </Tag>
+            </Tooltip>
+          )}
+        </Space>
+      ),
     },
     {
       title: 'Rev',
@@ -195,7 +231,7 @@ export function PurchaseOrdersView({ initialView = 'board' }: Props = {}) {
         title="Purchase Orders"
         subtitle={
           view === 'table'
-            ? `${rows.length} purchase order${rows.length !== 1 ? 's' : ''}`
+            ? `${visibleRows.length} purchase order${visibleRows.length !== 1 ? 's' : ''}`
             : undefined
         }
         extra={
@@ -242,16 +278,29 @@ export function PurchaseOrdersView({ initialView = 'board' }: Props = {}) {
             options={(suppliers ?? []).map((s) => ({ value: s.id, label: s.name }))}
             style={{ width: 220 }}
           />
+          {/* The awaiting-approval queue. Always visible (even at zero) so its
+              absence reads as "nothing is waiting", not "the filter is gone". */}
+          <Checkbox
+            checked={awaitingOnly}
+            onChange={(e) => setAwaitingOnly(e.target.checked)}
+            style={{ alignSelf: 'center' }}
+          >
+            Awaiting approval only ({awaitingCount})
+          </Checkbox>
         </div>
 
         <Table
-          dataSource={rows}
+          dataSource={visibleRows}
           columns={columns}
           rowKey="id"
           loading={loading}
           pagination={{ pageSize: 20, showSizeChanger: false, hideOnSinglePage: true }}
           size="middle"
-          locale={{ emptyText: 'No purchase orders yet — create one from an order’s Production panel.' }}
+          locale={{
+            emptyText: awaitingOnly
+              ? 'Nothing is waiting for your approval.'
+              : 'No purchase orders yet — create one from an order’s Production panel.',
+          }}
         />
       </Space>
       )}

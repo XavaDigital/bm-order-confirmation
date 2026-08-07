@@ -1201,6 +1201,25 @@ export const purchaseOrders = confirmation.table(
     // absent until sent) + the poNumber + this. poNumber stays the canonical
     // id everywhere (URLs, portal); this is presentation only.
     customerRef: text('customer_ref'),
+
+    /**
+     * "Waiting for our approval" (David, 2026-08-06) — a FLAG over the status,
+     * not more statuses. The factory finishes a phase (design prep, test
+     * print, production layout), submits it, and the PO badges on our board
+     * until someone approves; approving clears the flag, tells them to
+     * proceed, and optionally advances the status.
+     *
+     * Deliberately not an enum value: the phase is already the status, and
+     * three more statuses would make every board, chip map and fleet consumer
+     * learn a distinction that is really "is this waiting on us or on them".
+     */
+    awaitingApprovalAt: timestamp('awaiting_approval_at', { withTimezone: true }),
+    /** Who submitted it — "Ana (Dynasty)", snapshot at write. */
+    awaitingApprovalBy: text('awaiting_approval_by'),
+    /** What they say they are submitting; shown beside the badge. */
+    awaitingApprovalNote: text('awaiting_approval_note'),
+    /** The status the PO was in when submitted — what is being approved. */
+    awaitingApprovalStatus: text('awaiting_approval_status'),
     createdBy: uuid('created_by').references(() => staffUsers.id),
 
     // Workflow stage — same shape and same nullable-no-backfill reasoning as on
@@ -1361,7 +1380,13 @@ export const automationRules = confirmation.table(
     name: text('name').notNull(),
     trigger: text('trigger')
       .notNull()
-      .$type<'po_status_changed' | 'po_file_uploaded' | 'po_checklist_complete'>(),
+      .$type<
+        | 'po_status_changed'
+        | 'po_file_uploaded'
+        | 'po_checklist_complete'
+        // The supplier submitted a finished phase for our approval (2026-08-06).
+        | 'po_submitted_for_approval'
+      >(),
     /** Trigger-specific match, e.g. {to: 'in_transit'} or {category: 'Test print'}. */
     triggerConfig: jsonb('trigger_config').$type<Record<string, string>>().notNull().default({}),
     action: text('action').notNull().$type<'notify' | 'set_status' | 'add_note'>(),

@@ -1418,3 +1418,68 @@ describe('PoDetailView', () => {
     expect(await screen.findByText('ref.png attached')).toBeInTheDocument();
   });
 });
+
+/**
+ * The awaiting-approval FLAG on the page (David, 2026-08-06). The banner's own
+ * behaviour is covered in PoApprovalBanner.test.tsx; what matters here is that
+ * the page feeds it the four fields and puts it where it cannot be missed.
+ */
+describe('PoDetailView — awaiting approval', () => {
+  const flagged = () =>
+    detail({
+      status: 'test_print',
+      awaitingApprovalAt: '2026-08-06T09:00:00Z',
+      awaitingApprovalBy: 'Ana (Dynasty)',
+      awaitingApprovalNote: 'Test print photos attached',
+      awaitingApprovalStatus: 'test_print',
+    });
+
+  it('leads the page with the banner when the supplier is waiting on us', async () => {
+    installMockFetch(baseRoutes(flagged()));
+    renderView();
+
+    const banner = await screen.findByTestId('awaiting-approval-banner');
+    expect(banner).toBeInTheDocument();
+    expect(
+      screen.getByText('Ana (Dynasty) submitted Test print for approval on 6 Aug 2026'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Test print photos attached/)).toBeInTheDocument();
+    // Above the two-column body — the first thing on the page after the header.
+    expect(
+      banner.compareDocumentPosition(screen.getByTestId('detail-layout')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('approves from the banner and re-reads the purchase order', async () => {
+    const user = userEvent.setup();
+    const { fetchMock, addRoute } = installMockFetch(baseRoutes(flagged()));
+    addRoute({
+      match: `/api/admin/purchase-orders/${PO_ID}/approve`,
+      method: 'POST',
+      response: { ok: true, approvedStatus: 'test_print', advancedTo: 'prod_layout' },
+    });
+    renderView();
+    await screen.findByTestId('awaiting-approval-banner');
+
+    await user.click(screen.getByRole('button', { name: 'Approve submission' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /^Approve$/ }));
+
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/admin/purchase-orders/${PO_ID}/approve`,
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    );
+    expect(await screen.findByText(/moved to Prod layout/i)).toBeInTheDocument();
+  });
+
+  it('shows nothing when the flag is clear', async () => {
+    installMockFetch(baseRoutes());
+    renderView();
+
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+    expect(screen.queryByTestId('awaiting-approval-banner')).not.toBeInTheDocument();
+  });
+});

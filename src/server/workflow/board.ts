@@ -34,6 +34,13 @@ export interface BoardCard {
   deadlineDate: string | null;
   supplierName?: string | null;
   orderId?: string;
+  /**
+   * PO cards only: the factory has submitted a finished phase and it is waiting
+   * on US (David, 2026-08-06). A boolean rather than the timestamp because the
+   * card only needs to badge — the who/when/note live on the PO page, which is
+   * one click away. Absent on order cards.
+   */
+  awaitingApproval?: boolean;
 }
 
 export interface BoardColumn {
@@ -271,6 +278,7 @@ export async function getPurchaseOrderBoard(opts?: {
       customerRef: true,
       sentAt: true,
       status: true,
+      awaitingApprovalAt: true,
       workflowStageSlug: true,
       stageEnteredAt: true,
       deadlineDate: true,
@@ -311,6 +319,7 @@ export async function getPurchaseOrderBoard(opts?: {
       deadlineDate: row.deadlineDate,
       supplierName: row.supplier?.name ?? null,
       orderId: row.orderId,
+      awaitingApproval: row.awaitingApprovalAt !== null,
     };
   });
 

@@ -28,7 +28,9 @@ import { canTransition, type PoStatus } from '@/server/purchase-orders/contract'
 export type AutomationTrigger =
   | 'po_status_changed'
   | 'po_file_uploaded'
-  | 'po_checklist_complete';
+  | 'po_checklist_complete'
+  // The supplier says a phase is ready for us (David, 2026-08-06).
+  | 'po_submitted_for_approval';
 export type AutomationAction = 'notify' | 'set_status' | 'add_note';
 
 export type AutomationRule = typeof automationRules.$inferSelect;

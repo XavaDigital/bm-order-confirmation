@@ -154,6 +154,79 @@ describe('PurchaseOrdersView', () => {
   });
 });
 
+/**
+ * The awaiting-approval FLAG (David, 2026-08-06). The list is the queue he
+ * works from, so the tag has to be visible on the row AND filterable down to
+ * only those — a flag you cannot filter by is not a queue.
+ */
+describe('PurchaseOrdersView — awaiting approval', () => {
+  const waiting = () =>
+    poRow({
+      id: 'po-2',
+      poNumber: 'PO-WAITING',
+      status: 'test_print',
+      awaitingApprovalAt: '2026-08-06T09:00:00Z',
+      awaitingApprovalBy: 'Ana (Dynasty)',
+    });
+
+  it('tags a flagged row without replacing its status', async () => {
+    installMockFetch([suppliersRoute, posRoute([waiting()])]);
+    renderView();
+
+    expect(await screen.findByText('Awaiting approval')).toBeInTheDocument();
+    // The PO is still IN its phase — the flag rides alongside the status.
+    expect(screen.getByText('Test print')).toBeInTheDocument();
+  });
+
+  it('leaves unflagged rows untagged', async () => {
+    installMockFetch([suppliersRoute, posRoute([poRow()])]);
+    renderView();
+
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+    expect(screen.queryByText('Awaiting approval')).not.toBeInTheDocument();
+  });
+
+  it('counts what is waiting, and filters down to only those', async () => {
+    const user = userEvent.setup();
+    installMockFetch([suppliersRoute, posRoute([poRow(), waiting()])]);
+    renderView();
+
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+    const toggle = screen.getByRole('checkbox', { name: /awaiting approval only \(1\)/i });
+
+    await user.click(toggle);
+
+    expect(screen.getByText('PO-WAITING')).toBeInTheDocument();
+    expect(screen.queryByText('PO-2607-VA01-JANECOACH')).not.toBeInTheDocument();
+  });
+
+  it('unticking brings the rest back', async () => {
+    const user = userEvent.setup();
+    installMockFetch([suppliersRoute, posRoute([poRow(), waiting()])]);
+    renderView();
+
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+    const toggle = screen.getByRole('checkbox', { name: /awaiting approval only/i });
+    await user.click(toggle);
+    await user.click(toggle);
+
+    expect(screen.getByText('PO-2607-VA01-JANECOACH')).toBeInTheDocument();
+  });
+
+  // The filter stays put at zero: its absence would read as "nothing is
+  // waiting" only if you knew it was ever there.
+  it('offers the filter even when nothing is waiting, and says so when empty', async () => {
+    const user = userEvent.setup();
+    installMockFetch([suppliersRoute, posRoute([poRow()])]);
+    renderView();
+
+    await screen.findByText('PO-2607-VA01-JANECOACH');
+    await user.click(screen.getByRole('checkbox', { name: /awaiting approval only \(0\)/i }));
+
+    expect(screen.getByText(/nothing is waiting for your approval/i)).toBeInTheDocument();
+  });
+});
+
 describe('PurchaseOrdersView — view toggle', () => {
   const boardRoute: MockRoute = {
     match: /\/api\/admin\/workflow\/board/,

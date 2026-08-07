@@ -131,6 +131,19 @@ export const NOTIFICATION_CATALOG: readonly NotificationDefinition[] = [
     defaultRules: [{ kind: 'role', roleKey: 'admin' }],
   },
   {
+    key: 'po.submitted_for_approval',
+    label: 'A supplier submits work for our approval',
+    description:
+      'The factory has finished a phase — design prep, a test print, a production layout — ' +
+      'and says it is ready for us to look at (David, 2026-08-06). Goes to the people who ' +
+      'own the job rather than everyone: the PO raiser and the order owner. The PO also ' +
+      'badges on the board, so this is the nudge, not the only signal.',
+    eventType: 'po.submitted_for_approval',
+    defaultEnabled: true,
+    defaultEmailEnabled: true,
+    defaultRules: [{ kind: 'po_creator' }, { kind: 'order_owner' }],
+  },
+  {
     key: 'automation.notify',
     label: 'An automation says someone should know',
     description:

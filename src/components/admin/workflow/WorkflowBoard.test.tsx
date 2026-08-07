@@ -275,6 +275,43 @@ describe('WorkflowBoard — purchase-order cards', () => {
     expect(link).toHaveAttribute('href', '/admin/purchase-orders/po1');
   });
 
+  /**
+   * The awaiting-approval flag (David, 2026-08-06): the factory finished a
+   * phase and the job is parked with US. The card badges it so a column can be
+   * scanned for "what is waiting on me" without opening anything.
+   */
+  it('badges a PO card the supplier is waiting on us for', async () => {
+    vi.mocked(getJson).mockResolvedValue({
+      boardKey: 'purchase_order',
+      orphanedCount: 0,
+      columns: [
+        {
+          slug: 'in_production',
+          name: 'In Production',
+          statusKey: 'in_production',
+          color: null,
+          isTerminal: false,
+          cards: [
+            card({ id: 'po1', reference: 'PO-WAITING', awaitingApproval: true }),
+            card({ id: 'po2', reference: 'PO-RUNNING', awaitingApproval: false }),
+          ],
+        },
+      ],
+    });
+    renderBoard('purchase_order');
+
+    // Exactly one badge — the flag must not smear across the whole column.
+    expect(await screen.findByText('Awaiting approval')).toBeInTheDocument();
+    expect(screen.getAllByText('Awaiting approval')).toHaveLength(1);
+  });
+
+  it('shows no badge when nothing is waiting', async () => {
+    renderBoard('purchase_order');
+    await screen.findByRole('group', { name: 'Artwork (1)' });
+
+    expect(screen.queryByText('Awaiting approval')).not.toBeInTheDocument();
+  });
+
   it('clicking anywhere on a PO card opens the purchase order', async () => {
     const user = userEvent.setup();
     vi.mocked(getJson).mockResolvedValue({

@@ -300,7 +300,10 @@ async function handleHubNoteTimelinePush(event: DomainEvent, tx: Transaction): P
  * the rules service never throws, so a bad rule cannot fail its event.
  */
 function automationHandler(
-  trigger: 'po_status_changed' | 'po_file_uploaded',
+  trigger:
+    | 'po_status_changed'
+    | 'po_file_uploaded'
+    | 'po_submitted_for_approval',
 ): EventHandler {
   return async (event, tx) => {
     const p = event.payload as { poId?: string; poNumber?: string };
@@ -314,6 +317,28 @@ function automationHandler(
       payload: event.payload as Record<string, unknown>,
     });
   };
+}
+
+
+async function handlePoSubmittedForApprovalNotification(
+  event: DomainEvent,
+  tx: Transaction,
+): Promise<void> {
+  const p = event.payload as {
+    poId?: string;
+    poNumber?: string;
+    status?: string;
+    supplierName?: string;
+    note?: string | null;
+  };
+  await dispatchNotification('po.submitted_for_approval', {
+    dedupeKey: event.id,
+    entityType: 'purchase_order',
+    entityId: p.poId ?? event.aggregateId,
+    title: `${p.supplierName ?? 'A supplier'} submitted ${p.poNumber ?? 'a purchase order'} for approval`,
+    body: p.note ?? (p.status ? `Finished: ${p.status.replace(/_/g, ' ')}.` : null),
+    href: `/admin/purchase-orders/${p.poId ?? ''}`,
+  }, tx);
 }
 
 const EVENT_HANDLERS: Record<string, EventHandler[]> = {
@@ -336,6 +361,10 @@ const EVENT_HANDLERS: Record<string, EventHandler[]> = {
   'po.status_changed': [handleHubOrderIndexSync, automationHandler('po_status_changed')],
   'po.cancelled': [handleHubOrderIndexSync],
   'po.file_uploaded': [automationHandler('po_file_uploaded')],
+  'po.submitted_for_approval': [
+    handlePoSubmittedForApprovalNotification,
+    automationHandler('po_submitted_for_approval'),
+  ],
 };
 
 // ---------------------------------------------------------------------------

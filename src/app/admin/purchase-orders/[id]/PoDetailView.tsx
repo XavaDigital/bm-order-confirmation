@@ -73,6 +73,7 @@ import {
   usePoFiles,
   type PoFileItem,
 } from '@/components/admin/purchase-orders/PoFilesCard';
+import { PoApprovalBanner } from '@/components/admin/purchase-orders/PoApprovalBanner';
 import { PoStatusBadge } from '@/components/admin/purchase-orders/PoStatusBadge';
 import { ShipmentStatusBadge } from '@/components/admin/purchase-orders/ShipmentStatusBadge';
 import { VarianceDiff } from '@/components/admin/purchase-orders/VarianceDiff';
@@ -179,6 +180,15 @@ interface PoDetail {
   receivedAt: string | null;
   notes: string | null;
   createdAt: string;
+  /**
+   * The awaiting-approval FLAG (David, 2026-08-06): set = the factory finished
+   * a phase and it is waiting on US. The status stays put — what these carry is
+   * whose court the ball is in, plus who said so and about which phase.
+   */
+  awaitingApprovalAt: string | null;
+  awaitingApprovalBy: string | null;
+  awaitingApprovalNote: string | null;
+  awaitingApprovalStatus: string | null;
   /** The supplier colour book this job is matched against (null = none). */
   colorBookId: string | null;
   colorBookName: string | null;
@@ -915,6 +925,19 @@ export function PoDetailView({ poId }: { poId: string }) {
             )}
           </Space>
         }
+      />
+
+      {/* Waiting on US (David, 2026-08-06) — above everything else on the page,
+          because this is the queue: a flagged PO must announce itself the
+          moment the page opens. Renders nothing when the flag is clear. */}
+      <PoApprovalBanner
+        poId={poId}
+        awaitingApprovalAt={detail.awaitingApprovalAt ?? null}
+        awaitingApprovalBy={detail.awaitingApprovalBy ?? null}
+        awaitingApprovalStatus={detail.awaitingApprovalStatus ?? null}
+        awaitingApprovalNote={detail.awaitingApprovalNote ?? null}
+        status={detail.status}
+        onApproved={load}
       />
 
       {varianceInfo?.variance.hasVariance && (

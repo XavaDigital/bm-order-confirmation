@@ -128,6 +128,11 @@ export type DomainEventType =
   | 'po.file_removed'
   // Audit-only: a pre-send checklist tick/untick, with who and which item.
   | 'po.check_changed'
+  // Awaiting-approval flag (David, 2026-08-06): the supplier submits a
+  // finished phase and the PO badges until we approve. Outbox on both
+  // sides — notifications and automations hang off them.
+  | 'po.submitted_for_approval'
+  | 'po.approval_given'
   // Audit-only: the CHECKS themselves being configured (added, renamed,
   // retired, made sidesteppable). Staff action history on config, not a tick.
   | 'po.check_item_created'

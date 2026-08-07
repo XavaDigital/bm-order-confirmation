@@ -14,6 +14,7 @@ import type { Transaction } from '@/db';
 import {
   auditEvents,
   garments,
+  orderNotes,
   orders,
   poSupplierAccess,
   purchaseOrderRevisions,
@@ -477,6 +478,8 @@ export async function listPurchaseOrders(opts?: {
       poNumber: purchaseOrders.poNumber,
       customerRef: purchaseOrders.customerRef,
       status: purchaseOrders.status,
+      awaitingApprovalAt: purchaseOrders.awaitingApprovalAt,
+      awaitingApprovalBy: purchaseOrders.awaitingApprovalBy,
       currentRevisionNumber: purchaseOrders.currentRevisionNumber,
       deadlineDate: purchaseOrders.deadlineDate,
       expectedShipDate: purchaseOrders.expectedShipDate,
@@ -1297,4 +1300,83 @@ export async function issueRevision(id: string, input: IssueRevisionInput, meta?
 
     return revision;
   });
+}
+
+/**
+ * Approve what the supplier submitted (David, 2026-08-06's flag model).
+ *
+ * Clears the awaiting-approval flag, records who approved and what, tells the
+ * supplier in the thread their portal feed already reads, and — when asked —
+ * advances the status so "approved, now do the next phase" is one action
+ * rather than two. The advance goes through the normal status machine, so an
+ * illegal move is refused rather than forced.
+ */
+export async function approveSubmission(
+  id: string,
+  meta: ActorMeta & { advanceTo?: PoStatus | null; comment?: string | null },
+) {
+  const po = await loadPoOrThrow(id);
+  if (!po.awaitingApprovalAt) {
+    throw new ConflictError('This purchase order is not waiting for approval');
+  }
+  const approvedStatus = po.awaitingApprovalStatus ?? po.status;
+  const advanceTo = meta.advanceTo ?? null;
+  if (advanceTo && !canTransition(po.status, advanceTo)) {
+    throw new ConflictError(`Cannot move a ${po.status} purchase order to ${advanceTo}`);
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(purchaseOrders)
+      .set({
+        awaitingApprovalAt: null,
+        awaitingApprovalBy: null,
+        awaitingApprovalNote: null,
+        awaitingApprovalStatus: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(purchaseOrders.id, id));
+
+    if (advanceTo) {
+      await updatePurchaseOrderStatusTx(tx, po, advanceTo, meta);
+    }
+
+    // The supplier's notification: a shared note is what their activity feed
+    // reads, so "approved — carry on" lands where they are already looking.
+    const nextLabel = advanceTo ? ` — please proceed with ${advanceTo.replace(/_/g, ' ')}.` : '.';
+    await tx.insert(orderNotes).values({
+      orderId: po.orderId,
+      body:
+        (meta.comment?.trim() ? `${meta.comment.trim()}\n\n` : '') +
+        `Approved: ${approvedStatus.replace(/_/g, ' ')}${nextLabel}`,
+      kind: 'comment',
+      authorKind: 'system',
+      authorLabel: meta.actorEmail ?? 'BeastMode',
+      visibility: 'shared',
+    });
+
+    await emitOrderEvent(tx, {
+      aggregateId: po.orderId,
+      eventType: 'po.approval_given',
+      payload: {
+        poId: id,
+        poNumber: po.poNumber,
+        approvedStatus,
+        advancedTo: advanceTo,
+        submittedBy: po.awaitingApprovalBy,
+      },
+    });
+    await recordAuditEvent(
+      {
+        aggregateId: po.orderId,
+        eventType: 'po.approval_given',
+        payload: { poId: id, poNumber: po.poNumber, approvedStatus, advancedTo: advanceTo },
+        actorEmail: meta.actorEmail ?? null,
+      },
+      tx,
+    );
+  });
+
+  void syncOrderProductionStatus(po.orderId);
+  return { poId: id, poNumber: po.poNumber, approvedStatus, advancedTo: advanceTo };
 }

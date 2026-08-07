@@ -41,7 +41,12 @@ import {
   Typography,
   theme,
 } from 'antd';
-import { ClockCircleOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
+import {
+  ClockCircleOutlined,
+  HourglassOutlined,
+  ReloadOutlined,
+  WarningOutlined,
+} from '@ant-design/icons';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ApiError, getJson, postJson } from '@/lib/api-fetch';
@@ -64,6 +69,8 @@ export interface BoardCard {
   deadlineDate: string | null;
   supplierName?: string | null;
   orderId?: string;
+  /** PO cards: the supplier submitted a phase and it is waiting on US. */
+  awaitingApproval?: boolean;
 }
 
 export interface BoardColumn {
@@ -228,6 +235,20 @@ function CardBody({ card, boardKey }: { card: BoardCard; boardKey: BoardKey }) {
             </Tooltip>
           )}
         </Space>
+        {/* The ball is in OUR court (David, 2026-08-06): the factory finished a
+            phase and is waiting on us. It sits directly under the reference so
+            a column of cards can be scanned for it at a glance. */}
+        {card.awaitingApproval && (
+          <Tooltip title="The supplier submitted this phase — open the purchase order to approve it">
+            <Tag
+              icon={<HourglassOutlined />}
+              color="orange"
+              style={{ fontSize: 11, marginInlineEnd: 0 }}
+            >
+              Awaiting approval
+            </Tag>
+          </Tooltip>
+        )}
         <Typography.Text style={{ fontSize: 13 }}>{card.title}</Typography.Text>
         {card.subtitle && (
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>

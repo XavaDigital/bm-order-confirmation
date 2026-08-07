@@ -13,7 +13,12 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { App, Alert, Button, Card, Dropdown, Input, Space, Spin, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { DownOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import {
+  DownOutlined,
+  HourglassOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
 import { ApiError, getJson, postJson } from '@/lib/api-fetch';
 import { formatDate } from '@/lib/format';
 import { poStatusMeta } from '@/lib/status';
@@ -185,9 +190,27 @@ export function SupplierPortalHomeView({ code }: { code: string }) {
         value: status,
       })),
       onFilter: (value, row) => row.status === value,
-      render: (status: string) => {
+      render: (status: string, row) => {
         const meta = poStatusMeta(status);
-        return <Tag color={meta.tag}>{meta.label}</Tag>;
+        return (
+          <Space direction="vertical" size={2}>
+            <Tag color={meta.tag} style={{ marginInlineEnd: 0 }}>
+              {meta.label}
+            </Tag>
+            {/* Submitted to us and waiting on our approval (David,
+                2026-08-06) — badged here so the factory can see, without
+                opening anything, which jobs are parked with us. */}
+            {row.awaitingApprovalAt && (
+              <Tag
+                icon={<HourglassOutlined />}
+                color="orange"
+                style={{ marginInlineEnd: 0 }}
+              >
+                Awaiting approval
+              </Tag>
+            )}
+          </Space>
+        );
       },
     },
     {

@@ -44,6 +44,9 @@ export interface SupplierPortalViewDto {
   notes: string | null;
   /** The colour book the job is matched against (David, 2026-08-05). */
   colorBookName: string | null;
+  /** Set = submitted to us and waiting on OUR approval (David, 2026-08-06). */
+  awaitingApprovalAt: string | null;
+  awaitingApprovalNote: string | null;
   /**
    * Status changes with who/when (David, 2026-08-06: the supplier side gets a
    * visible activity trail) — merged into the comments/files feed client-side.
@@ -77,6 +80,8 @@ export interface SupplierPoListRow {
   actualShipDate: string | null;
   sentAt: string | null;
   revisionNumber: number;
+  /** Set = waiting on our approval; the portal table badges it. */
+  awaitingApprovalAt: string | null;
   /** Garment names off the latest snapshot — enough for the table without a click. */
   garmentNames: string[];
   totalUnits: number;
@@ -172,6 +177,7 @@ export async function listSupplierPos(supplierId: string): Promise<SupplierPoLis
       actualShipDate: po.actualShipDate,
       sentAt: po.sentAt ? po.sentAt.toISOString() : null,
       revisionNumber: po.currentRevisionNumber,
+      awaitingApprovalAt: po.awaitingApprovalAt ? po.awaitingApprovalAt.toISOString() : null,
       garmentNames: garmentsInPo.map((g) => g.name),
       totalUnits: garmentsInPo.reduce(
         (sum, g) => sum + g.lines.reduce((s, l) => s + (l.quantity ?? 1), 0),
@@ -244,6 +250,8 @@ async function buildPortalView(
     sentAt: po.sentAt ? po.sentAt.toISOString() : null,
     notes: po.notes,
     colorBookName: po.colorBookName,
+    awaitingApprovalAt: po.awaitingApprovalAt ? po.awaitingApprovalAt.toISOString() : null,
+    awaitingApprovalNote: po.awaitingApprovalNote,
     supplier: {
       name: po.supplier.name,
       contactPerson: po.supplier.contactPerson,
@@ -512,4 +520,69 @@ export async function addSupplierCommentByNumber(
     authorLabel: `${personName} (${supplier.name}, ${po.poNumber})`,
     garmentId: null,
   });
+}
+
+/**
+ * "I've finished this phase — please approve it" (David, 2026-08-06).
+ *
+ * Raises the awaiting-approval FLAG rather than moving the status: the PO is
+ * still in Test print (or wherever); what changed is that the ball is in our
+ * court. Staff clear it by approving, which is what tells the supplier to
+ * proceed. Re-submitting while already awaiting is a no-op rather than an
+ * error — a supplier clicking twice has not done anything wrong.
+ */
+export async function submitForApproval(
+  supplier: { id: string; name: string },
+  poNumber: string,
+  personName: string,
+  note: string | null,
+): Promise<{ poId: string; poNumber: string; awaitingApprovalAt: Date }> {
+  const po = await loadSupplierPoOrThrow(supplier.id, poNumber);
+  if (['received', 'completed', 'cancelled'].includes(po.status)) {
+    throw new Error('locked_after_shipping');
+  }
+  if (po.awaitingApprovalAt) {
+    return { poId: po.id, poNumber: po.poNumber, awaitingApprovalAt: po.awaitingApprovalAt };
+  }
+
+  const actorLabel = `${personName} (${supplier.name})`;
+  const at = new Date();
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(purchaseOrders)
+      .set({
+        awaitingApprovalAt: at,
+        awaitingApprovalBy: actorLabel,
+        awaitingApprovalNote: note?.trim() || null,
+        awaitingApprovalStatus: po.status,
+        updatedAt: at,
+      })
+      .where(eq(purchaseOrders.id, po.id));
+
+    await emitOrderEvent(tx, {
+      aggregateId: po.orderId,
+      eventType: 'po.submitted_for_approval',
+      payload: {
+        poId: po.id,
+        poNumber: po.poNumber,
+        status: po.status,
+        supplierId: supplier.id,
+        supplierName: supplier.name,
+        actorLabel,
+        note: note?.trim() || null,
+      },
+    });
+    await recordAuditEvent(
+      {
+        aggregateId: po.orderId,
+        eventType: 'po.submitted_for_approval',
+        payload: { poId: po.id, poNumber: po.poNumber, status: po.status, note: note?.trim() || null },
+        actorEmail: actorLabel,
+      },
+      tx,
+    );
+  });
+
+  return { poId: po.id, poNumber: po.poNumber, awaitingApprovalAt: at };
 }

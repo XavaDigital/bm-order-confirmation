@@ -40,6 +40,7 @@ import { CustomerPageShell } from '@/components/customer/CustomerPageShell';
 import { CARD_STYLE, CARD_BODY_STYLES, FIELD_LABEL_STYLE } from '@/components/customer/customerStyles';
 import { SupplierLoginCard } from '@/components/supplier/SupplierLoginCard';
 import { SupplierPoContent } from '@/components/supplier/SupplierPoContent';
+import { SubmitForApprovalCard } from '@/components/supplier/SubmitForApprovalCard';
 import { SupplierPoFiles, type PoFileItem } from '@/components/supplier/SupplierPoFiles';
 import { SupplierActivityFeed } from '@/components/supplier/SupplierActivityFeed';
 import { PoRevisionStepper } from '@/components/supplier/PoRevisionStepper';
@@ -365,6 +366,19 @@ export function SupplierPoDetailView({ code, poNumber }: { code: string; poNumbe
                 </Space>
               </div>
             )}
+
+            {/* "This phase is done — please approve it" (David, 2026-08-06).
+                Sits with the status actions because it is the other thing the
+                factory does here, but it is NOT a status move: the flag says
+                the ball is in our court while the status stays put. */}
+            <SubmitForApprovalCard
+              code={code}
+              poNumber={poNumber}
+              awaitingApprovalAt={view.awaitingApprovalAt}
+              awaitingApprovalNote={view.awaitingApprovalNote}
+              onSubmitted={load}
+              onUnauthorized={() => setPhase('login')}
+            />
           </Card>
 
           <PoRevisionStepper
