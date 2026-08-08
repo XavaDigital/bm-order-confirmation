@@ -277,3 +277,64 @@ describe('RosterPanel', () => {
     expect(await screen.findByText(/individual links emailed to 1 of 2 members \(1 had no email on file\)/i)).toBeInTheDocument();
   });
 });
+
+/**
+ * Locking the roster (David, 2026-08-08: "the admin should be able to lock the
+ * roster"). The endpoint and the customer-side enforcement existed all along;
+ * the 2026-08-04 redesign removed the only control that called it, so the
+ * feature was unreachable from the screen for four days.
+ */
+describe('RosterPanel — locking', () => {
+  it('locks the roster and re-reads it', async () => {
+    const user = userEvent.setup();
+    const { fetchMock, addRoute } = installMockFetch([rosterRoute(emptyRoster())]);
+    renderPanel();
+    await screen.findByRole('button', { name: /lock roster/i });
+
+    addRoute({ match: `${ROSTER_URL}/lock`, method: 'POST', response: { ok: true } });
+    await user.click(screen.getByRole('button', { name: /lock roster/i }));
+    // Popconfirm — locking is what makes the sizes final, so it asks first.
+    await user.click(await screen.findByRole('button', { name: 'Lock' }));
+
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(`${ROSTER_URL}/lock`, expect.objectContaining({ method: 'POST' })),
+    );
+    // Re-read rather than assume: locking finalises the sizes. Counting the
+    // roster GETs specifically, since the panel also loads page settings.
+    await vi.waitFor(() => {
+      const rosterGets = fetchMock.mock.calls.filter(
+        ([url, init]) => url === ROSTER_URL && (!init || !init.method || init.method === 'GET'),
+      );
+      expect(rosterGets.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  it('shows a locked roster as locked, and offers to reopen it', async () => {
+    installMockFetch([rosterRoute({ ...emptyRoster(), locked: true })]);
+    renderPanel();
+
+    expect(await screen.findByText('Roster locked')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /unlock roster/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^lock roster$/i })).not.toBeInTheDocument();
+  });
+
+  it('reopens a locked roster through the same endpoint', async () => {
+    const user = userEvent.setup();
+    const { fetchMock, addRoute } = installMockFetch([
+      rosterRoute({ ...emptyRoster(), locked: true }),
+    ]);
+    renderPanel();
+    await screen.findByRole('button', { name: /unlock roster/i });
+
+    addRoute({ match: `${ROSTER_URL}/lock`, method: 'DELETE', response: { ok: true } });
+    await user.click(screen.getByRole('button', { name: /unlock roster/i }));
+    await user.click(await screen.findByRole('button', { name: 'Reopen' }));
+
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        `${ROSTER_URL}/lock`,
+        expect.objectContaining({ method: 'DELETE' }),
+      ),
+    );
+  });
+});

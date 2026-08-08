@@ -13,6 +13,7 @@ import {
   UploadOutlined,
   MailOutlined,
   LinkOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import type { ColumnType } from 'antd/es/table';
 import { ApiError, deleteJson, patchJson, postJson } from '@/lib/api-fetch';
@@ -66,6 +67,43 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
   const [copyingId, setCopyingId] = useState<string | null>(null);
   const [emailingAll, setEmailingAll] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [lockBusy, setLockBusy] = useState(false);
+
+  /**
+   * Lock/unlock the roster (David, 2026-08-08: "the admin should be able to
+   * lock the roster").
+   *
+   * The endpoint and the customer-side enforcement have been here all along —
+   * a locked roster turns a member away with a message telling them to call
+   * their rep — but the 2026-08-04 redesign removed the only control that
+   * called it, so the feature was unreachable from the screen.
+   *
+   * Reloads rather than patching state locally: locking is what makes the
+   * sizes final, so the panel should re-read the truth rather than assume it.
+   */
+  async function setLocked(locked: boolean) {
+    setLockBusy(true);
+    try {
+      if (locked) {
+        await postJson(`/api/admin/orders/${orderId}/roster/lock`, {}, 'Failed to lock the roster');
+      } else {
+        await deleteJson(
+          `/api/admin/orders/${orderId}/roster/lock`,
+          'Failed to unlock the roster',
+        );
+      }
+      message.success(locked ? 'Roster locked' : 'Roster unlocked');
+      await reload();
+    } catch (err) {
+      message.error(
+        err instanceof ApiError || err instanceof Error
+          ? err.message
+          : 'Failed to change the roster lock',
+      );
+    } finally {
+      setLockBusy(false);
+    }
+  }
 
   async function addMember() {
     const name = addDraft.name.trim();
@@ -404,6 +442,7 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               {data.stats.submitted} of {data.stats.total} submitted
             </Typography.Text>
+            {data.locked && <Tag color="warning">Roster locked</Tag>}
           </Space>
           <Space>
             <Button
@@ -418,6 +457,22 @@ export function RosterPanel({ orderId, customerEmail }: Props) {
             <Button size="small" icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>
               Import CSV/XLSX
             </Button>
+            {/* Locking is what makes the sizes final, so it asks first — and
+                says what it does to the people who still have the link. */}
+            <Popconfirm
+              title={data.locked ? 'Reopen the roster?' : 'Lock the roster?'}
+              description={
+                data.locked
+                  ? 'Team members will be able to add themselves and change sizes again.'
+                  : 'Team members will no longer be able to add themselves or change their sizes.'
+              }
+              okText={data.locked ? 'Reopen' : 'Lock'}
+              onConfirm={() => void setLocked(!data.locked)}
+            >
+              <Button size="small" icon={<LockOutlined />} loading={lockBusy}>
+                {data.locked ? 'Unlock roster' : 'Lock roster'}
+              </Button>
+            </Popconfirm>
           </Space>
         </div>
         {dupNumbers.size > 0 && (

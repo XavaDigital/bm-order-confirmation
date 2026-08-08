@@ -71,11 +71,12 @@ test.describe('Team order page', () => {
     await page.getByRole('menuitem', { name: 'Team order page' }).click();
     await expect(page.getByText(/1 of 1 submitted/)).toBeVisible();
 
-    // 5. Locking turns a returning member away. The control is gone from the
-    // screen; the endpoint is not, and it is what actually protects the roster
-    // once sizes are final.
-    const lock = await page.request.post(`/api/admin/orders/${orderId}/roster/lock`);
-    expect(lock.ok(), 'locking the roster should succeed').toBe(true);
+    // 5. Staff lock the roster from the screen, and it turns a returning member
+    // away. The control was missing between the 2026-08-04 redesign and
+    // 2026-08-08 — the endpoint enforced all along, but nothing called it.
+    await page.getByRole('button', { name: /lock roster/i }).click();
+    await page.getByRole('button', { name: 'Lock' }).click();
+    await expect(page.getByText('Roster locked')).toBeVisible();
 
     const lateContext = await context.browser()!.newContext();
     const latePage = await lateContext.newPage();
