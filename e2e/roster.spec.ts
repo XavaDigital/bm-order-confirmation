@@ -86,8 +86,11 @@ test.describe('Team order page', () => {
     // away. The control was missing between the 2026-08-04 redesign and
     // 2026-08-08 — the endpoint enforced all along, but nothing called it.
     await page.getByRole('button', { name: /lock roster/i }).click();
-    await page.getByRole('button', { name: 'Lock' }).click();
-    await expect(page.getByText('Roster locked')).toBeVisible();
+    // exact, or this also matches the "Lock roster" button that opened the
+    // confirmation — accessible-name matching is substring by default.
+    await page.getByRole('button', { name: 'Lock', exact: true }).click();
+    // first(), because the toast says the same words as the tag.
+    await expect(page.getByText('Roster locked').first()).toBeVisible();
 
     const lateContext = await context.browser()!.newContext();
     const latePage = await lateContext.newPage();
