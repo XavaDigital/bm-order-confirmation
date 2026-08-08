@@ -60,3 +60,92 @@ jobs:
       # that lands so future high+ vulnerabilities actually fail the build.
       - run: npm audit --omit=dev --audit-level=high
         continue-on-error: true
+
+  # The five Playwright specs existed since the first build and nothing ever
+  # ran them (CLAUDE.md wrongly claimed there were none). They are the only
+  # tests that load a real page in a real browser against a real Postgres, so
+  # they catch what the vitest suites structurally cannot: a page that renders
+  # 200 but is blank, an antd compound component resolving to undefined behind
+  # a client boundary, RSC streaming that never resolves. Both have happened
+  # here.
+  #
+  # A SEPARATE job, not extra steps on `test`: it needs a database service and
+  # a browser, takes several minutes longer, and its failures should be
+  # readable on their own rather than buried under a unit-test run.
+  e2e:
+    runs-on: ubuntu-latest
+
+    # Locally these specs run against the real dev Supabase; in CI they get a
+    # throwaway Postgres of their own, so a run can seed, confirm and cancel
+    # freely without leaving `e2e-` tagged rows in a database anyone uses.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # chromium only — playwright.config.ts defines exactly one project.
+      - run: npx playwright install --with-deps chromium
+
+      # Both drizzle.config.ts and `npm run db:seed` read .env.local
+      # specifically (the Next.js convention), so CI writes one rather than
+      # relying on exported variables those two would ignore.
+      #
+      # The admin credentials are NOT a secret and must not become one: they
+      # are hard-coded in e2e/helpers.ts as the account every spec logs in
+      # with, and they only ever exist in this throwaway database.
+      # SESSION_SECRET has a 32-character minimum (src/lib/env.ts).
+      - name: Write CI environment
+        run: |
+          cat > .env.local <<'ENVFILE'
+          DATABASE_URL=postgres://ci:ci@localhost:5432/ci
+          TOKEN_PEPPER=ci-token-pepper
+          INTERNAL_API_KEY=ci-internal-api-key
+          SESSION_SECRET=ci-session-secret-at-least-32-characters-long
+          SEED_ADMIN_EMAIL=admin@xavadigital.com
+          SEED_ADMIN_PASSWORD=P@ssw0rd123!
+          SEED_ADMIN_NAME=CI Admin
+          ENVFILE
+
+      # Migrate before seeding, and both before the app starts — the same
+      # order the deploy pipeline uses, and for the same reason.
+      - run: npm run db:migrate
+
+      # Creates the admin the specs log in as. Refuses when identity SSO is
+      # configured; it is not here, which is exactly the standalone case that
+      # exemption exists for.
+      - run: npm run db:seed
+
+      # playwright.config.ts builds the app and starts the standalone server
+      # itself (webServer), on its own port with SMTP forced off.
+      - run: npm run test:e2e
+
+      # The trace and screenshots are the whole value of a failed browser run.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore
