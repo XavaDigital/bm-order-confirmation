@@ -18,10 +18,9 @@ import { seedSizeChartForOrder } from './db';
  * garment's linked size charts instead of a free-text field. All four are
  * covered below.
  *
- * The lock step goes through the API rather than the screen because the
- * redesign removed the lock control from the admin UI — the endpoint is still
- * there and still enforces, and a member being turned away is worth asserting
- * even with no button to press.
+ * Locking goes through the screen again: the redesign had removed that control
+ * — the endpoint enforced all along but nothing called it — and it was put back
+ * on 2026-08-08, which this covers.
  */
 test.describe('Team order page', () => {
   test('a team member joins through the team page, submits a size, and a locked roster turns them away', async ({
@@ -58,10 +57,22 @@ test.describe('Team order page', () => {
     await memberPage.getByRole('button', { name: 'Continue' }).click();
 
     // 3. They add themselves and pick a size from the chart.
-    await memberPage.getByPlaceholder('Player name').fill(memberName);
-    await memberPage.getByText('Pick a size').click();
-    await memberPage.locator('.ant-select-item-option').filter({ hasText: sizes[1] }).first().click();
-    await memberPage.getByRole('button', { name: /add player/i }).click();
+    //
+    // Scoped to what is VISIBLE: the member panel renders more than once (the
+    // page has responsive variants), so a plain placeholder match is ambiguous
+    // and Playwright refuses it rather than guessing.
+    await memberPage.locator('input[placeholder="Player name"]:visible').first().fill(memberName);
+    await memberPage.locator('.ant-select-selector:visible').first().click();
+    await memberPage
+      .locator('.ant-select-item-option:visible')
+      .filter({ hasText: sizes[1] })
+      .first()
+      .click();
+    await memberPage
+      .getByRole('button', { name: /add player/i })
+      .and(memberPage.locator(':visible'))
+      .first()
+      .click();
 
     await expect(memberPage.getByText(memberName).first()).toBeVisible();
     await memberContext.close();
