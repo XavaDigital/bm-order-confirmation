@@ -71,6 +71,8 @@ export interface BoardCard {
   orderId?: string;
   /** PO cards: the supplier submitted a phase and it is waiting on US. */
   awaitingApproval?: boolean;
+  /** First garment's first image — for recognising the job at a glance. */
+  featuredImageUrl?: string | null;
 }
 
 export interface BoardColumn {
@@ -210,6 +212,28 @@ function CardBody({ card, boardKey }: { card: BoardCard; boardKey: BoardKey }) {
       }}
       styles={{ body: { padding: '8px 10px' } }}
     >
+      {/* The first garment's first image (David, 2026-08-09) — recognition, not
+          decoration, so it sits above the words and stays small. No placeholder
+          when there is none: an empty grey box is noise on every card that has
+          no artwork yet. */}
+      {card.featuredImageUrl && (
+        /* A signed storage URL, not a static asset — next/image would need the
+           bucket host allow-listed and would re-fetch through the optimiser,
+           which is the wrong trade for a thumbnail we already generated. */
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={card.featuredImageUrl}
+          alt=""
+          style={{
+            width: '100%',
+            height: 72,
+            objectFit: 'cover',
+            borderRadius: 4,
+            marginBottom: 6,
+            display: 'block',
+          }}
+        />
+      )}
       <Space direction="vertical" size={2} style={{ width: '100%' }}>
         <Space size={6} style={{ justifyContent: 'space-between', width: '100%' }}>
           {/* The link is deliberately not draggable — clicking a card to open it

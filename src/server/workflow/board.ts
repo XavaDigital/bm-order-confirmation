@@ -11,6 +11,7 @@ import { db } from '@/db';
 import { orders, purchaseOrders, workflowTaskCompletions } from '@/db/schema';
 import type { WorkflowBoardKey } from '@/db/schema';
 import { poDisplayTitle } from '@/lib/po-title';
+import { orderFeaturedImages, poFeaturedImages } from './featured-images';
 import { listActiveStages, listTasksForStages, resolveStage, type StageRow } from './stages';
 
 /** How overdue a card is against its stage's thresholds. */
@@ -32,6 +33,12 @@ export interface BoardCard {
   outstandingTaskSlugs: string[];
   value: { amount: string; currency: string } | null;
   deadlineDate: string | null;
+  /**
+   * Signed thumbnail of the first garment's first image (David, 2026-08-09) —
+   * for recognising a job at a glance. Absent when there is no image, or when
+   * signing it failed; a card without a picture is fine.
+   */
+  featuredImageUrl?: string | null;
   supplierName?: string | null;
   orderId?: string;
   /**
@@ -232,11 +239,14 @@ export async function getOrderBoard(opts?: { includeCancelled?: boolean }): Prom
     orderBy: [desc(orders.createdAt)],
   });
 
-  const outstanding = await loadOutstandingTasks(
-    'order',
-    rows.map((row) => row.id),
-    stages,
-  );
+  const [outstanding, featured] = await Promise.all([
+    loadOutstandingTasks(
+      'order',
+      rows.map((row) => row.id),
+      stages,
+    ),
+    orderFeaturedImages(rows.map((row) => row.id)),
+  ]);
   const now = new Date();
 
   const { columns, orphanedCount } = buildColumns(stages, rows, (row, stage) => {
@@ -257,6 +267,7 @@ export async function getOrderBoard(opts?: { includeCancelled?: boolean }): Prom
         ? { amount: row.orderValueAmount, currency: row.orderValueCurrency }
         : null,
       deadlineDate: row.deadlineDate,
+      featuredImageUrl: featured.get(row.id) ?? null,
     };
   });
 
@@ -291,11 +302,14 @@ export async function getPurchaseOrderBoard(opts?: {
     orderBy: [desc(purchaseOrders.createdAt)],
   });
 
-  const outstanding = await loadOutstandingTasks(
-    'purchase_order',
-    rows.map((row) => row.id),
-    stages,
-  );
+  const [outstanding, featured] = await Promise.all([
+    loadOutstandingTasks(
+      'purchase_order',
+      rows.map((row) => row.id),
+      stages,
+    ),
+    poFeaturedImages(rows.map((row) => row.id)),
+  ]);
   const now = new Date();
 
   const { columns, orphanedCount } = buildColumns(stages, rows, (row, stage) => {
@@ -320,6 +334,7 @@ export async function getPurchaseOrderBoard(opts?: {
       supplierName: row.supplier?.name ?? null,
       orderId: row.orderId,
       awaitingApproval: row.awaitingApprovalAt !== null,
+      featuredImageUrl: featured.get(row.id) ?? null,
     };
   });
 

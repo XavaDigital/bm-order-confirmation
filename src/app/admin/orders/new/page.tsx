@@ -201,15 +201,6 @@ export default function NewOrderPage() {
       </div>
 
       <Card>
-        <SectionTitle>Order</SectionTitle>
-        <Input
-          placeholder="Order name — e.g. Winter hoodies 2026"
-          value={orderName}
-          onChange={(e) => setOrderName(e.target.value)}
-          maxLength={200}
-          style={{ marginBottom: 20 }}
-        />
-
         <SectionTitle>
           Customer{hubConfigured && <Typography.Text type="danger"> *</Typography.Text>}
         </SectionTitle>
@@ -241,6 +232,19 @@ export default function NewOrderPage() {
             }}
           />
         </div>
+
+        {/* The order name sits AFTER the customer (David, 2026-08-09): the
+            customer is what you pick first, and a name like "Winter hoodies
+            2026" is easier to write once you can see whose order it is. */}
+        <SectionTitle>Order</SectionTitle>
+        <Input
+          placeholder="Order name — e.g. Winter hoodies 2026"
+          value={orderName}
+          onChange={(e) => setOrderName(e.target.value)}
+          maxLength={200}
+          style={{ marginBottom: 20 }}
+        />
+
         <OrderForm form={form} hubLinked={hubCustomer !== null} />
 
         <Divider />

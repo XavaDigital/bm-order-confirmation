@@ -13,7 +13,7 @@
  * until then the contact exists un-membered but is fully usable as the
  * order's contact.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { App, Button, Divider, Form, Input, Modal, Select, Space, Typography } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { ApiError, getJson, postJson } from '@/lib/api-fetch';
@@ -45,6 +45,17 @@ export function ContactHubSelect({ customerId, value, onSelect }: Props) {
   const [creating, setCreating] = useState(false);
   const [form] = Form.useForm<NewContactValues>();
 
+  /**
+   * Latest value/handler without making them effect dependencies — the effect
+   * belongs to the CUSTOMER changing, not to every re-render.
+   */
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+  /** The customer we have already auto-picked for, so clearing stays cleared. */
+  const autoPickedFor = useRef<string | null>(null);
+
   useEffect(() => {
     if (!customerId) {
       setOptions([]);
@@ -55,7 +66,26 @@ export function ContactHubSelect({ customerId, value, onSelect }: Props) {
       `/api/admin/hub/customers/${customerId}/contacts`,
       'Failed to load contacts',
     )
-      .then((res) => setOptions(res.contacts))
+      .then((res) => {
+        setOptions(res.contacts);
+        /**
+         * One contact is no choice at all (David, 2026-08-09), so make it —
+         * and prefill the person's details with it, which is what selecting
+         * does everywhere else.
+         *
+         * Only when nothing is selected yet, and only once per customer: a
+         * person who deliberately clears the field must not have it filled
+         * straight back in.
+         */
+        if (
+          res.contacts.length === 1 &&
+          !valueRef.current &&
+          autoPickedFor.current !== customerId
+        ) {
+          autoPickedFor.current = customerId;
+          onSelectRef.current(res.contacts[0]);
+        }
+      })
       // Unconfigured/unreachable hub → empty picker, same posture as customer search.
       .catch(() => setOptions([]))
       .finally(() => setLoading(false));
