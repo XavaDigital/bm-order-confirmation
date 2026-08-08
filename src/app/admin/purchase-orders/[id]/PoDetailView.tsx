@@ -22,7 +22,7 @@
  * pure function the service guards with), so the UI can never offer an
  * illegal move — including remake's two re-entry options.
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Alert,
   App,
@@ -103,6 +103,15 @@ import { ASSET_KIND_COLOR, ASSET_KIND_LABEL } from '@/lib/asset-kind';
 import { formatDate } from '@/lib/format';
 import { poDisplayTitle } from '@/lib/po-title';
 import { ApiError, getJson, postForm, postJson, patchJson } from '@/lib/api-fetch';
+
+/** Wire shape of /garment-readiness — mirrored, not imported: the server module pulls in `db`. */
+interface GarmentIssueDto {
+  requirement: 'image' | 'sizeChart' | 'fabric' | 'requiredOptions';
+  label: string;
+}
+interface PoGarmentReadinessDto {
+  garments: Array<{ garmentId: string; name: string; issues: GarmentIssueDto[]; ready: boolean }>;
+}
 
 const { Text } = Typography;
 
@@ -412,6 +421,57 @@ export function PoDetailView({ poId }: { poId: string }) {
     toggle: toggleChecklistItem,
   } = usePoChecklist(poId);
 
+  /**
+   * Anything that can flip an AUTO checklist rule has to reload the checklist
+   * too (David, 2026-08-08: attaching a design file left "At least one design
+   * file attached" outstanding until the page was reloaded).
+   *
+   * The auto rules are evaluated SERVER-side — `design_file_attached` looks for
+   * a live production file in a design category, `color_book_set` reads the
+   * PO's colour book — so the card cannot work the answer out from what it
+   * already holds. Reloading the files alone leaves it stale, and a checklist
+   * that lags behind the thing it is checking is one people learn to distrust.
+   * Deleting the last design file has to un-satisfy it just as promptly, which
+   * is why this hangs off every file change rather than uploads only.
+   */
+  const reloadFilesAndChecklist = useCallback(async () => {
+    await Promise.all([reloadFiles(), reloadChecklist()]);
+  }, [reloadFiles, reloadChecklist]);
+
+  /**
+   * Which garments are still missing an image, a size chart, a fabric or a
+   * required option (David, 2026-08-08). The pre-send checklist says whether
+   * anything is missing PO-wide; this says WHICH garment and what, inside that
+   * garment's own box — "size charts missing" across eleven garments is not
+   * something anyone can act on.
+   *
+   * Same evaluation behind both, so they cannot disagree. Best-effort: the PO
+   * page still works if this call fails, it just stops annotating.
+   */
+  const [readiness, setReadiness] = useState<PoGarmentReadinessDto | null>(null);
+  const reloadReadiness = useCallback(async () => {
+    try {
+      setReadiness(
+        await getJson<PoGarmentReadinessDto>(
+          `/api/admin/purchase-orders/${poId}/garment-readiness`,
+          'Failed to check garment readiness',
+        ),
+      );
+    } catch {
+      setReadiness(null);
+    }
+  }, [poId]);
+
+  useEffect(() => {
+    void reloadReadiness();
+  }, [reloadReadiness]);
+
+  const issuesByGarment = useMemo(() => {
+    const map = new Map<string, GarmentIssueDto[]>();
+    for (const g of readiness?.garments ?? []) map.set(g.garmentId, g.issues);
+    return map;
+  }, [readiness]);
+
   const loadThreads = useCallback(
     async (orderId: string) => {
       // Best-effort: the PO page still works if the notes API fails.
@@ -596,7 +656,9 @@ export function PoDetailView({ poId }: { poId: string }) {
       );
       message.success(colorBookId ? 'Colour book updated' : 'Colour book cleared');
       setEditingColorBook(false);
-      await load();
+      // Same reason as reloadFilesAndChecklist: `color_book_set` is an auto
+      // rule the server evaluates, so the card is stale until it is re-read.
+      await Promise.all([load(), reloadChecklist()]);
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Failed to update the colour book');
     }
@@ -670,7 +732,7 @@ export function PoDetailView({ poId }: { poId: string }) {
         'Failed to attach the file',
       );
       message.success(`${file.name} attached`);
-      await reloadFiles();
+      await reloadFilesAndChecklist();
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Failed to attach the file');
     } finally {
@@ -1178,6 +1240,24 @@ export function PoDetailView({ poId }: { poId: string }) {
                       </Text>
                     )}
                   </div>
+                  {/* What THIS garment is still missing. Red, like the
+                      outstanding checks it feeds. */}
+                  {(issuesByGarment.get(g.garmentId)?.length ?? 0) > 0 && (
+                    <div
+                      style={{ marginBottom: 8 }}
+                      data-testid={`garment-issues-${g.garmentId}`}
+                    >
+                      {issuesByGarment.get(g.garmentId)!.map((issue) => (
+                        <Tag
+                          key={issue.requirement}
+                          color="error"
+                          style={{ marginInlineEnd: 6 }}
+                        >
+                          {issue.label}
+                        </Tag>
+                      ))}
+                    </div>
+                  )}
                   {(fabricPairs.length > 0 || g.fabrics.length > 0 || optionPairs.length > 0) && (
                     <div style={DETAIL_COLUMNS_STYLE} data-testid={`garment-details-${g.garmentId}`}>
                       {(fabricPairs.length > 0 || g.fabrics.length > 0) && (
@@ -1354,7 +1434,12 @@ export function PoDetailView({ poId }: { poId: string }) {
         {/* Production files: layouts / test prints / production layouts,
             shared both ways with the supplier (David, 2026-08-05). The page
             owns the data so the Comments rail feed renders the same items. */}
-        <PoFilesCard poId={poId} items={files} loadError={filesError} onChanged={reloadFiles} />
+        <PoFilesCard
+          poId={poId}
+          items={files}
+          loadError={filesError}
+          onChanged={reloadFilesAndChecklist}
+        />
 
         {(latest.snapshot.assets ?? []).length > 0 && (
           <Card title="Design files" size="small" styles={CARD_STYLES}>

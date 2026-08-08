@@ -1339,7 +1339,16 @@ export const poChecklistItems = confirmation.table(
      * a deploy, adding an ITEM is config.
      */
     autoRule: text('auto_rule').$type<
-      'design_file_attached' | 'color_book_set' | 'customer_confirmed_current_version'
+      | 'design_file_attached'
+      | 'font_file_attached'
+      | 'color_book_set'
+      | 'customer_confirmed_current_version'
+      | 'garment_images_all'
+      | 'garment_size_charts_all'
+      | 'garment_fabrics_all'
+      | 'garment_required_options_all'
+      | 'expected_ship_date_set'
+      | 'customer_deadline_set'
     >(),
     /**
      * May this check be SIDESTEPPED (David, 2026-08-06)? A sidestep is not a

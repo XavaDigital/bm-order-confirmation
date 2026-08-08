@@ -174,7 +174,7 @@ export function StageChecklist({ boardKey, entityId, isAdmin, onAdvanced }: Prop
         {data.canLeaveStage ? (
           <Tag color="success">Ready to move on</Tag>
         ) : (
-          <Tag color="gold">Checks outstanding</Tag>
+          <Tag color="error">Checks outstanding</Tag>
         )}
       </Space>
 
@@ -190,9 +190,15 @@ export function StageChecklist({ boardKey, entityId, isAdmin, onAdvanced }: Prop
               />
               <div style={{ flex: 1 }}>
                 <Space size={6} wrap>
+                  {/* The same three colours as the PO pre-send checklist
+                      (David, 2026-08-08): red outstanding, green done, orange
+                      sidestepped. The two lists do the same job and should not
+                      teach two different colour languages. */}
                   <Typography.Text
-                    delete={task.satisfied}
-                    type={task.satisfied ? 'secondary' : undefined}
+                    delete={task.satisfied && !task.sidestepped}
+                    type={
+                      task.sidestepped ? 'warning' : task.satisfied ? 'success' : 'danger'
+                    }
                   >
                     {task.name}
                   </Typography.Text>

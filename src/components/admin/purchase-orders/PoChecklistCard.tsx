@@ -98,6 +98,22 @@ export function usePoChecklist(poId: string): {
 }
 
 /**
+ * Red outstanding, green done, orange sidestepped (David, 2026-08-08).
+ *
+ * Three states, three colours, everywhere the item is drawn — the label, the
+ * tag and the attribution line all read from here so they cannot drift apart
+ * and leave a green tick over an orange note. Orange for a sidestep is the
+ * point: it is satisfied, but not the same fact as done, and it should not look
+ * identical to work that actually happened.
+ */
+type ItemTone = 'danger' | 'success' | 'warning';
+
+export function itemTone(item: { satisfied: boolean; sidestepped: boolean }): ItemTone {
+  if (item.sidestepped) return 'warning';
+  return item.satisfied ? 'success' : 'danger';
+}
+
+/**
  * The subtext under an item: who satisfied it, when, and — for a sidestep —
  * why. The reason is on the card and not only in the history, because the next
  * person to look at this PO is the one who needs to see it.
@@ -137,11 +153,13 @@ export function PoChecklistCard({
         {items && total === 0 && <Text type="secondary">No checklist items configured.</Text>}
         {items && total > 0 && (
           <>
-            {/* Compact progress line — green only when everything was actually
-                DONE; a sidestep is counted separately, not hidden in the total. */}
+            {/* Compact progress line, on the same three-colour scheme as the
+                items: red while anything is outstanding (it blocks the send),
+                orange when everything is satisfied but some of it was
+                sidestepped, green only when it was all actually DONE. */}
             <Text
               strong
-              type={complete && sidestepped === 0 ? 'success' : 'warning'}
+              type={!complete ? 'danger' : sidestepped > 0 ? 'warning' : 'success'}
               style={{ fontSize: 12 }}
               data-testid="checklist-progress"
             >
@@ -153,6 +171,7 @@ export function PoChecklistCard({
               // Only offer the acknowledgement where it is configured, and only
               // while the check is still outstanding.
               const canSidestep = item.allowSidestep && !item.auto && !item.satisfied;
+              const tone = itemTone(item);
               return (
                 <div key={item.id} data-testid={`checklist-item-${item.id}`}>
                   <Checkbox
@@ -161,12 +180,7 @@ export function PoChecklistCard({
                     disabled={item.auto}
                     onChange={(e) => onToggle(item.id, e.target.checked)}
                   >
-                    {/* Outstanding items stand out (they block the send), and so
-                        does a sidestep — it is not the same fact as a tick. */}
-                    <Text
-                      strong={!item.satisfied}
-                      type={item.satisfied && !item.sidestepped ? undefined : 'warning'}
-                    >
+                    <Text strong={!item.satisfied} type={tone}>
                       {item.label}
                     </Text>
                     {item.auto && (
@@ -196,6 +210,7 @@ export function PoChecklistCard({
                     <Text
                       type={item.sidestepped ? 'warning' : 'secondary'}
                       style={{ fontSize: 12, display: 'block', marginInlineStart: 24 }}
+                      data-testid={`checklist-subtext-${item.id}`}
                     >
                       {subtext}
                     </Text>

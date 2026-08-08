@@ -17,12 +17,26 @@ import {
 } from '@/db/schema';
 import { recordAuditEvent } from '@/server/events/outbox';
 import { ConflictError, NotFoundError } from '@/server/orders/service';
+import {
+  evaluatePoGarmentReadiness,
+  type PoGarmentReadiness,
+} from './garment-readiness';
 
 /** The rules an item can satisfy itself with — code, not config (see schema). */
 export type PoChecklistAutoRule =
   | 'design_file_attached'
+  | 'font_file_attached'
   | 'color_book_set'
-  | 'customer_confirmed_current_version';
+  | 'customer_confirmed_current_version'
+  // Garment specification (David, 2026-08-08). PO-WIDE lines; the per-garment
+  // detail of which garment is missing what is shown in the garment's own box
+  // on the PO screen, from the same evaluation (garment-readiness.ts).
+  | 'garment_images_all'
+  | 'garment_size_charts_all'
+  | 'garment_fabrics_all'
+  | 'garment_required_options_all'
+  | 'expected_ship_date_set'
+  | 'customer_deadline_set';
 
 export interface PoChecklistEntry {
   id: string;
@@ -43,9 +57,52 @@ export interface PoChecklistEntry {
 
 async function evaluateAutoRule(
   rule: PoChecklistAutoRule,
-  po: { id: string; colorBookId: string | null; orderId: string },
+  po: {
+    id: string;
+    colorBookId: string | null;
+    orderId: string;
+    expectedShipDate: string | null;
+    deadlineDate: string | null;
+  },
+  /**
+   * Evaluated ONCE per checklist read and passed in, because four of these
+   * rules ask the same question of the same garments — computing it per rule
+   * would run the same joins four times on every page load.
+   */
+  readiness: () => Promise<PoGarmentReadiness>,
 ): Promise<boolean> {
   if (rule === 'color_book_set') return po.colorBookId !== null;
+  // Dates. `deadlineDate` on a PO IS the customer deadline, copied from the
+  // order at create (see purchase-orders/contract.ts) — it is internal and
+  // never reaches the supplier, but production plans against it.
+  if (rule === 'expected_ship_date_set') return Boolean(po.expectedShipDate);
+  if (rule === 'customer_deadline_set') return Boolean(po.deadlineDate);
+  if (rule === 'garment_images_all') return (await readiness()).allHaveImage;
+  if (rule === 'garment_size_charts_all') return (await readiness()).allHaveSizeChart;
+  if (rule === 'garment_fabrics_all') return (await readiness()).allHaveFabric;
+  if (rule === 'garment_required_options_all') {
+    return (await readiness()).allRequiredOptionsAnswered;
+  }
+  /**
+   * Fonts (David, 2026-08-08). Satisfied the moment a font file is attached —
+   * the check exists to stop a job reaching the factory without the typefaces
+   * it needs, and once one is on the purchase order that question is answered.
+   *
+   * A job needing NO fonts never satisfies this automatically, and should not:
+   * "we looked and there are none" is a judgement a person makes, so it stays
+   * manually tickable (satisfaction is auto OR tick).
+   */
+  if (rule === 'font_file_attached') {
+    const [font] = await db.query.poFiles.findMany({
+      where: and(
+        eq(poFiles.poId, po.id),
+        isNull(poFiles.deletedAt),
+        ilike(poFiles.category, 'font%'),
+      ),
+      limit: 1,
+    });
+    return Boolean(font);
+  }
   /**
    * The hold on production for an order the customer has been left behind on
    * (David, 2026-08-07). Deliberately satisfied for an order that was NEVER
@@ -80,9 +137,19 @@ async function evaluateAutoRule(
 export async function getPoChecklist(poId: string): Promise<PoChecklistEntry[]> {
   const po = await db.query.purchaseOrders.findFirst({
     where: eq(purchaseOrders.id, poId),
-    columns: { id: true, colorBookId: true, orderId: true },
+    columns: {
+      id: true,
+      colorBookId: true,
+      orderId: true,
+      expectedShipDate: true,
+      deadlineDate: true,
+    },
   });
   if (!po) throw new NotFoundError('Purchase order');
+
+  // Memoised for this read: the four garment rules share one evaluation.
+  let readinessPromise: Promise<PoGarmentReadiness> | null = null;
+  const readiness = () => (readinessPromise ??= evaluatePoGarmentReadiness(poId));
 
   const items = await db.query.poChecklistItems.findMany({
     where: eq(poChecklistItems.isActive, true),
@@ -96,7 +163,9 @@ export async function getPoChecklist(poId: string): Promise<PoChecklistEntry[]> 
   return Promise.all(
     items.map(async (item) => {
       const tick = byItem.get(item.id);
-      const autoSatisfied = item.autoRule ? await evaluateAutoRule(item.autoRule, po) : false;
+      const autoSatisfied = item.autoRule
+        ? await evaluateAutoRule(item.autoRule, po, readiness)
+        : false;
       return {
         id: item.id,
         label: item.label,

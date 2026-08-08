@@ -101,15 +101,47 @@ describe('PoChecklistCard', () => {
     render(<Harness poId={PO_ID} />);
 
     expect(await screen.findByTestId('checklist-progress')).toHaveTextContent('1 of 2 complete');
-    // Outstanding items render in the warning tone; satisfied ones don't.
-    // (`Text strong` nests a <strong>, so climb to the typography span.)
+    // Red outstanding, green done (David, 2026-08-08). The three colours are
+    // the whole signal on this card, so each one is asserted rather than just
+    // "differs from the other". (`Text strong` nests a <strong>, so climb to
+    // the typography span.)
     expect(
       screen.getByText('Design file includes colours').closest('.ant-typography')!.className,
-    ).toContain('warning');
+    ).toContain('danger');
     expect(
       screen.getByText('At least one design file attached').closest('.ant-typography')!.className,
-    ).not.toContain('warning');
+    ).toContain('success');
+    // The progress line is red while anything is outstanding — it blocks the send.
+    expect(screen.getByTestId('checklist-progress').className).toContain('danger');
     expect(screen.getByText(/sending is blocked until every item is complete/i)).toBeInTheDocument();
+  });
+
+  // Orange, not green: a sidestep is satisfied, but it is not the same fact as
+  // done and must not look identical to work that actually happened.
+  it('renders a sidestepped item in the warning tone, not the success one', async () => {
+    installMockFetch([
+      {
+        match: CHECKLIST_URL,
+        method: 'GET',
+        response: {
+          items: [
+            manualItem({
+              satisfied: true,
+              sidestepped: true,
+              sidestepReason: 'no fonts on this job',
+              checkedByEmail: 'sam@x.com',
+            }),
+          ],
+        },
+      },
+    ]);
+    render(<Harness poId={PO_ID} />);
+
+    const label = await screen.findByText('Design file includes colours');
+    expect(label.closest('.ant-typography')!.className).toContain('warning');
+    expect(label.closest('.ant-typography')!.className).not.toContain('success');
+    // Everything satisfied, but some of it sidestepped — the summary says so.
+    expect(screen.getByTestId('checklist-progress').className).toContain('warning');
   });
 
   it('shows who/when subtext on a ticked manual item', async () => {

@@ -77,19 +77,33 @@ export async function generateCustomerLink(page: Page) {
 }
 
 /**
- * From an order detail page, opens the Team order page tab and generates a
- * fresh shared roster link. Mirrors `generateCustomerLink` above but for the
+ * From an order detail page, opens the Team order page section and reads the
+ * shared roster link. Mirrors `generateCustomerLink` above but for the
  * `/o/roster/[rosterToken]` shared link rather than the `/o/[token]` one.
+ *
+ * There is no "Generate link" button any more: turning the team order page ON
+ * mints the link and the URL is then shown directly, the same way the customer
+ * link became always-visible (David, 2026-08-04). This helper still clicked the
+ * removed button until 2026-08-08 — the specs had never been run by CI, so
+ * nothing noticed the UI had moved on without them.
  */
 export async function generateRosterLink(page: Page) {
   const origin = new URL(page.url()).origin;
   await page.getByRole('menuitem', { name: 'Team order page' }).click();
-  // Accessible name includes the icon's own label, and reads "Regenerate link"
-  // after the first link exists — match either, same as generateCustomerLink.
-  await page.getByRole('button', { name: /generate link/i }).click();
-  const urlText = await page
-    .getByText(new RegExp(`^${origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/o/roster/`))
-    .textContent();
+
+  // Off by default on a new order. Idempotent: leave it alone if a previous
+  // step already switched it on, since clicking again would turn it off.
+  const toggle = page.getByRole('switch', { name: 'Roster page enabled' });
+  await toggle.waitFor({ timeout: 15_000 });
+  if ((await toggle.getAttribute('aria-checked')) !== 'true') {
+    await toggle.click();
+  }
+
+  const urlLocator = page.getByText(
+    new RegExp(`^${origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/o/roster/`),
+  );
+  await urlLocator.waitFor({ timeout: 15_000 });
+  const urlText = await urlLocator.textContent();
   expect(urlText).toBeTruthy();
   return urlText!.trim();
 }
