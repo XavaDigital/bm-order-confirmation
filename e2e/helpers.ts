@@ -76,23 +76,26 @@ export async function generateCustomerLink(page: Page) {
   return urlText!.trim();
 }
 
+/** The order id out of /admin/orders/<id>, for fixtures and direct API calls. */
+export function orderIdFromUrl(page: Page): string {
+  const id = new URL(page.url()).pathname.split('/').filter(Boolean).pop();
+  if (!id) throw new Error(`no order id in ${page.url()}`);
+  return id;
+}
+
 /**
- * From an order detail page, opens the Team order page section and reads the
- * shared roster link. Mirrors `generateCustomerLink` above but for the
- * `/o/roster/[rosterToken]` shared link rather than the `/o/[token]` one.
+ * Switch the team order page ON and read back its address and password.
  *
- * There is no "Generate link" button any more: turning the team order page ON
- * mints the link and the URL is then shown directly, the same way the customer
- * link became always-visible (David, 2026-08-04). This helper still clicked the
- * removed button until 2026-08-08 — the specs had never been run by CI, so
- * nothing noticed the UI had moved on without them.
+ * There is no "Generate link" button: turning the page on mints the link AND a
+ * password, and both are then shown directly — the same move that made the
+ * customer link always-visible (David, 2026-08-04). The address is
+ * /team/<order-number>, not the old /o/roster/<token>.
  */
-export async function generateRosterLink(page: Page) {
+export async function enableTeamOrderPage(page: Page): Promise<{ url: string; password: string }> {
   const origin = new URL(page.url()).origin;
   await page.getByRole('menuitem', { name: 'Team order page' }).click();
 
-  // Off by default on a new order. Idempotent: leave it alone if a previous
-  // step already switched it on, since clicking again would turn it off.
+  // Off by default. Idempotent — clicking an already-on switch turns it off.
   const toggle = page.getByRole('switch', { name: 'Roster page enabled' });
   await toggle.waitFor({ timeout: 15_000 });
   if ((await toggle.getAttribute('aria-checked')) !== 'true') {
@@ -100,12 +103,24 @@ export async function generateRosterLink(page: Page) {
   }
 
   const urlLocator = page.getByText(
-    new RegExp(`^${origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/o/roster/`),
+    new RegExp(`^${origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/team/`),
   );
   await urlLocator.waitFor({ timeout: 15_000 });
-  const urlText = await urlLocator.textContent();
-  expect(urlText).toBeTruthy();
-  return urlText!.trim();
+  const url = (await urlLocator.textContent())?.trim();
+  expect(url).toBeTruthy();
+
+  // The password is the bold text sitting beside the "Remove password" button
+  // — anchored to that button because it is the only stable landmark in the
+  // block (the password itself is random, and the padlock is an icon).
+  const passwordRow = page
+    .locator('div')
+    .filter({ has: page.getByRole('button', { name: 'Remove password' }) })
+    .last();
+  await passwordRow.waitFor({ timeout: 15_000 });
+  const password = (await passwordRow.locator('.ant-typography').first().textContent())?.trim();
+  expect(password, 'enabling the team page should mint a password').toBeTruthy();
+
+  return { url: url!, password: password! };
 }
 
 export async function checkAllAcknowledgments(page: Page) {
