@@ -476,3 +476,45 @@ describe('PoChecklistCard', () => {
     expect(screen.getByTestId('checklist-progress')).toHaveTextContent('2 of 2 complete · 1 sidestepped');
   });
 });
+
+/**
+ * Short title, explanation underneath (David, 2026-08-08: "will make the list
+ * more scannable"). The explanation is quiet so the list reads by title alone.
+ */
+describe('PoChecklistCard — titles and explanations', () => {
+  it('shows the explanation under the title', async () => {
+    installMockFetch([
+      {
+        match: CHECKLIST_URL,
+        method: 'GET',
+        response: {
+          items: [
+            manualItem({
+              label: 'Size charts',
+              description: 'Every garment has a size chart for the factory to cut to.',
+            }),
+          ],
+        },
+      },
+    ]);
+    render(<Harness poId={PO_ID} />);
+
+    expect(await screen.findByText('Size charts')).toBeInTheDocument();
+    expect(
+      screen.getByText('Every garment has a size chart for the factory to cut to.'),
+    ).toBeInTheDocument();
+  });
+
+  it('renders a check with no explanation without leaving an empty line', async () => {
+    installMockFetch([
+      { match: CHECKLIST_URL, method: 'GET', response: { items: [manualItem({ description: null })] } },
+    ]);
+    render(<Harness poId={PO_ID} />);
+
+    const label = await screen.findByText('Design file includes colours');
+    // The title is the only text in the item when there is nothing to explain.
+    expect(label.closest('[data-testid^="checklist-item-"]')!.textContent).toBe(
+      'Design file includes colours',
+    );
+  });
+});

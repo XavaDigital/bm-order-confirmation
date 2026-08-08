@@ -36,11 +36,16 @@ import { ApiError, getJson, patchJson, postJson } from '@/lib/api-fetch';
 
 const { Text } = Typography;
 
-export type PoChecklistAutoRule = 'design_file_attached' | 'color_book_set';
+// THE vocabulary, from the contract the server validates against — this file
+// used to keep its own two-entry copy, so the eight rules added since showed as
+// raw keys and could not be picked at all.
+export type { PoChecklistAutoRule } from '@/server/purchase-orders/checklist-contract';
+import type { PoChecklistAutoRule } from '@/server/purchase-orders/checklist-contract';
 
 export interface PoChecklistItemRow {
   id: string;
   label: string;
+  description: string | null;
   autoRule: PoChecklistAutoRule | null;
   allowSidestep: boolean;
   sortOrder: number;
@@ -52,11 +57,20 @@ const ITEMS_URL = '/api/admin/purchase-orders/checklist-items';
 /** Plain-language names for the rules a check can satisfy itself with. */
 const AUTO_RULE_LABELS: Record<PoChecklistAutoRule, string> = {
   design_file_attached: 'A design file is attached',
+  font_file_attached: 'A font file is attached',
   color_book_set: 'A colour book is chosen',
+  customer_confirmed_current_version: 'The customer has confirmed this version',
+  garment_images_all: 'Every garment has an image',
+  garment_size_charts_all: 'Every garment has a size chart',
+  garment_fabrics_all: 'Every garment has a fabric',
+  garment_required_options_all: 'Every required garment option is answered',
+  expected_ship_date_set: 'The shipping date is set',
+  customer_deadline_set: 'The customer deadline is set',
 };
 
 interface FormValues {
   label: string;
+  description?: string;
   autoRule: PoChecklistAutoRule | 'manual';
   allowSidestep: boolean;
   sortOrder: number;
@@ -111,6 +125,7 @@ export function PoChecklistSettings({ canMutate }: { canMutate: boolean }) {
     const nextOrder = Math.max(0, ...(items ?? []).map((i) => i.sortOrder)) + 1;
     form.setFieldsValue({
       label: '',
+      description: '',
       autoRule: 'manual',
       allowSidestep: false,
       sortOrder: nextOrder,
@@ -121,6 +136,7 @@ export function PoChecklistSettings({ canMutate }: { canMutate: boolean }) {
   function openEdit(item: PoChecklistItemRow) {
     form.setFieldsValue({
       label: item.label,
+      description: item.description ?? '',
       autoRule: item.autoRule ?? 'manual',
       allowSidestep: item.allowSidestep,
       sortOrder: item.sortOrder,
@@ -131,6 +147,7 @@ export function PoChecklistSettings({ canMutate }: { canMutate: boolean }) {
   async function submit(values: FormValues) {
     const payload = {
       label: values.label,
+      description: values.description?.trim() || null,
       autoRule: values.autoRule === 'manual' ? null : values.autoRule,
       allowSidestep: values.allowSidestep ?? false,
       sortOrder: values.sortOrder,
@@ -193,6 +210,13 @@ export function PoChecklistSettings({ canMutate }: { canMutate: boolean }) {
               <span style={{ opacity: row.isActive ? 1 : 0.55 }}>
                 <Text strong={row.isActive}>{label}</Text>
                 {!row.isActive && <Tag style={{ marginInlineStart: 8 }}>retired</Tag>}
+                {/* Same shape as the card the production team reads: short
+                    title, explanation underneath (David, 2026-08-08). */}
+                {row.description && (
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                    {row.description}
+                  </Text>
+                )}
               </span>
             ),
           },
@@ -275,6 +299,18 @@ export function PoChecklistSettings({ canMutate }: { canMutate: boolean }) {
             rules={[{ required: true, message: 'Say what has to be checked' }]}
           >
             <Input placeholder="e.g. Checked whether any fonts need to be uploaded" />
+          </Form.Item>
+
+          <Form.Item
+            label="Explanation"
+            name="description"
+            extra="Shown under the title on the purchase order — say what counts as done."
+          >
+            <Input.TextArea
+              rows={2}
+              maxLength={500}
+              placeholder="e.g. Any fonts the artwork needs are attached."
+            />
           </Form.Item>
 
           <Form.Item

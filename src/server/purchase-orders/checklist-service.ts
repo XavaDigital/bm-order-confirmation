@@ -22,25 +22,20 @@ import {
   type PoGarmentReadiness,
 } from './garment-readiness';
 
-/** The rules an item can satisfy itself with — code, not config (see schema). */
-export type PoChecklistAutoRule =
-  | 'design_file_attached'
-  | 'font_file_attached'
-  | 'color_book_set'
-  | 'customer_confirmed_current_version'
-  // Garment specification (David, 2026-08-08). PO-WIDE lines; the per-garment
-  // detail of which garment is missing what is shown in the garment's own box
-  // on the PO screen, from the same evaluation (garment-readiness.ts).
-  | 'garment_images_all'
-  | 'garment_size_charts_all'
-  | 'garment_fabrics_all'
-  | 'garment_required_options_all'
-  | 'expected_ship_date_set'
-  | 'customer_deadline_set';
+/**
+ * The rules an item can satisfy itself with — code, not config (see schema).
+ * The list itself lives in checklist-contract.ts so the admin API validates
+ * against exactly what the evaluator below understands.
+ */
+import type { PoChecklistAutoRule } from './checklist-contract';
+
+export type { PoChecklistAutoRule };
 
 export interface PoChecklistEntry {
   id: string;
   label: string;
+  /** The longer explanation shown under the title. */
+  description: string | null;
   /** Set = satisfied automatically from data; manual ticks have null. */
   autoRule: PoChecklistAutoRule | null;
   satisfied: boolean;
@@ -169,6 +164,7 @@ export async function getPoChecklist(poId: string): Promise<PoChecklistEntry[]> 
       return {
         id: item.id,
         label: item.label,
+        description: item.description ?? null,
         autoRule: item.autoRule ?? null,
         satisfied: autoSatisfied || Boolean(tick),
         auto: autoSatisfied && !tick,

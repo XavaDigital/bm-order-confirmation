@@ -29,6 +29,8 @@ const { Text } = Typography;
 export interface PoChecklistItem {
   id: string;
   label: string;
+  /** The longer explanation under the title (David, 2026-08-08). */
+  description?: string | null;
   autoRule: string | null;
   satisfied: boolean;
   /** True when `satisfied` came from the auto rule rather than a tick. */
@@ -196,6 +198,17 @@ export function PoChecklistCard({
                       </Tooltip>
                     )}
                   </Checkbox>
+                  {/* The explanation sits under the title, in the quiet tone,
+                      so the list can be scanned by title alone and read in full
+                      only where it matters (David, 2026-08-08). */}
+                  {item.description && (
+                    <Text
+                      type="secondary"
+                      style={{ fontSize: 12, display: 'block', marginInlineStart: 24 }}
+                    >
+                      {item.description}
+                    </Text>
+                  )}
                   {canSidestep && (
                     <Button
                       type="link"

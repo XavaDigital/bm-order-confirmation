@@ -82,7 +82,8 @@ describe('GET /api/admin/purchase-orders/checklist-items', () => {
     // Migration 0042 seeds the two sidesteppable checks; ours is appended.
     expect(json.items.map((i: { label: string }) => i.label)).toContain('Old check');
     expect(
-      json.items.find((i: { label: string }) => i.label === 'Design file includes colours')
+      // Re-worded by 0052 to a short title with the explanation underneath.
+      json.items.find((i: { label: string }) => i.label === 'Colours on the design')
         ?.allowSidestep,
     ).toBe(true);
     const orders = json.items.map((i: { sortOrder: number }) => i.sortOrder);

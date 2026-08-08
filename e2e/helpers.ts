@@ -102,25 +102,26 @@ export async function enableTeamOrderPage(page: Page): Promise<{ url: string; pa
     await toggle.click();
   }
 
+  // Wait for the screen to show the link, so the switch has really taken
+  // effect before anything is read back.
   const urlLocator = page.getByText(
     new RegExp(`^${origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/team/`),
   );
   await urlLocator.waitFor({ timeout: 15_000 });
-  const url = (await urlLocator.textContent())?.trim();
-  expect(url).toBeTruthy();
 
-  // The password is the bold text sitting beside the "Remove password" button
-  // — anchored to that button because it is the only stable landmark in the
-  // block (the password itself is random, and the padlock is an icon).
-  const passwordRow = page
-    .locator('div')
-    .filter({ has: page.getByRole('button', { name: 'Remove password' }) })
-    .last();
-  await passwordRow.waitFor({ timeout: 15_000 });
-  const password = (await passwordRow.locator('.ant-typography').first().textContent())?.trim();
+  // The values themselves come from the settings endpoint rather than the DOM.
+  // The password is a random string with no stable landmark around it — the
+  // first attempt scraped it out of an antd Space and broke on the markup. The
+  // ACTION under test is the switch above; these two are fixture data.
+  const settings = await page.request.get(
+    `/api/admin/orders/${orderIdFromUrl(page)}/roster/page-settings`,
+  );
+  expect(settings.ok(), 'reading the team page settings should succeed').toBe(true);
+  const { url, password } = (await settings.json()) as { url: string; password: string | null };
+  expect(url, 'the team page should have an address').toBeTruthy();
   expect(password, 'enabling the team page should mint a password').toBeTruthy();
 
-  return { url: url!, password: password! };
+  return { url, password: password! };
 }
 
 export async function checkAllAcknowledgments(page: Page) {

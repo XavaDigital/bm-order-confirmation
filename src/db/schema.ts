@@ -1332,6 +1332,13 @@ export const poChecklistItems = confirmation.table(
     id: uuid('id').defaultRandom().primaryKey(),
     label: text('label').notNull(),
     /**
+     * The longer "what does this actually mean" line under the label (David,
+     * 2026-08-08: "an abbreviated title with a longer explanation underneath
+     * … makes the list more scannable"). Same shape as
+     * `workflow_stage_tasks.description`, which already reads this way.
+     */
+    description: text('description'),
+    /**
      * Auto-satisfied when the rule holds; null = manual tick only.
      * 'design_file_attached' — a live po_file in the Design file category or
      * a design asset in the snapshot; 'color_book_set' — po.colorBookId set.

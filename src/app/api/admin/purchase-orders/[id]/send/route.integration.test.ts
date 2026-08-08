@@ -329,7 +329,7 @@ describe('POST /api/admin/purchase-orders/[id]/send', () => {
     expect(res.status).toBe(409);
     expect(json.error).toMatch(/^Pre-send checklist incomplete: /);
     // The two manual items from migration 0041 are necessarily outstanding.
-    expect(json.error).toContain('Design file includes colours');
+    expect(json.error).toContain('Colours on the design');
     expect(sendSupplierPoEmail).not.toHaveBeenCalled();
   });
 

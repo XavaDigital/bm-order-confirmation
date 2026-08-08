@@ -22,6 +22,7 @@ function item(overrides: Partial<PoChecklistItemRow> = {}): PoChecklistItemRow {
   return {
     id: 'chk-1',
     label: 'Design file includes colours',
+    description: null,
     autoRule: null,
     allowSidestep: true,
     sortOrder: 2,
@@ -165,6 +166,9 @@ describe('PoChecklistSettings', () => {
         URL,
         {
           label: 'Colour book matches the artwork',
+          // Short title, explanation underneath (David, 2026-08-08) — null when
+          // the check has nothing extra to say.
+          description: null,
           // Manual = no auto rule; sidestep off unless it is asked for.
           autoRule: null,
           allowSidestep: false,
@@ -226,6 +230,9 @@ describe('PoChecklistSettings', () => {
         `${URL}/chk-1`,
         {
           label: 'Design file includes Pantone colours',
+          // Short title, explanation underneath (David, 2026-08-08) — null
+          // when the check has nothing extra to say.
+          description: null,
           autoRule: null,
           allowSidestep: true,
           sortOrder: 2,

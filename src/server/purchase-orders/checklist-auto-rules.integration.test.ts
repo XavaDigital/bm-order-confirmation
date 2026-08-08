@@ -223,3 +223,32 @@ describe('the font file rule', () => {
     expect(entry.satisfied).toBe(false);
   });
 });
+
+/**
+ * Short titles with the explanation underneath (David, 2026-08-08). Migration
+ * 0052 re-words the seeded checks; the sentence that WAS the title becomes the
+ * explanation.
+ */
+describe('check titles and explanations', () => {
+  it('gives every seeded check a short title and an explanation', async () => {
+    const { po } = await seedReadyPo();
+    const entries = await getPoChecklist(po.id);
+
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      // A title long enough to be a sentence is the thing this replaced.
+      expect(entry.label.length, entry.label).toBeLessThanOrEqual(30);
+      expect(entry.description, entry.label).toBeTruthy();
+    }
+  });
+
+  it('re-words the checks by their seeded label, leaving anything renamed alone', async () => {
+    const { po } = await seedReadyPo();
+    const entries = await getPoChecklist(po.id);
+    const byRule = new Map(entries.map((e) => [e.autoRule, e]));
+
+    expect(byRule.get('garment_size_charts_all')?.label).toBe('Size charts');
+    expect(byRule.get('garment_size_charts_all')?.description).toMatch(/cut to/i);
+    expect(byRule.get('design_file_attached')?.label).toBe('Design file');
+  });
+});
